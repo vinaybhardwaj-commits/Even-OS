@@ -15,6 +15,7 @@ import { dedupRouter } from './dedup';
 import { bedRouter } from './bed';
 import { wristbandRouter } from './wristband';
 import { encounterRouter } from './encounter';
+import { lsqRouter } from './lsq';
 
 export const appRouter = router({
   auth: authRouter,
@@ -33,6 +34,7 @@ export const appRouter = router({
   bed: bedRouter,
   wristband: wristbandRouter,
   encounter: encounterRouter,
+  lsq: lsqRouter,
 });
 
 export type AppRouter = typeof appRouter;

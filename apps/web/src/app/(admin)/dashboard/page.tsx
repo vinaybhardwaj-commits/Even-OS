@@ -194,6 +194,20 @@ export default async function DashboardPage() {
             </div>
           </div>
 
+          {/* Integrations */}
+          <div className="mt-8 pt-8 border-t border-gray-200">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Integrations</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <a href="/admin/lsq-sync" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-indigo-50 hover:border-indigo-200 transition-colors">
+                <span className="text-2xl">&#128279;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">LSQ Sync</p>
+                  <p className="text-xs text-gray-500">LeadSquared CRM import</p>
+                </div>
+              </a>
+            </div>
+          </div>
+
           {/* Governance */}
           {isAdmin && (
             <div className="mt-8 pt-8 border-t border-gray-200">
@@ -228,7 +242,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S4b — Transfer + Discharge: bed transfers with audit trail, discharge queue, 8-step milestones, force discharge. 42 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S4c — LSQ Sync: LeadSquared CRM integration, sync engine, lead mapping, API traceability. 47 routes.</p>
             </div>
           </div>
         </div>
