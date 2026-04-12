@@ -317,6 +317,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Root cause analysis, CAPA tracking</p>
                 </div>
               </a>
+              <a href="/admin/infection-surveillance" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-emerald-50 hover:border-emerald-200 transition-colors">
+                <span className="text-2xl">&#129440;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Infection Surveillance</p>
+                  <p className="text-xs text-gray-500">HAI tracking, antibiotic stewardship</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -368,7 +375,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S8b — RCA engine: investigations, fishbone, five-why, CAPA, effectiveness reviews. 130 tables, ~365 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S8c — Infection surveillance: HAI tracking, antibiotic stewardship, antibiogram, approval workflow. 135 tables, ~390 routes.</p>
             </div>
           </div>
         </div>

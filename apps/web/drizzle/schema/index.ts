@@ -14,3 +14,4 @@ export * from './13-lab-radiology';
 export * from './14-ot-management';
 export * from './15-quality';
 export * from './16-rca';
+export * from './17-infection-surveillance';
