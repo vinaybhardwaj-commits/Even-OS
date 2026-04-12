@@ -39,11 +39,34 @@ export default async function DashboardPage() {
             </div>
           </div>
 
+          {/* Admin Links */}
+          {['super_admin', 'hospital_admin'].includes(user.role) && (
+            <div className="mt-8 pt-8 border-t border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Administration</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <a href="/admin/users" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
+                  <span className="text-2xl">👥</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Users</p>
+                    <p className="text-xs text-gray-500">Manage staff accounts</p>
+                  </div>
+                </a>
+                <a href="/admin/roles" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
+                  <span className="text-2xl">🔐</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Roles</p>
+                    <p className="text-xs text-gray-500">Permissions matrix</p>
+                  </div>
+                </a>
+              </div>
+            </div>
+          )}
+
           <div className="mt-8 pt-8 border-t border-gray-200">
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Application ready. Build in progress.</p>
+              <p className="text-sm text-gray-600">Sprint S1 — RBAC &amp; User Management live.</p>
             </div>
           </div>
         </div>
