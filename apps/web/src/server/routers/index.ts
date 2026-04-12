@@ -35,6 +35,7 @@ import { otManagementRouter } from './ot-management';
 import { incidentReportingRouter } from './incident-reporting';
 import { rcaRouter } from './rca';
 import { infectionSurveillanceRouter } from './infection-surveillance';
+import { safetyAuditsRouter } from './safety-audits';
 
 export const appRouter = router({
   auth: authRouter,
@@ -73,6 +74,7 @@ export const appRouter = router({
   incidentReporting: incidentReportingRouter,
   rca: rcaRouter,
   infectionSurveillance: infectionSurveillanceRouter,
+  safetyAudits: safetyAuditsRouter,
 });
 
 export type AppRouter = typeof appRouter;

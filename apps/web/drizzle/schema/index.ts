@@ -15,3 +15,4 @@ export * from './14-ot-management';
 export * from './15-quality';
 export * from './16-rca';
 export * from './17-infection-surveillance';
+export * from './18-safety-audits';
