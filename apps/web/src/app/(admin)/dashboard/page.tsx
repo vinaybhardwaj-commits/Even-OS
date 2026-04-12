@@ -191,6 +191,27 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Milestones & discharge queue</p>
                 </div>
               </a>
+              <a href="/admin/orders" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-teal-50 hover:border-teal-200 transition-colors">
+                <span className="text-2xl">&#128203;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Orders & Vitals</p>
+                  <p className="text-xs text-gray-500">Clinical orders, vitals, notes</p>
+                </div>
+              </a>
+              <a href="/admin/consents" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-amber-50 hover:border-amber-200 transition-colors">
+                <span className="text-2xl">&#128221;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Consents & Forms</p>
+                  <p className="text-xs text-gray-500">Stage forms, consent tracking</p>
+                </div>
+              </a>
+              <a href="/admin/billing" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-emerald-50 hover:border-emerald-200 transition-colors">
+                <span className="text-2xl">&#8377;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Billing</p>
+                  <p className="text-xs text-gray-500">Charges, invoices, TPA claims</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -242,7 +263,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S4c — LSQ Sync: LeadSquared CRM integration, sync engine, lead mapping, API traceability. 47 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S4d — Clinical & Billing: Orders, vitals, nursing notes, consent tracking, stage forms, invoicing, TPA claims. 76 routes.</p>
             </div>
           </div>
         </div>

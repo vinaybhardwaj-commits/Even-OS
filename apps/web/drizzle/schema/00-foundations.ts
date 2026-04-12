@@ -1,5 +1,5 @@
 import {
-  pgTable, text, varchar, boolean, timestamp, integer, jsonb,
+  pgTable, text, varchar, boolean, timestamp, integer, jsonb, numeric,
   uniqueIndex, index, uuid, pgEnum,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
@@ -53,6 +53,20 @@ export const hospitals = pgTable('hospitals', {
 }, (table) => ({
   hospitalIdIdx: index('idx_hospitals_hospital_id').on(table.hospital_id),
   nabhIdx: index('idx_hospitals_nabh_certified').on(table.nabh_certified),
+}));
+
+// ============================================================
+// INVOICE SEQUENCES (atomically-incremented sequence numbers per hospital)
+// ============================================================
+
+export const invoiceSequences = pgTable('invoice_sequences', {
+  hospital_id: text('hospital_id').notNull().references(() => hospitals.hospital_id, { onDelete: 'restrict' }).primaryKey(),
+  prefix: varchar('prefix', { length: 10 }).notNull().default('INV'),
+  next_value: integer('next_value').notNull().default(1),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  hospitalPrefixIdx: index('idx_invoice_sequences_hospital_prefix').on(table.hospital_id, table.prefix),
 }));
 
 // ============================================================

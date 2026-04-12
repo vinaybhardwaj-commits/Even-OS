@@ -16,6 +16,9 @@ import { bedRouter } from './bed';
 import { wristbandRouter } from './wristband';
 import { encounterRouter } from './encounter';
 import { lsqRouter } from './lsq';
+import { clinicalOrdersRouter } from './clinical-orders';
+import { billingRouter } from './billing';
+import { clinicalFormsRouter } from './clinical-forms';
 
 export const appRouter = router({
   auth: authRouter,
@@ -35,6 +38,9 @@ export const appRouter = router({
   wristband: wristbandRouter,
   encounter: encounterRouter,
   lsq: lsqRouter,
+  clinicalOrders: clinicalOrdersRouter,
+  billing: billingRouter,
+  clinicalForms: clinicalFormsRouter,
 });
 
 export type AppRouter = typeof appRouter;
