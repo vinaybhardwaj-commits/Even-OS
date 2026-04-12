@@ -37,6 +37,7 @@ import { rcaRouter } from './rca';
 import { infectionSurveillanceRouter } from './infection-surveillance';
 import { safetyAuditsRouter } from './safety-audits';
 import { criticalValuesRouter } from './critical-values';
+import { testCatalogRouter } from './test-catalog';
 import { drizzleTestRouter } from './drizzle-test';
 
 export const appRouter = router({
@@ -78,6 +79,7 @@ export const appRouter = router({
   infectionSurveillance: infectionSurveillanceRouter,
   safetyAudits: safetyAuditsRouter,
   criticalValues: criticalValuesRouter,
+  testCatalog: testCatalogRouter,
   drizzleTest: drizzleTestRouter,
 });
 

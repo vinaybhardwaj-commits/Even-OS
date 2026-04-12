@@ -296,6 +296,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-indigo-600">Worklist, specimens, barcode, TAT</p>
                 </div>
               </a>
+              <a href="/admin/test-catalog" className="flex items-center gap-3 p-4 bg-cyan-50 rounded-lg border border-cyan-200 hover:bg-cyan-100 hover:border-cyan-300 transition-colors">
+                <span className="text-2xl">&#128214;</span>
+                <div>
+                  <p className="text-sm font-semibold text-cyan-800">Test Catalog</p>
+                  <p className="text-xs text-cyan-600">Tests, ranges, accession config</p>
+                </div>
+              </a>
               <a href="/admin/ot-management" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
                 <span className="text-2xl">&#129657;</span>
                 <div>
@@ -396,7 +403,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint L.2 — Lab Worklist &amp; auto-critical-alert. 144 tables, ~434 routes.</p>
+              <p className="text-sm text-gray-600">Sprint L.3 — Test Catalog &amp; Accession Numbers. 147 tables, ~447 routes.</p>
             </div>
           </div>
         </div>
