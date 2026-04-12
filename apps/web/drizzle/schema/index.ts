@@ -7,3 +7,4 @@ export * from './06-notes';
 export * from './07-cpoe';
 export * from './08-pathways';
 export * from './09-billing';
+export * from './10-insurance';

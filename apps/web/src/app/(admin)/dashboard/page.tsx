@@ -261,6 +261,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Accounts, deposits, packages, room charges</p>
                 </div>
               </a>
+              <a href="/admin/insurance-claims" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-indigo-50 hover:border-indigo-200 transition-colors">
+                <span className="text-2xl">&#128203;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Insurance Claims</p>
+                  <p className="text-xs text-gray-500">Pre-auth, TPA, deductions, settlement</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -312,7 +319,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S6a — Billing Foundation: accounts, deposits, packages, room charges, billing config. 80 tables, 178 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S6b — Insurance Claims: pre-auth, enhancement, TPA deductions, settlement, Kanban board. 85 tables, 203 routes.</p>
             </div>
           </div>
         </div>
