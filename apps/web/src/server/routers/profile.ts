@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { users, trustedDevices, loginAttempts } from '@db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { writeAuditLog } from '@/lib/audit/logger';
@@ -9,7 +9,6 @@ import { writeAuditLog } from '@/lib/audit/logger';
 export const profileRouter = router({
   // ─── GET PROFILE ───────────────────────────────────────────
   get: protectedProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const [user] = await db.select({
       id: users.id,
       email: users.email,
@@ -32,7 +31,6 @@ export const profileRouter = router({
 
   // ─── LIST TRUSTED DEVICES ─────────────────────────────────
   devices: protectedProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     return db.select()
       .from(trustedDevices)
       .where(and(
@@ -46,7 +44,6 @@ export const profileRouter = router({
   removeDevice: protectedProcedure
     .input(z.object({ device_id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
 
       const [device] = await db.select()
         .from(trustedDevices)
@@ -77,7 +74,6 @@ export const profileRouter = router({
 
   // ─── RECENT LOGIN ACTIVITY ────────────────────────────────
   recentLogins: protectedProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     return db.select()
       .from(loginAttempts)
       .where(eq(loginAttempts.email, ctx.user.email))

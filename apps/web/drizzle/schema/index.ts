@@ -16,3 +16,4 @@ export * from './15-quality';
 export * from './16-rca';
 export * from './17-infection-surveillance';
 export * from './18-safety-audits';
+export * from './19-critical-values';

@@ -1,6 +1,6 @@
 import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { roles, rolePermissions, permissions } from '@db/schema';
 import { eq, and, sql, count } from 'drizzle-orm';
 
@@ -19,8 +19,6 @@ export default async function AdminRolesPage() {
       </div>
     );
   }
-
-  const db = getDb();
 
   // Fetch roles with permission counts
   const roleRows = await db.select({

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, adminProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { approvalHierarchies } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { recordVersion, getVersionHistory } from '@/lib/master-data/version-history';
@@ -13,7 +13,6 @@ export const approvalHierarchiesRouter = router({
 
   // ─── LIST ─────────────────────────────────────────────────
   list: adminProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     return db.select().from(approvalHierarchies)
       .where(eq(approvalHierarchies.hospital_id, ctx.user.hospital_id))
       .orderBy(approvalHierarchies.approval_type);
@@ -23,7 +22,6 @@ export const approvalHierarchiesRouter = router({
   get: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const [row] = await db.select().from(approvalHierarchies)
         .where(and(eq(approvalHierarchies.id, input.id as any), eq(approvalHierarchies.hospital_id, ctx.user.hospital_id)))
         .limit(1);
@@ -43,7 +41,6 @@ export const approvalHierarchiesRouter = router({
       })).min(1),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
 
       // Check if type already exists for this hospital
       const existing = await db.select({ id: approvalHierarchies.id }).from(approvalHierarchies)
@@ -80,7 +77,6 @@ export const approvalHierarchiesRouter = router({
       })).min(1),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
 
       const [old] = await db.select().from(approvalHierarchies)
         .where(and(eq(approvalHierarchies.id, input.id as any), eq(approvalHierarchies.hospital_id, ctx.user.hospital_id)))
@@ -101,7 +97,6 @@ export const approvalHierarchiesRouter = router({
   deactivate: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const [old] = await db.select().from(approvalHierarchies)
         .where(and(eq(approvalHierarchies.id, input.id as any), eq(approvalHierarchies.hospital_id, ctx.user.hospital_id)))
         .limit(1);

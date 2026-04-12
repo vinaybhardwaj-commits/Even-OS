@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import {
   clinicalOrders, vitalSigns, nursingNotes,
   encounters, patients,
@@ -46,7 +46,6 @@ export const clinicalOrdersRouter = router({
       unit_price: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify encounter exists and is active
@@ -119,7 +118,6 @@ export const clinicalOrdersRouter = router({
       limit: z.number().min(1).max(100).default(20),
     }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
       const offset = (input.page - 1) * input.limit;
 
@@ -171,7 +169,6 @@ export const clinicalOrdersRouter = router({
       cancel_reason: z.string().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify order exists
@@ -247,7 +244,6 @@ export const clinicalOrdersRouter = router({
       result_json: z.record(z.any()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify order exists and is lab/radiology
@@ -321,7 +317,6 @@ export const clinicalOrdersRouter = router({
       notes: z.string().max(1000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify encounter exists and is active
@@ -387,7 +382,6 @@ export const clinicalOrdersRouter = router({
       limit: z.number().min(1).max(100).default(20),
     }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
 
       const result = await db.execute(sql`
         SELECT
@@ -410,7 +404,6 @@ export const clinicalOrdersRouter = router({
   getLatestVitals: protectedProcedure
     .input(z.object({ encounter_id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
 
       const result = await db.execute(sql`
         SELECT
@@ -438,7 +431,6 @@ export const clinicalOrdersRouter = router({
       content: z.string().min(1).max(5000),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify encounter exists and is active
@@ -494,7 +486,6 @@ export const clinicalOrdersRouter = router({
       limit: z.number().min(1).max(100).default(20),
     }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
       const offset = (input.page - 1) * input.limit;
 
@@ -528,7 +519,6 @@ export const clinicalOrdersRouter = router({
 
   // ─── ORDER STATS ──────────────────────────────────────────
   orderStats: protectedProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const hospitalId = ctx.user.hospital_id;
 
     const result = await db.execute(sql`

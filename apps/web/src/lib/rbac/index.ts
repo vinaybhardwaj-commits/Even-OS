@@ -3,7 +3,7 @@
  * Checks user permissions against the roles → role_permissions → permissions tables.
  * Uses a server-side cache (per-request) to avoid repeated DB hits.
  */
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { roles, rolePermissions, permissions } from '@db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 
@@ -21,8 +21,6 @@ export async function getUserPermissions(
   hospitalId: string
 ): Promise<Set<string>> {
   if (!userRoles || userRoles.length === 0) return new Set();
-
-  const db = getDb();
 
   // Find role IDs matching user's role names for this hospital
   const roleRows = await db.select({ id: roles.id })
@@ -79,8 +77,6 @@ export async function hasAnyPermission(
  * Get all roles with their permission counts for a hospital.
  */
 export async function getRolesWithPermissionCounts(hospitalId: string) {
-  const db = getDb();
-
   const roleRows = await db.select({
     id: roles.id,
     name: roles.name,

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import {
   encounterCharges, invoices, payments, tpaClaims,
   encounters, patients, chargeMaster, clinicalOrders,
@@ -45,7 +45,6 @@ export const billingRouter = router({
       notes: z.string().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify encounter exists and is in-progress
@@ -114,7 +113,6 @@ export const billingRouter = router({
       limit: z.number().min(1).max(100).default(20),
     }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
       const offset = (input.page - 1) * input.limit;
 
@@ -202,7 +200,6 @@ export const billingRouter = router({
       notes: z.string().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify encounter exists
@@ -312,7 +309,6 @@ export const billingRouter = router({
       invoice_id: z.string().uuid(),
     }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // Fetch invoice with patient info
@@ -404,7 +400,6 @@ export const billingRouter = router({
       limit: z.number().min(1).max(100).default(20),
     }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
       const offset = (input.page - 1) * input.limit;
 
@@ -454,7 +449,6 @@ export const billingRouter = router({
       notes: z.string().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Fetch invoice
@@ -546,7 +540,6 @@ export const billingRouter = router({
       notes: z.string().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify encounter exists
@@ -606,7 +599,6 @@ export const billingRouter = router({
       rejection_reason: z.string().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Fetch claim
@@ -675,7 +667,6 @@ export const billingRouter = router({
       limit: z.number().min(1).max(100).default(20),
     }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
       const offset = (input.page - 1) * input.limit;
 
@@ -720,7 +711,6 @@ export const billingRouter = router({
   // ─── BILLING STATS ────────────────────────────────────────
   billingStats: protectedProcedure
     .query(async ({ ctx }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // Get today and current month dates

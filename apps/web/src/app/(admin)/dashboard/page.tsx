@@ -303,6 +303,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Medication administration, 5 Rights</p>
                 </div>
               </a>
+              <a href="/admin/critical-values" className="flex items-center gap-3 p-4 bg-red-50 rounded-lg border border-red-200 hover:bg-red-100 hover:border-red-300 transition-colors">
+                <span className="text-2xl">&#128680;</span>
+                <div>
+                  <p className="text-sm font-semibold text-red-800">Critical Values</p>
+                  <p className="text-xs text-red-600">NABH alerts, read-back, escalation</p>
+                </div>
+              </a>
               <a href="/admin/incident-reporting" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-red-50 hover:border-red-200 transition-colors">
                 <span className="text-2xl">&#9888;</span>
                 <div>

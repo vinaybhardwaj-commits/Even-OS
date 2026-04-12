@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import {
   patients, coverages, relatedPersons, mpiRecords, mpiLinks, uhidSequences, patientsAudit,
 } from '@db/schema';
@@ -39,7 +39,6 @@ export const patientRouter = router({
       tpa_name: z.string().max(100).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Phone duplicate check
@@ -160,7 +159,6 @@ export const patientRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const [patient] = await db.select().from(patients)
         .where(and(eq(patients.id, input.id as any), eq(patients.hospital_id, ctx.user.hospital_id)))
         .limit(1);
@@ -181,7 +179,6 @@ export const patientRouter = router({
       limit: z.number().min(1).max(50).default(20),
     }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
       const q = input.query.trim();
 
@@ -232,7 +229,6 @@ export const patientRouter = router({
       patient_category: z.enum(patientCategoryValues).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const { id, ...updates } = input;
 
       const [old] = await db.select().from(patients)
@@ -275,7 +271,6 @@ export const patientRouter = router({
       search: z.string().optional(),
     }).optional().default({}))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const { page, pageSize, status, patient_category, search } = input;
       const offset = (page - 1) * pageSize;
 
@@ -305,7 +300,6 @@ export const patientRouter = router({
 
   // ─── STATS ─────────────────────────────────────────────────
   stats: protectedProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const hospitalId = ctx.user.hospital_id;
 
     const [totals] = await db.select({

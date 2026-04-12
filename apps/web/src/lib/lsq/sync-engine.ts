@@ -3,7 +3,7 @@
  * Handles: batch sync, upsert patients, log sync runs + API calls
  */
 
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { patients, lsqSyncLog, lsqApiLog, lsqSyncState } from '@db/schema';
 import { eq, and, sql } from 'drizzle-orm';
 import { fetchLeadsModifiedAfter, normalizeLeadToPatient, isLsqConfigured, type LsqApiCallResult } from './client';
@@ -23,8 +23,6 @@ export interface SyncRunResult {
  * Run a full LSQ sync for a hospital
  */
 export async function runLsqSync(hospitalId: string, userId: string): Promise<SyncRunResult> {
-  const db = getDb();
-
   // 1. Create sync run record
   const [syncRun] = await db.insert(lsqSyncLog).values({
     hospital_id: hospitalId,

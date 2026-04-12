@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { wristbandJobs, encounters, patients } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { eq, and, sql, desc } from 'drizzle-orm';
@@ -15,7 +15,6 @@ export const wristbandRouter = router({
       format: z.enum(['wristband_roll', 'label_sheet']).default('wristband_roll'),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // Verify encounter exists
@@ -60,7 +59,6 @@ export const wristbandRouter = router({
       pageSize: z.number().min(1).max(100).default(25),
     }).optional().default({}))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
       const { status, page, pageSize } = input;
       const offset = (page - 1) * pageSize;
@@ -108,7 +106,6 @@ export const wristbandRouter = router({
 
   // ─── STATS ─────────────────────────────────────────────────
   stats: protectedProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const hospitalId = ctx.user.hospital_id;
 
     const result = await db.execute(sql`
@@ -131,7 +128,6 @@ export const wristbandRouter = router({
       printer_id: z.string().max(100).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       const [job] = await db.select().from(wristbandJobs)
@@ -160,7 +156,6 @@ export const wristbandRouter = router({
       job_id: z.string().uuid(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       const [oldJob] = await db.select().from(wristbandJobs)

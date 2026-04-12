@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { router, adminProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { gstRates } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { recordVersion } from '@/lib/master-data/version-history';
@@ -10,7 +10,6 @@ export const gstRatesRouter = router({
 
   // ─── LIST (all rates, grouped by category) ────────────────
   list: adminProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const rows = await db.select().from(gstRates)
       .where(eq(gstRates.hospital_id, ctx.user.hospital_id))
       .orderBy(gstRates.category, desc(gstRates.effective_date));
@@ -19,7 +18,6 @@ export const gstRatesRouter = router({
 
   // ─── CURRENT RATES (effective now, one per category) ──────
   currentRates: adminProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const now = new Date();
     // Get the most recent effective rate per category
     const rows = await db.execute(sql`
@@ -41,7 +39,6 @@ export const gstRatesRouter = router({
       description: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const [row] = await db.insert(gstRates).values({
         hospital_id: ctx.user.hospital_id,
         category: input.category,
@@ -64,7 +61,6 @@ export const gstRatesRouter = router({
   history: adminProcedure
     .input(z.object({ category: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       return db.select().from(gstRates)
         .where(and(
           eq(gstRates.hospital_id, ctx.user.hospital_id),
@@ -75,7 +71,6 @@ export const gstRatesRouter = router({
 
   // ─── CATEGORIES (distinct list) ───────────────────────────
   categories: adminProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const rows = await db.selectDistinct({ category: gstRates.category })
       .from(gstRates)
       .where(eq(gstRates.hospital_id, ctx.user.hospital_id))

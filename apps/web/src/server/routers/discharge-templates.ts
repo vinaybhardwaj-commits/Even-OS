@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, adminProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { dischargeTemplates } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { recordVersion, getVersionHistory } from '@/lib/master-data/version-history';
@@ -24,7 +24,6 @@ export const dischargeTemplatesRouter = router({
       pageSize: z.number().min(1).max(100).default(25),
     }).optional().default({}))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const { search, status, page, pageSize } = input;
       const offset = (page - 1) * pageSize;
 
@@ -51,7 +50,6 @@ export const dischargeTemplatesRouter = router({
   get: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const [row] = await db.select().from(dischargeTemplates)
         .where(and(eq(dischargeTemplates.id, input.id as any), eq(dischargeTemplates.hospital_id, ctx.user.hospital_id)))
         .limit(1);
@@ -78,7 +76,6 @@ export const dischargeTemplatesRouter = router({
       })).default([]),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const [row] = await db.insert(dischargeTemplates).values({
         hospital_id: ctx.user.hospital_id,
         name: input.name,
@@ -105,7 +102,6 @@ export const dischargeTemplatesRouter = router({
       })).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const { id, ...updates } = input;
 
       const [old] = await db.select().from(dischargeTemplates)
@@ -130,7 +126,6 @@ export const dischargeTemplatesRouter = router({
   deactivate: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const [old] = await db.select().from(dischargeTemplates)
         .where(and(eq(dischargeTemplates.id, input.id as any), eq(dischargeTemplates.hospital_id, ctx.user.hospital_id)))
         .limit(1);
@@ -153,7 +148,6 @@ export const dischargeTemplatesRouter = router({
 
   // ─── STATS ────────────────────────────────────────────────
   stats: adminProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const result = await db.select({
       total: sql<number>`count(*)`,
       active: sql<number>`count(*) FILTER (WHERE is_active = true)`,

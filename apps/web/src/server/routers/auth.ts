@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure, protectedProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { users, loginAttempts, verificationCodes, trustedDevices, breakGlassLog } from '@db/schema';
 import { hashPassword, verifyPassword, createSession, destroySession } from '@/lib/auth';
 import { getDeviceId, generateDeviceId, generateOTP, hashCode, setDeviceTrustCookie, parseUserAgent } from '@/lib/auth/device-trust';
@@ -19,7 +19,6 @@ export const authRouter = router({
       hospital_id: z.string().min(1).default('EHRC'),
     }))
     .mutation(async ({ input }) => {
-      const db = getDb();
 
       // Rate limiting check: 5 attempts per 10 minutes
       const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
@@ -223,7 +222,6 @@ export const authRouter = router({
       code: z.string().length(6),
     }))
     .mutation(async ({ input }) => {
-      const db = getDb();
       const codeHash = hashCode(input.code);
 
       // Find valid verification code
@@ -327,7 +325,6 @@ export const authRouter = router({
       hospital_id: z.string().min(1).default('EHRC'),
     }))
     .mutation(async ({ input }) => {
-      const db = getDb();
 
       // Always return success to prevent email enumeration
       const successMsg = 'If an account exists with that email, a reset link has been sent.';
@@ -394,7 +391,6 @@ export const authRouter = router({
       new_password: z.string().min(8, 'Password must be at least 8 characters'),
     }))
     .mutation(async ({ input }) => {
-      const db = getDb();
       const tokenHash = hashCode(input.token);
 
       // Find user
@@ -454,7 +450,6 @@ export const authRouter = router({
       reason: z.string().min(10, 'Please provide a detailed reason (at least 10 characters)'),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
       // Log break-glass activation
@@ -543,7 +538,6 @@ export const authRouter = router({
       new_password: z.string().min(8, 'Password must be at least 8 characters'),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const [user] = await db.select()
         .from(users)
         .where(eq(users.id, ctx.user.sub))
@@ -589,7 +583,6 @@ export const authRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' });
       }
 
-      const db = getDb();
       let query = db.select()
         .from(loginAttempts)
         .where(eq(loginAttempts.hospital_id, ctx.user.hospital_id))
@@ -619,7 +612,6 @@ export const authRouter = router({
       throw new TRPCError({ code: 'FORBIDDEN' });
     }
 
-    const db = getDb();
     return db.select()
       .from(breakGlassLog)
       .where(eq(breakGlassLog.hospital_id, ctx.user.hospital_id))
@@ -638,7 +630,6 @@ export const authRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' });
       }
 
-      const db = getDb();
       await db.update(breakGlassLog)
         .set({
           reviewed_at: new Date(),

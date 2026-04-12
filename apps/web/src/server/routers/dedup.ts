@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import {
   patients, potentialDuplicates, patientsAudit, mpiLinks, mpiRecords,
 } from '@db/schema';
@@ -63,7 +63,6 @@ export const dedupRouter = router({
       dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().default(''),
     }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // Find candidates by phone OR fuzzy name
@@ -110,7 +109,6 @@ export const dedupRouter = router({
       pageSize: z.number().min(1).max(100).default(25),
     }).optional().default({}))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
       const { status, page, pageSize } = input;
       const offset = (page - 1) * pageSize;
@@ -160,7 +158,6 @@ export const dedupRouter = router({
 
   // ─── QUEUE STATS ───────────────────────────────────────────
   queueStats: protectedProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const hospitalId = ctx.user.hospital_id;
 
     const counts = await db.execute(sql`
@@ -183,7 +180,6 @@ export const dedupRouter = router({
       note: z.string().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Fetch the duplicate record
@@ -256,7 +252,6 @@ export const dedupRouter = router({
       note: z.string().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       const [dup] = await db.select().from(potentialDuplicates)
@@ -298,7 +293,6 @@ export const dedupRouter = router({
       })),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       let queued = 0;

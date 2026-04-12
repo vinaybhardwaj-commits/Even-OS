@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, adminProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { orderSets, orderSetItems } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { recordVersion, getVersionHistory } from '@/lib/master-data/version-history';
@@ -21,7 +21,6 @@ export const orderSetsRouter = router({
       pageSize: z.number().min(1).max(100).default(25),
     }).optional().default({}))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const { search, category, status, page, pageSize } = input;
       const offset = (page - 1) * pageSize;
 
@@ -54,7 +53,6 @@ export const orderSetsRouter = router({
   get: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const [set] = await db.select().from(orderSets)
         .where(and(eq(orderSets.id, input.id as any), eq(orderSets.hospital_id, ctx.user.hospital_id)))
         .limit(1);
@@ -75,7 +73,6 @@ export const orderSetsRouter = router({
       category: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const [row] = await db.insert(orderSets).values({
         hospital_id: ctx.user.hospital_id,
         name: input.name,
@@ -99,7 +96,6 @@ export const orderSetsRouter = router({
       category: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const { id, ...updates } = input;
 
       const [old] = await db.select().from(orderSets)
@@ -124,7 +120,6 @@ export const orderSetsRouter = router({
   deactivate: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const [old] = await db.select().from(orderSets)
         .where(and(eq(orderSets.id, input.id as any), eq(orderSets.hospital_id, ctx.user.hospital_id)))
         .limit(1);
@@ -151,7 +146,6 @@ export const orderSetsRouter = router({
       sort_order: z.number().default(0),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
 
       // Verify order set exists and belongs to hospital
       const [set] = await db.select({ id: orderSets.id }).from(orderSets)
@@ -189,7 +183,6 @@ export const orderSetsRouter = router({
   removeItem: adminProcedure
     .input(z.object({ item_id: z.string().uuid(), order_set_id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
 
       // Verify ownership
       const [set] = await db.select({ id: orderSets.id }).from(orderSets)
@@ -214,7 +207,6 @@ export const orderSetsRouter = router({
 
   // ─── STATS ────────────────────────────────────────────────
   stats: adminProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const result = await db.select({
       total: sql<number>`count(*)`,
       active: sql<number>`count(*) FILTER (WHERE is_active = true)`,

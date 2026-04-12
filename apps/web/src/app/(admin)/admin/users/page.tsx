@@ -1,6 +1,6 @@
 import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { users, roles } from '@db/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import UsersClient from './users-client';
@@ -21,8 +21,6 @@ export default async function AdminUsersPage() {
       </div>
     );
   }
-
-  const db = getDb();
 
   // Fetch users for this hospital
   const userRows = await db.select({

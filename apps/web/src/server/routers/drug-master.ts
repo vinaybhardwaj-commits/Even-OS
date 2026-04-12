@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, adminProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { drugMaster } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { recordVersion, getVersionHistory } from '@/lib/master-data/version-history';
@@ -23,7 +23,6 @@ export const drugMasterRouter = router({
       pageSize: z.number().min(1).max(100).default(25),
     }).optional().default({}))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const { search, category, route, status, page, pageSize } = input;
       const offset = (page - 1) * pageSize;
 
@@ -70,7 +69,6 @@ export const drugMasterRouter = router({
   get: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const [row] = await db.select().from(drugMaster)
         .where(and(
           eq(drugMaster.id, input.id as any),
@@ -96,7 +94,6 @@ export const drugMasterRouter = router({
       gst_percentage: z.string().regex(/^\d+(\.\d{1,2})?$/).default('0'),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
 
       // Check for duplicate drug_code
       const existing = await db.select({ id: drugMaster.id }).from(drugMaster)
@@ -147,7 +144,6 @@ export const drugMasterRouter = router({
       gst_percentage: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const { id, ...updates } = input;
 
       const [old] = await db.select().from(drugMaster)
@@ -175,7 +171,6 @@ export const drugMasterRouter = router({
   deactivate: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
 
       const [old] = await db.select().from(drugMaster)
         .where(and(eq(drugMaster.id, input.id as any), eq(drugMaster.hospital_id, ctx.user.hospital_id)))
@@ -216,7 +211,6 @@ export const drugMasterRouter = router({
       mode: z.enum(['skip_duplicates', 'update_duplicates']).default('skip_duplicates'),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       let imported = 0;
       let updated = 0;
       let skipped = 0;
@@ -296,7 +290,6 @@ export const drugMasterRouter = router({
 
   // ─── STATS ────────────────────────────────────────────────
   stats: adminProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const result = await db.select({
       total: sql<number>`count(*)`,
       active: sql<number>`count(*) FILTER (WHERE is_active = true)`,

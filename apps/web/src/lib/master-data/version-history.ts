@@ -1,4 +1,4 @@
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { masterDataVersionHistory } from '@db/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import type { JWTPayload } from '@/lib/auth';
@@ -18,8 +18,6 @@ export async function recordVersion(
   oldData?: Record<string, unknown> | null,
 ): Promise<void> {
   try {
-    const db = getDb();
-
     // Calculate next version number
     const lastVersion = await db.select({ v: sql<number>`COALESCE(MAX(version), 0)` })
       .from(masterDataVersionHistory)
@@ -64,7 +62,6 @@ export async function getVersionHistory(
   entityType: EntityType,
   entityId: string,
 ) {
-  const db = getDb();
   return db.select()
     .from(masterDataVersionHistory)
     .where(and(

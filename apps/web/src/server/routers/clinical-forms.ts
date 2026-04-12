@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import {
   patientConsents, clinicalFormTemplates, clinicalForms,
   consentTemplates, encounters, patients,
@@ -44,7 +44,6 @@ export const clinicalFormsRouter = router({
       witnessed_by_user_id: z.string().uuid().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify encounter exists and is in-progress
@@ -123,7 +122,6 @@ export const clinicalFormsRouter = router({
       limit: z.number().min(1).max(100).default(20),
     }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
       const offset = (input.page - 1) * input.limit;
 
@@ -174,7 +172,6 @@ export const clinicalFormsRouter = router({
       revoke_reason: z.string().max(1000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Fetch consent
@@ -275,7 +272,6 @@ export const clinicalFormsRouter = router({
       fields_schema: z.array(fieldDefinitionSchema).min(1),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // Create template
@@ -316,7 +312,6 @@ export const clinicalFormsRouter = router({
       status: z.enum(['active', 'draft', 'archived']).optional(),
     }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       const filters = [eq(clinicalFormTemplates.hospital_id, hospitalId)];
@@ -352,7 +347,6 @@ export const clinicalFormsRouter = router({
       form_status: z.enum(['draft', 'submitted']).default('submitted'),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify encounter exists and is in-progress
@@ -429,7 +423,6 @@ export const clinicalFormsRouter = router({
       limit: z.number().min(1).max(100).default(20),
     }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
       const offset = (input.page - 1) * input.limit;
 
@@ -474,7 +467,6 @@ export const clinicalFormsRouter = router({
       notes: z.string().max(1000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Fetch form
@@ -552,7 +544,6 @@ export const clinicalFormsRouter = router({
 
   // ─── FORM STATS ────────────────────────────────────────────
   formStats: protectedProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const hospitalId = ctx.user.hospital_id;
 
     // Consent stats

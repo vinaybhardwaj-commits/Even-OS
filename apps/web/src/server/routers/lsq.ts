@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { lsqSyncLog, lsqApiLog, lsqSyncState, patients } from '@db/schema';
 import { eq, and, sql, desc } from 'drizzle-orm';
 import { isLsqConfigured } from '@/lib/lsq/client';
@@ -11,7 +11,6 @@ export const lsqRouter = router({
 
   // ─── OVERVIEW STATS ──────────────────────────────────────
   stats: protectedProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const hospitalId = ctx.user.hospital_id;
 
     const result = await db.execute(sql`
@@ -46,7 +45,6 @@ export const lsqRouter = router({
       pageSize: z.number().min(1).max(100).default(25),
     }).optional().default({}))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
       const { page, pageSize } = input;
       const offset = (page - 1) * pageSize;
@@ -79,7 +77,6 @@ export const lsqRouter = router({
       pageSize: z.number().min(1).max(100).default(50),
     }).optional().default({}))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
       const { page, pageSize } = input;
       const offset = (page - 1) * pageSize;
@@ -113,7 +110,6 @@ export const lsqRouter = router({
       status: z.enum(['synced', 'processed', 'merged']).optional(),
     }).optional().default({}))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const hospitalId = ctx.user.hospital_id;
       const { page, pageSize, status } = input;
       const offset = (page - 1) * pageSize;

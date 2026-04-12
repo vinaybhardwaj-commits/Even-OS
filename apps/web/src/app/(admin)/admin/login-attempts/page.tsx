@@ -1,6 +1,6 @@
 import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { loginAttempts } from '@db/schema';
 import { eq, desc } from 'drizzle-orm';
 import LoginAttemptsClient from './login-attempts-client';
@@ -10,7 +10,6 @@ export default async function LoginAttemptsPage() {
   if (!user) redirect('/login');
   if (!['super_admin', 'hospital_admin'].includes(user.role)) redirect('/dashboard');
 
-  const db = getDb();
   const attempts = await db.select()
     .from(loginAttempts)
     .where(eq(loginAttempts.hospital_id, user.hospital_id))

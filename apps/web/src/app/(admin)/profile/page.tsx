@@ -1,6 +1,6 @@
 import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { users, trustedDevices, loginAttempts } from '@db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import ProfileClient from './profile-client';
@@ -8,8 +8,6 @@ import ProfileClient from './profile-client';
 export default async function ProfilePage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-
-  const db = getDb();
 
   // Get full user profile
   const [profile] = await db.select()

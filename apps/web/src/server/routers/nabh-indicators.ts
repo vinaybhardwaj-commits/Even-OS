@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, adminProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { nabhIndicators } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { eq, and, sql, desc, ilike, or } from 'drizzle-orm';
@@ -17,7 +17,6 @@ export const nabhIndicatorsRouter = router({
       pageSize: z.number().min(1).max(100).default(50),
     }).optional().default({}))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const { search, category, page, pageSize } = input;
       const offset = (page - 1) * pageSize;
 
@@ -48,7 +47,6 @@ export const nabhIndicatorsRouter = router({
   get: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const [row] = await db.select().from(nabhIndicators)
         .where(and(eq(nabhIndicators.id, input.id as any), eq(nabhIndicators.hospital_id, ctx.user.hospital_id)))
         .limit(1);
@@ -58,7 +56,6 @@ export const nabhIndicatorsRouter = router({
 
   // ─── CATEGORIES (distinct) ────────────────────────────────
   categories: adminProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const rows = await db.selectDistinct({ category: nabhIndicators.category })
       .from(nabhIndicators)
       .where(eq(nabhIndicators.hospital_id, ctx.user.hospital_id))
@@ -68,7 +65,6 @@ export const nabhIndicatorsRouter = router({
 
   // ─── SEED (bulk insert 100+ standard NABH indicators) ────
   seed: adminProcedure.mutation(async ({ ctx }) => {
-    const db = getDb();
 
     // Check if already seeded
     const existing = await db.select({ count: sql<number>`count(*)` })
@@ -106,7 +102,6 @@ export const nabhIndicatorsRouter = router({
 
   // ─── STATS ────────────────────────────────────────────────
   stats: adminProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const result = await db.select({
       total: sql<number>`count(*)`,
       auto: sql<number>`count(*) FILTER (WHERE calculation_type = 'auto')`,

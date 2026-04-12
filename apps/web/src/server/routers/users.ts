@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, adminProcedure, protectedProcedure } from '../trpc';
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { users, roles } from '@db/schema';
 import { hashPassword } from '@/lib/auth';
 import { writeAuditLog } from '@/lib/audit/logger';
@@ -22,7 +22,6 @@ export const usersRouter = router({
       pageSize: z.number().min(1).max(100).default(25),
     }).optional().default({}))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const { search, status, role, department, page, pageSize } = input;
       const offset = (page - 1) * pageSize;
 
@@ -93,7 +92,6 @@ export const usersRouter = router({
   get: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
       const [user] = await db.select()
         .from(users)
         .where(and(
@@ -132,7 +130,6 @@ export const usersRouter = router({
       password: z.string().min(8),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
 
       // Check for duplicate email in this hospital
       const existing = await db.select({ id: users.id })
@@ -182,7 +179,6 @@ export const usersRouter = router({
       roles: z.array(z.string()).min(1).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
       const { id, ...updates } = input;
 
       // Verify user belongs to this hospital
@@ -220,7 +216,6 @@ export const usersRouter = router({
       reason: z.string().min(1).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
 
       const [user] = await db.select({ id: users.id, status: users.status })
         .from(users)
@@ -255,7 +250,6 @@ export const usersRouter = router({
   activate: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
 
       const [user] = await db.select({ id: users.id, status: users.status })
         .from(users)
@@ -289,7 +283,6 @@ export const usersRouter = router({
       new_password: z.string().min(8),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
 
       const [user] = await db.select({ id: users.id })
         .from(users)
@@ -318,7 +311,6 @@ export const usersRouter = router({
    * Get list of departments (distinct from users table).
    */
   departments: protectedProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const result = await db.selectDistinct({ department: users.department })
       .from(users)
       .where(eq(users.hospital_id, ctx.user.hospital_id));
@@ -329,7 +321,6 @@ export const usersRouter = router({
    * Get list of available roles for this hospital.
    */
   availableRoles: adminProcedure.query(async ({ ctx }) => {
-    const db = getDb();
     const result = await db.select({
       name: roles.name,
       description: roles.description,
