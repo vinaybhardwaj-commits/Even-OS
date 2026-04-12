@@ -10,6 +10,7 @@ import { dischargeTemplatesRouter } from './discharge-templates';
 import { gstRatesRouter } from './gst-rates';
 import { approvalHierarchiesRouter } from './approval-hierarchies';
 import { nabhIndicatorsRouter } from './nabh-indicators';
+import { patientRouter } from './patient';
 
 export const appRouter = router({
   auth: authRouter,
@@ -23,6 +24,7 @@ export const appRouter = router({
   gstRates: gstRatesRouter,
   approvalHierarchies: approvalHierarchiesRouter,
   nabhIndicators: nabhIndicatorsRouter,
+  patient: patientRouter,
 });
 
 export type AppRouter = typeof appRouter;

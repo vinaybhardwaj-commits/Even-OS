@@ -138,6 +138,20 @@ export default async function DashboardPage() {
             </div>
           )}
 
+          {/* Clinical */}
+          <div className="mt-8 pt-8 border-t border-gray-200">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Clinical</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <a href="/admin/patients" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
+                <span className="text-2xl">&#128101;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Patient Registry</p>
+                  <p className="text-xs text-gray-500">Register, search & manage</p>
+                </div>
+              </a>
+            </div>
+          </div>
+
           {/* Governance */}
           {isAdmin && (
             <div className="mt-8 pt-8 border-t border-gray-200">
@@ -172,7 +186,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S2c — Governance Layer: GST Rates, Approval Hierarchies, NABH Indicators.</p>
+              <p className="text-sm text-gray-600">Sprint S3a — Patient Registry: Register, search, list, stats. 25 routes.</p>
             </div>
           </div>
         </div>
