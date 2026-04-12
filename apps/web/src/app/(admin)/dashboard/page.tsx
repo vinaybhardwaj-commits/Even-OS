@@ -177,6 +177,20 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Admit, checklist & pre-auth</p>
                 </div>
               </a>
+              <a href="/admin/transfers" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-cyan-50 hover:border-cyan-200 transition-colors">
+                <span className="text-2xl">&#8644;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Transfers</p>
+                  <p className="text-xs text-gray-500">Bed & ward transfers</p>
+                </div>
+              </a>
+              <a href="/admin/discharge" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-rose-50 hover:border-rose-200 transition-colors">
+                <span className="text-2xl">&#10004;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Discharge</p>
+                  <p className="text-xs text-gray-500">Milestones & discharge queue</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -214,7 +228,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S4a — Admission Wizard: encounter engine, 4-step wizard, pre-auth gate, checklist, discharge milestones. 34 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S4b — Transfer + Discharge: bed transfers with audit trail, discharge queue, 8-step milestones, force discharge. 42 routes.</p>
             </div>
           </div>
         </div>

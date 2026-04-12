@@ -5,6 +5,7 @@ import { getDb } from '@even-os/db';
 import {
   encounters, patients, locations, bedAssignments, bedStatusHistory,
   admissionChecklists, dischargeMilestones, coverages,
+  transferHistory, dischargeOrders,
 } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { eq, and, sql, desc, isNull } from 'drizzle-orm';
@@ -370,5 +371,484 @@ export const encounterRouter = router({
       `);
 
       return (result as any).rows || result;
+    }),
+
+  // ═══════════════════════════════════════════════════════════
+  // S4b — TRANSFER ENDPOINTS
+  // ═══════════════════════════════════════════════════════════
+
+  // ─── TRANSFER (move patient to a different bed) ───────────
+  transfer: protectedProcedure
+    .input(z.object({
+      encounter_id: z.string().uuid(),
+      to_bed_id: z.string().uuid(),
+      transfer_type: z.enum(['bed', 'ward', 'floor']).default('bed'),
+      reason: z.string().max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+      const hospitalId = ctx.user.hospital_id;
+
+      // 1. Verify encounter exists and is active
+      const [encounter] = await db.select({
+        id: encounters.id,
+        patient_id: encounters.patient_id,
+        current_location_id: encounters.current_location_id,
+      })
+        .from(encounters)
+        .where(and(
+          eq(encounters.id, input.encounter_id as any),
+          eq(encounters.hospital_id, hospitalId),
+          eq(encounters.status, 'in-progress'),
+        ))
+        .limit(1);
+
+      if (!encounter) throw new TRPCError({ code: 'NOT_FOUND', message: 'Active encounter not found' });
+
+      // 2. Verify new bed is available
+      const [toBed] = await db.select({
+        id: locations.id,
+        code: locations.code,
+        name: locations.name,
+        bed_status: locations.bed_status,
+      })
+        .from(locations)
+        .where(and(
+          eq(locations.id, input.to_bed_id as any),
+          eq(locations.hospital_id, hospitalId),
+          eq(locations.location_type, 'bed'),
+        ))
+        .limit(1);
+
+      if (!toBed) throw new TRPCError({ code: 'NOT_FOUND', message: 'Destination bed not found' });
+      if (toBed.bed_status !== 'available' && toBed.bed_status !== 'reserved') {
+        throw new TRPCError({ code: 'CONFLICT', message: `Bed ${toBed.code} is currently ${toBed.bed_status}` });
+      }
+
+      const fromLocationId = encounter.current_location_id;
+
+      // 3. Update encounter location
+      await db.update(encounters)
+        .set({ current_location_id: input.to_bed_id })
+        .where(eq(encounters.id, input.encounter_id as any));
+
+      // 4. End current bed assignment
+      await db.update(bedAssignments)
+        .set({
+          released_at: new Date(),
+          reason_released: 'transfer',
+          transfer_to_location_id: input.to_bed_id,
+        })
+        .where(and(
+          eq(bedAssignments.encounter_id, input.encounter_id as any),
+          isNull(bedAssignments.released_at),
+        ));
+
+      // 5. Create new bed assignment
+      await db.insert(bedAssignments).values({
+        hospital_id: hospitalId,
+        location_id: input.to_bed_id,
+        encounter_id: input.encounter_id,
+        assigned_by_user_id: ctx.user.sub,
+      });
+
+      // 6. Release old bed
+      if (fromLocationId) {
+        await db.update(locations)
+          .set({ bed_status: 'available' })
+          .where(eq(locations.id, fromLocationId as any));
+
+        await db.insert(bedStatusHistory).values({
+          hospital_id: hospitalId,
+          location_id: fromLocationId,
+          status: 'available',
+          reason: `Patient transferred out`,
+          changed_by_user_id: ctx.user.sub,
+        });
+      }
+
+      // 7. Mark new bed as occupied
+      await db.update(locations)
+        .set({ bed_status: 'occupied' })
+        .where(eq(locations.id, input.to_bed_id as any));
+
+      await db.insert(bedStatusHistory).values({
+        hospital_id: hospitalId,
+        location_id: input.to_bed_id,
+        status: 'occupied',
+        reason: `Patient transferred in`,
+        changed_by_user_id: ctx.user.sub,
+      });
+
+      // 8. Record transfer history
+      await db.insert(transferHistory).values({
+        hospital_id: hospitalId,
+        encounter_id: input.encounter_id,
+        from_location_id: fromLocationId!,
+        to_location_id: input.to_bed_id,
+        transfer_type: input.transfer_type,
+        reason: input.reason || null,
+        transferred_by_user_id: ctx.user.sub,
+      });
+
+      // 9. Audit
+      await writeAuditLog(ctx.user, {
+        action: 'UPDATE', table_name: 'encounters',
+        row_id: encounter.id,
+        new_values: {
+          transfer_type: input.transfer_type,
+          from_bed: fromLocationId,
+          to_bed: toBed.code,
+          reason: input.reason,
+        },
+      });
+
+      return { encounter_id: encounter.id, from_bed: fromLocationId, to_bed_code: toBed.code };
+    }),
+
+  // ─── TRANSFER HISTORY (for an encounter) ──────────────────
+  getTransferHistory: protectedProcedure
+    .input(z.object({ encounter_id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const result = await db.execute(sql`
+        SELECT
+          th.id, th.transfer_type, th.reason, th.transfer_at,
+          fl.code as from_bed_code, fl.name as from_bed_name,
+          fw.name as from_ward_name,
+          tl.code as to_bed_code, tl.name as to_bed_name,
+          tw.name as to_ward_name,
+          u.display_name as transferred_by
+        FROM transfer_history th
+        JOIN locations fl ON th.from_location_id = fl.id
+        JOIN locations tl ON th.to_location_id = tl.id
+        LEFT JOIN locations fw ON fl.parent_location_id = fw.id
+        LEFT JOIN locations tw ON tl.parent_location_id = tw.id
+        LEFT JOIN users u ON th.transferred_by_user_id = u.id
+        WHERE th.encounter_id = ${input.encounter_id}::uuid
+          AND th.hospital_id = ${ctx.user.hospital_id}
+        ORDER BY th.transfer_at DESC
+      `);
+      return (result as any).rows || result;
+    }),
+
+  // ═══════════════════════════════════════════════════════════
+  // S4b — DISCHARGE ENDPOINTS
+  // ═══════════════════════════════════════════════════════════
+
+  // ─── INITIATE DISCHARGE (create discharge order) ──────────
+  initiateDischarge: protectedProcedure
+    .input(z.object({
+      encounter_id: z.string().uuid(),
+      reason: z.enum(['recovered', 'referred', 'self_discharge', 'death', 'lama']),
+      summary: z.string().max(5000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+      const hospitalId = ctx.user.hospital_id;
+
+      // Verify encounter is active
+      const [encounter] = await db.select({ id: encounters.id })
+        .from(encounters)
+        .where(and(
+          eq(encounters.id, input.encounter_id as any),
+          eq(encounters.hospital_id, hospitalId),
+          eq(encounters.status, 'in-progress'),
+        ))
+        .limit(1);
+
+      if (!encounter) throw new TRPCError({ code: 'NOT_FOUND', message: 'Active encounter not found' });
+
+      // Check no existing active discharge order
+      const [existingOrder] = await db.select({ id: dischargeOrders.id })
+        .from(dischargeOrders)
+        .where(and(
+          eq(dischargeOrders.encounter_id, input.encounter_id as any),
+          eq(dischargeOrders.hospital_id, hospitalId),
+          sql`${dischargeOrders.status} != 'completed'`,
+        ))
+        .limit(1);
+
+      if (existingOrder) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'A discharge order already exists for this encounter' });
+      }
+
+      // Create discharge order
+      const [order] = await db.insert(dischargeOrders).values({
+        hospital_id: hospitalId,
+        encounter_id: input.encounter_id,
+        reason: input.reason,
+        summary: input.summary || null,
+        status: 'ordered',
+        ordered_by_user_id: ctx.user.sub,
+      }).returning();
+
+      // Audit
+      await writeAuditLog(ctx.user, {
+        action: 'INSERT', table_name: 'discharge_orders',
+        row_id: order.id,
+        new_values: { reason: input.reason, encounter_id: input.encounter_id },
+      });
+
+      return { order_id: order.id, status: 'ordered' };
+    }),
+
+  // ─── COMPLETE MILESTONE ───────────────────────────────────
+  completeMilestone: protectedProcedure
+    .input(z.object({
+      milestone_id: z.string().uuid(),
+      notes: z.string().max(1000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+      const hospitalId = ctx.user.hospital_id;
+
+      // Verify milestone exists and belongs to this hospital
+      const [milestone] = await db.select({
+        id: dischargeMilestones.id,
+        encounter_id: dischargeMilestones.encounter_id,
+        milestone: dischargeMilestones.milestone,
+        sequence: dischargeMilestones.sequence,
+        completed_at: dischargeMilestones.completed_at,
+      })
+        .from(dischargeMilestones)
+        .where(and(
+          eq(dischargeMilestones.id, input.milestone_id as any),
+          eq(dischargeMilestones.hospital_id, hospitalId),
+        ))
+        .limit(1);
+
+      if (!milestone) throw new TRPCError({ code: 'NOT_FOUND', message: 'Milestone not found' });
+      if (milestone.completed_at) throw new TRPCError({ code: 'CONFLICT', message: 'Milestone already completed' });
+
+      // Update milestone
+      await db.update(dischargeMilestones)
+        .set({
+          completed_at: new Date(),
+          completed_by_user_id: ctx.user.sub,
+          notes: input.notes || null,
+        })
+        .where(eq(dischargeMilestones.id, input.milestone_id as any));
+
+      return { milestone_id: milestone.id, milestone: milestone.milestone, completed: true };
+    }),
+
+  // ─── DISCHARGE STATUS (milestones + order for an encounter) ─
+  dischargeStatus: protectedProcedure
+    .input(z.object({ encounter_id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const hospitalId = ctx.user.hospital_id;
+
+      // Get milestones
+      const milestones = await db.select()
+        .from(dischargeMilestones)
+        .where(and(
+          eq(dischargeMilestones.encounter_id, input.encounter_id as any),
+          eq(dischargeMilestones.hospital_id, hospitalId),
+        ))
+        .orderBy(dischargeMilestones.sequence);
+
+      // Get discharge order
+      const [order] = await db.select()
+        .from(dischargeOrders)
+        .where(and(
+          eq(dischargeOrders.encounter_id, input.encounter_id as any),
+          eq(dischargeOrders.hospital_id, hospitalId),
+        ))
+        .limit(1);
+
+      const completed = milestones.filter(m => m.completed_at).length;
+      const total = milestones.length;
+
+      return { milestones, order: order || null, completed, total, all_complete: completed === total };
+    }),
+
+  // ─── COMPLETE DISCHARGE (finalize and close encounter) ────
+  completeDischarge: protectedProcedure
+    .input(z.object({
+      encounter_id: z.string().uuid(),
+      force: z.boolean().default(false), // allow completing even if milestones incomplete
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+      const hospitalId = ctx.user.hospital_id;
+
+      // 1. Verify encounter is active
+      const [encounter] = await db.select({
+        id: encounters.id,
+        current_location_id: encounters.current_location_id,
+        patient_id: encounters.patient_id,
+      })
+        .from(encounters)
+        .where(and(
+          eq(encounters.id, input.encounter_id as any),
+          eq(encounters.hospital_id, hospitalId),
+          eq(encounters.status, 'in-progress'),
+        ))
+        .limit(1);
+
+      if (!encounter) throw new TRPCError({ code: 'NOT_FOUND', message: 'Active encounter not found' });
+
+      // 2. Verify discharge order exists
+      const [order] = await db.select({ id: dischargeOrders.id, status: dischargeOrders.status })
+        .from(dischargeOrders)
+        .where(and(
+          eq(dischargeOrders.encounter_id, input.encounter_id as any),
+          eq(dischargeOrders.hospital_id, hospitalId),
+          sql`${dischargeOrders.status} = 'ordered'`,
+        ))
+        .limit(1);
+
+      if (!order) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Discharge must be initiated first' });
+
+      // 3. Check milestones (unless force)
+      if (!input.force) {
+        const incomplete = await db.select({ id: dischargeMilestones.id })
+          .from(dischargeMilestones)
+          .where(and(
+            eq(dischargeMilestones.encounter_id, input.encounter_id as any),
+            eq(dischargeMilestones.hospital_id, hospitalId),
+            isNull(dischargeMilestones.completed_at),
+          ))
+          .limit(1);
+
+        if (incomplete.length > 0) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'Not all discharge milestones are complete. Use force=true to override.',
+          });
+        }
+      }
+
+      const now = new Date();
+
+      // 4. Close encounter
+      await db.update(encounters)
+        .set({ status: 'finished', discharge_at: now })
+        .where(eq(encounters.id, input.encounter_id as any));
+
+      // 5. Complete discharge order
+      await db.update(dischargeOrders)
+        .set({ status: 'completed' })
+        .where(eq(dischargeOrders.id, order.id as any));
+
+      // 6. End bed assignment
+      await db.update(bedAssignments)
+        .set({ released_at: now, reason_released: 'discharge' })
+        .where(and(
+          eq(bedAssignments.encounter_id, input.encounter_id as any),
+          isNull(bedAssignments.released_at),
+        ));
+
+      // 7. Release bed
+      if (encounter.current_location_id) {
+        await db.update(locations)
+          .set({ bed_status: 'available' })
+          .where(eq(locations.id, encounter.current_location_id as any));
+
+        await db.insert(bedStatusHistory).values({
+          hospital_id: hospitalId,
+          location_id: encounter.current_location_id,
+          status: 'available',
+          reason: 'Patient discharged',
+          changed_by_user_id: ctx.user.sub,
+        });
+      }
+
+      // 8. Audit
+      await writeAuditLog(ctx.user, {
+        action: 'UPDATE', table_name: 'encounters',
+        row_id: encounter.id,
+        new_values: { status: 'finished', discharge_at: now.toISOString(), forced: input.force },
+      });
+
+      return { encounter_id: encounter.id, status: 'finished', discharge_at: now };
+    }),
+
+  // ─── CANCEL DISCHARGE (revoke discharge order) ────────────
+  cancelDischarge: protectedProcedure
+    .input(z.object({
+      encounter_id: z.string().uuid(),
+      reason: z.string().min(1).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+      const hospitalId = ctx.user.hospital_id;
+
+      // Verify active discharge order
+      const [order] = await db.select({ id: dischargeOrders.id })
+        .from(dischargeOrders)
+        .where(and(
+          eq(dischargeOrders.encounter_id, input.encounter_id as any),
+          eq(dischargeOrders.hospital_id, hospitalId),
+          sql`${dischargeOrders.status} = 'ordered'`,
+        ))
+        .limit(1);
+
+      if (!order) throw new TRPCError({ code: 'NOT_FOUND', message: 'No active discharge order found' });
+
+      // Cancel the order (keep record, just change status)
+      await db.update(dischargeOrders)
+        .set({ status: 'draft' }) // "draft" effectively means cancelled/revoked
+        .where(eq(dischargeOrders.id, order.id as any));
+
+      // Audit
+      await writeAuditLog(ctx.user, {
+        action: 'UPDATE', table_name: 'discharge_orders',
+        row_id: order.id,
+        new_values: { status: 'draft', cancel_reason: input.reason },
+      });
+
+      return { order_id: order.id, status: 'cancelled' };
+    }),
+
+  // ─── DISCHARGE QUEUE (all encounters with active discharge orders) ─
+  dischargeQueue: protectedProcedure
+    .input(z.object({
+      page: z.number().min(1).default(1),
+      pageSize: z.number().min(1).max(100).default(25),
+    }).optional().default({}))
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const hospitalId = ctx.user.hospital_id;
+      const { page, pageSize } = input;
+      const offset = (page - 1) * pageSize;
+
+      const result = await db.execute(sql`
+        SELECT
+          e.id as encounter_id, e.admission_at, e.chief_complaint,
+          e.admission_type, e.pre_auth_status,
+          p.uhid, p.name_full as patient_name, p.phone, p.patient_category,
+          l.code as bed_code, w.name as ward_name,
+          do.id as order_id, do.reason as discharge_reason, do.status as order_status, do.ordered_at,
+          (SELECT count(*)::int FROM discharge_milestones dm WHERE dm.encounter_id = e.id AND dm.completed_at IS NOT NULL) as milestones_done,
+          (SELECT count(*)::int FROM discharge_milestones dm WHERE dm.encounter_id = e.id) as milestones_total
+        FROM discharge_orders do
+        JOIN encounters e ON do.encounter_id = e.id
+        JOIN patients p ON e.patient_id = p.id
+        LEFT JOIN locations l ON e.current_location_id = l.id
+        LEFT JOIN locations w ON l.parent_location_id = w.id
+        WHERE do.hospital_id = ${hospitalId}
+          AND do.status = 'ordered'
+          AND e.status = 'in-progress'
+        ORDER BY do.ordered_at ASC
+        LIMIT ${pageSize} OFFSET ${offset}
+      `);
+
+      const countResult = await db.execute(sql`
+        SELECT count(*)::int as count
+        FROM discharge_orders do
+        JOIN encounters e ON do.encounter_id = e.id
+        WHERE do.hospital_id = ${hospitalId}
+          AND do.status = 'ordered'
+          AND e.status = 'in-progress'
+      `);
+
+      const items = (result as any).rows || result;
+      const countRows = (countResult as any).rows || countResult;
+      const total = Number(countRows[0]?.count ?? 0);
+
+      return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
     }),
 });
