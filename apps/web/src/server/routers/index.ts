@@ -19,6 +19,9 @@ import { lsqRouter } from './lsq';
 import { clinicalOrdersRouter } from './clinical-orders';
 import { billingRouter } from './billing';
 import { clinicalFormsRouter } from './clinical-forms';
+import { conditionsRouter } from './conditions';
+import { allergiesRouter } from './allergies';
+import { observationsRouter } from './observations';
 
 export const appRouter = router({
   auth: authRouter,
@@ -41,6 +44,9 @@ export const appRouter = router({
   clinicalOrders: clinicalOrdersRouter,
   billing: billingRouter,
   clinicalForms: clinicalFormsRouter,
+  conditions: conditionsRouter,
+  allergies: allergiesRouter,
+  observations: observationsRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -212,6 +212,27 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Charges, invoices, TPA claims</p>
                 </div>
               </a>
+              <a href="/admin/problem-list" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-red-50 hover:border-red-200 transition-colors">
+                <span className="text-2xl">&#128209;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Problem List</p>
+                  <p className="text-xs text-gray-500">Conditions & ICD-10 tracking</p>
+                </div>
+              </a>
+              <a href="/admin/allergies" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-pink-50 hover:border-pink-200 transition-colors">
+                <span className="text-2xl">&#9888;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Allergies</p>
+                  <p className="text-xs text-gray-500">Allergy tracking & CDS alerts</p>
+                </div>
+              </a>
+              <a href="/admin/vitals" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-sky-50 hover:border-sky-200 transition-colors">
+                <span className="text-2xl">&#127777;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Vitals & I/O</p>
+                  <p className="text-xs text-gray-500">Observations, NEWS2, alerts</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -263,7 +284,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S4d — Clinical & Billing: Orders, vitals, nursing notes, consent tracking, stage forms, invoicing, TPA claims. 76 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S5a — EMR Foundation: Problem list (ICD-10), allergy tracking, FHIR observations, NEWS2 scoring, clinical alerts. 95 routes.</p>
             </div>
           </div>
         </div>
