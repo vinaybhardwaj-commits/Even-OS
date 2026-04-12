@@ -113,6 +113,27 @@ export default async function DashboardPage() {
                     <p className="text-xs text-gray-500">Medications & formulary</p>
                   </div>
                 </a>
+                <a href="/admin/order-sets" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
+                  <span className="text-2xl">&#128203;</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Order Sets</p>
+                    <p className="text-xs text-gray-500">Reusable order templates</p>
+                  </div>
+                </a>
+                <a href="/admin/consent-templates" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
+                  <span className="text-2xl">&#128221;</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Consent Forms</p>
+                    <p className="text-xs text-gray-500">Versioned consent templates</p>
+                  </div>
+                </a>
+                <a href="/admin/discharge-templates" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
+                  <span className="text-2xl">&#128196;</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Discharge Templates</p>
+                    <p className="text-xs text-gray-500">Summary field config</p>
+                  </div>
+                </a>
               </div>
             </div>
           )}
@@ -121,7 +142,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S2a — Charge Master & Drug Master with CRUD, bulk import, version history.</p>
+              <p className="text-sm text-gray-600">Sprint S2b — Clinical Templates: Order Sets, Consent Forms, Discharge Templates.</p>
             </div>
           </div>
         </div>
