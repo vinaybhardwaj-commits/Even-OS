@@ -39,6 +39,7 @@ import { safetyAuditsRouter } from './safety-audits';
 import { criticalValuesRouter } from './critical-values';
 import { testCatalogRouter } from './test-catalog';
 import { labReportsRouter } from './lab-reports';
+import { cultureHistopathRouter } from './culture-histopath';
 import { drizzleTestRouter } from './drizzle-test';
 
 export const appRouter = router({
@@ -82,6 +83,7 @@ export const appRouter = router({
   criticalValues: criticalValuesRouter,
   testCatalog: testCatalogRouter,
   labReports: labReportsRouter,
+  cultureHistopath: cultureHistopathRouter,
   drizzleTest: drizzleTestRouter,
 });
 
