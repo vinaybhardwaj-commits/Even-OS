@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -9,10 +10,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [lockoutMsg, setLockoutMsg] = useState('');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    setLockoutMsg('');
     setLoading(true);
 
     try {
@@ -25,15 +28,25 @@ export default function LoginPage() {
       });
 
       const data = await res.json();
+      const result = data.result?.data?.json;
 
-      if (data.result?.data?.json?.success) {
-        if (data.result.data.json.must_change_password) {
+      if (result?.success) {
+        // Fully authenticated — device trusted
+        if (result.must_change_password) {
           router.push('/change-password');
         } else {
           router.push('/dashboard');
         }
+      } else if (result?.requires_device_verification) {
+        // Credentials correct but new device — redirect to OTP
+        router.push(`/verify-device?uid=${result.user_id}`);
       } else {
-        setError(data.error?.json?.message || 'Invalid credentials');
+        const errMsg = data.error?.json?.message || 'Invalid credentials';
+        if (errMsg.includes('locked')) {
+          setLockoutMsg(errMsg);
+        } else {
+          setError(errMsg);
+        }
       }
     } catch {
       setError('Connection error. Please try again.');
@@ -51,6 +64,16 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
+          {lockoutMsg && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg text-sm flex items-start gap-2">
+              <span className="text-lg leading-5">🔒</span>
+              <div>
+                <p className="font-medium">Account Locked</p>
+                <p className="mt-1">{lockoutMsg}</p>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
               {error}
@@ -89,12 +112,18 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !!lockoutMsg}
             className="w-full bg-blue-600 text-white py-2.5 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
+
+        <p className="text-center text-sm text-gray-500 mt-4">
+          <Link href="/forgot-password" className="text-blue-600 hover:underline">
+            Forgot password?
+          </Link>
+        </p>
 
         <p className="text-center text-xs text-gray-400 mt-8">
           Even Healthcare © {new Date().getFullYear()}

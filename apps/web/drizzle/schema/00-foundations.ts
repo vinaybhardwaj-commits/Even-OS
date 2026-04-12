@@ -318,6 +318,70 @@ export const loginAttempts = pgTable('login_attempts', {
 }));
 
 // ============================================================
+// VERIFICATION CODES (OTP + password reset tokens)
+// ============================================================
+
+export const verificationCodes = pgTable('verification_codes', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  code_hash: text('code_hash').notNull(),
+  purpose: text('purpose').notNull(), // 'device_verification', 'password_reset'
+  metadata: jsonb('metadata').default({}),
+  expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+  used_at: timestamp('used_at', { withTimezone: true }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  userIdIdx: index('idx_verification_codes_user_id').on(table.user_id),
+  purposeIdx: index('idx_verification_codes_purpose').on(table.purpose),
+  expiresAtIdx: index('idx_verification_codes_expires_at').on(table.expires_at),
+}));
+
+// ============================================================
+// BREAK GLASS LOG (emergency access audit)
+// ============================================================
+
+export const breakGlassLog = pgTable('break_glass_log', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  hospital_id: text('hospital_id').notNull().references(() => hospitals.hospital_id, { onDelete: 'restrict' }),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  user_email: text('user_email').notNull(),
+  user_role: text('user_role').notNull(),
+  reason: text('reason').notNull(),
+  elevated_to: text('elevated_to').notNull().default('emergency_access'),
+  granted_at: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow(),
+  expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+  revoked_at: timestamp('revoked_at', { withTimezone: true }),
+  revoked_by: uuid('revoked_by').references(() => users.id),
+  reviewed_at: timestamp('reviewed_at', { withTimezone: true }),
+  reviewed_by: uuid('reviewed_by').references(() => users.id),
+  review_notes: text('review_notes'),
+}, (table) => ({
+  userIdIdx: index('idx_break_glass_log_user_id').on(table.user_id),
+  hospitalIdIdx: index('idx_break_glass_log_hospital_id').on(table.hospital_id),
+  expiresAtIdx: index('idx_break_glass_log_expires_at').on(table.expires_at),
+}));
+
+// ============================================================
+// TRUSTED DEVICES (device binding)
+// ============================================================
+
+export const trustedDevices = pgTable('trusted_devices', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  device_id: text('device_id').notNull(),
+  device_name: text('device_name'),
+  browser: text('browser'),
+  os: text('os'),
+  ip_address: text('ip_address'),
+  first_seen_at: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  last_seen_at: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  is_active: boolean('is_active').notNull().default(true),
+}, (table) => ({
+  userIdIdx: index('idx_trusted_devices_user_id').on(table.user_id),
+  userDeviceIdx: uniqueIndex('idx_trusted_devices_user_device').on(table.user_id, table.device_id),
+}));
+
+// ============================================================
 // RELATIONS
 // ============================================================
 
@@ -394,4 +458,17 @@ export const errorLogRelations = relations(errorLog, ({ one }) => ({
 
 export const loginAttemptsRelations = relations(loginAttempts, ({ one }) => ({
   hospital: one(hospitals, { fields: [loginAttempts.hospital_id], references: [hospitals.hospital_id] }),
+}));
+
+export const verificationCodesRelations = relations(verificationCodes, ({ one }) => ({
+  user: one(users, { fields: [verificationCodes.user_id], references: [users.id] }),
+}));
+
+export const breakGlassLogRelations = relations(breakGlassLog, ({ one }) => ({
+  hospital: one(hospitals, { fields: [breakGlassLog.hospital_id], references: [hospitals.hospital_id] }),
+  user: one(users, { fields: [breakGlassLog.user_id], references: [users.id] }),
+}));
+
+export const trustedDevicesRelations = relations(trustedDevices, ({ one }) => ({
+  user: one(users, { fields: [trustedDevices.user_id], references: [users.id] }),
 }));
