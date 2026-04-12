@@ -234,7 +234,7 @@ export function RegisterPatientClient() {
 
             <div className="flex gap-4 justify-center">
               <button
-                onClick={() => router.push(`/admin/patients/${uhid}`)}
+                onClick={() => router.push('/admin/patients')}
                 className="px-6 py-2 bg-blue-900 text-white rounded font-medium hover:bg-blue-800"
               >
                 View Patient

@@ -7,19 +7,19 @@ import { useRouter } from 'next/navigation';
 interface PatientStats {
   total: number;
   active: number;
-  today: number;
-  this_week: number;
+  registered_today: number;
+  registered_this_week: number;
 }
 
 interface Patient {
   id: string;
   uhid: string;
-  given_name: string;
-  family_name: string;
+  name_full: string;
   phone: string;
   dob: string;
   gender: string;
-  category: 'cash' | 'insured' | 'even_capitated';
+  blood_group: string;
+  patient_category: 'cash' | 'insured' | 'even_capitated';
   status: string;
   created_at: string;
 }
@@ -87,7 +87,7 @@ export function PatientsClient() {
 
         const input = {
           search: searchQuery || undefined,
-          category: categoryFilter || undefined,
+          patient_category: categoryFilter || undefined,
           status: statusFilter || undefined,
           page: currentPage,
           pageSize,
@@ -131,11 +131,11 @@ export function PatientsClient() {
             </div>
             <div className="bg-white px-4 py-3 rounded border border-gray-200 shadow-sm">
               <div className="text-sm text-gray-600">Today</div>
-              <div className="text-2xl font-bold text-gray-900">{stats.today.toLocaleString('en-IN')}</div>
+              <div className="text-2xl font-bold text-gray-900">{stats.registered_today.toLocaleString('en-IN')}</div>
             </div>
             <div className="bg-white px-4 py-3 rounded border border-gray-200 shadow-sm">
               <div className="text-sm text-gray-600">This Week</div>
-              <div className="text-2xl font-bold text-gray-900">{stats.this_week.toLocaleString('en-IN')}</div>
+              <div className="text-2xl font-bold text-gray-900">{stats.registered_this_week.toLocaleString('en-IN')}</div>
             </div>
           </div>
         )}
@@ -223,14 +223,14 @@ export function PatientsClient() {
                           </Link>
                         </td>
                         <td className="px-4 py-3">
-                          {patient.given_name} {patient.family_name}
+                          {patient.name_full}
                         </td>
                         <td className="px-4 py-3">{patient.phone}</td>
                         <td className="px-4 py-3">{formatDate(patient.dob)}</td>
                         <td className="px-4 py-3">{patient.gender}</td>
                         <td className="px-4 py-3">
-                          <span className={`px-2 py-1 rounded text-xs font-semibold ${categoryBadgeColor[patient.category]}`}>
-                            {categoryLabel[patient.category]}
+                          <span className={`px-2 py-1 rounded text-xs font-semibold ${categoryBadgeColor[patient.patient_category]}`}>
+                            {categoryLabel[patient.patient_category]}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-xs">
