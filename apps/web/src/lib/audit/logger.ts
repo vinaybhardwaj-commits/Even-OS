@@ -1,4 +1,4 @@
-import { getDb } from '@even-os/db';
+import { db } from '@/lib/db';
 import { auditLog } from '@db/schema';
 import type { JWTPayload } from '@/lib/auth';
 
@@ -24,7 +24,6 @@ export async function writeAuditLog(
   entry: AuditEntry
 ): Promise<void> {
   try {
-    const db = getDb();
     await db.insert(auditLog).values({
       hospital_id: actor?.hospital_id || 'unknown',
       table_name: entry.table_name,
