@@ -18,6 +18,7 @@ import { encounterRouter } from './encounter';
 import { lsqRouter } from './lsq';
 import { clinicalOrdersRouter } from './clinical-orders';
 import { billingRouter } from './billing';
+import { billingAccountsRouter } from './billing-accounts';
 import { clinicalFormsRouter } from './clinical-forms';
 import { conditionsRouter } from './conditions';
 import { allergiesRouter } from './allergies';
@@ -47,6 +48,7 @@ export const appRouter = router({
   lsq: lsqRouter,
   clinicalOrders: clinicalOrdersRouter,
   billing: billingRouter,
+  billingAccounts: billingAccountsRouter,
   clinicalForms: clinicalFormsRouter,
   conditions: conditionsRouter,
   allergies: allergiesRouter,

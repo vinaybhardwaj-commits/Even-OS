@@ -254,6 +254,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">DAG templates, milestones, escalation</p>
                 </div>
               </a>
+              <a href="/admin/billing-v2" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-emerald-50 hover:border-emerald-200 transition-colors">
+                <span className="text-2xl">&#128176;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Billing V2</p>
+                  <p className="text-xs text-gray-500">Accounts, deposits, packages, room charges</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -305,7 +312,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S5d — Care Pathways: DAG templates, milestone tracking, escalation engine, variance reporting. 73 tables, 158 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S6a — Billing Foundation: accounts, deposits, packages, room charges, billing config. 80 tables, 178 routes.</p>
             </div>
           </div>
         </div>
