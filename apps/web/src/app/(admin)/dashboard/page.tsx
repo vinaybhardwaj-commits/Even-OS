@@ -94,11 +94,34 @@ export default async function DashboardPage() {
             </div>
           )}
 
+          {/* Master Data */}
+          {isAdmin && (
+            <div className="mt-8 pt-8 border-t border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Master Data</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <a href="/admin/charge-master" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
+                  <span className="text-2xl">&#8377;</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Charge Master</p>
+                    <p className="text-xs text-gray-500">Prices, procedures, labs</p>
+                  </div>
+                </a>
+                <a href="/admin/drug-master" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
+                  <span className="text-2xl">&#128138;</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Drug Master</p>
+                    <p className="text-xs text-gray-500">Medications & formulary</p>
+                  </div>
+                </a>
+              </div>
+            </div>
+          )}
+
           <div className="mt-8 pt-8 border-t border-gray-200">
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S1 complete — RBAC, device trust, password reset, break-glass, profile, login tracking.</p>
+              <p className="text-sm text-gray-600">Sprint S2a — Charge Master & Drug Master with CRUD, bulk import, version history.</p>
             </div>
           </div>
         </div>
