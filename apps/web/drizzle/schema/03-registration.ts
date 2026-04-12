@@ -51,6 +51,9 @@ export const patientAuditOperationEnum = pgEnum('patient_audit_operation', ['CRE
 
 export const wristbandStatusEnum = pgEnum('wristband_status', ['queued', 'printing', 'printed', 'failed']);
 
+export const dedupStatusEnum = pgEnum('dedup_status', ['pending', 'merged', 'dismissed']);
+export const dedupMatchMethodEnum = pgEnum('dedup_match_method', ['exact_phone', 'fuzzy_name_dob', 'exact_name_phone']);
+
 export const lsqSyncStatusEnum = pgEnum('lsq_sync_status', ['success', 'partial', 'failed']);
 
 export const lsqLeadStatusEnum = pgEnum('lsq_lead_status', ['synced', 'processed', 'merged']);
@@ -339,6 +342,29 @@ export const mpiLinksAudit = pgTable('mpi_links_audit', {
 }));
 
 // ============================================================
+// POTENTIAL DUPLICATES (Dedup queue for admin review)
+// ============================================================
+
+export const potentialDuplicates = pgTable('potential_duplicates', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  hospital_id: text('hospital_id').notNull().references(() => hospitals.hospital_id, { onDelete: 'restrict' }),
+  patient_a_id: uuid('patient_a_id').notNull().references(() => patients.id, { onDelete: 'cascade' }),
+  patient_b_id: uuid('patient_b_id').notNull().references(() => patients.id, { onDelete: 'cascade' }),
+  match_method: dedupMatchMethodEnum('match_method').notNull(),
+  match_score: numeric('match_score', { precision: 3, scale: 2 }).notNull(), // 0.00 – 1.00
+  status: dedupStatusEnum('status').default('pending'),
+  resolved_by_user_id: uuid('resolved_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  resolved_at: timestamp('resolved_at', { withTimezone: true }),
+  resolution_note: text('resolution_note'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  hospitalIdIdx: index('idx_potential_duplicates_hospital_id').on(table.hospital_id),
+  statusIdx: index('idx_potential_duplicates_status').on(table.status),
+  patientAIdx: index('idx_potential_duplicates_patient_a').on(table.patient_a_id),
+  patientBIdx: index('idx_potential_duplicates_patient_b').on(table.patient_b_id),
+}));
+
+// ============================================================
 // UHID SEQUENCES (Per-site UHID generation state)
 // ============================================================
 
@@ -563,6 +589,13 @@ export const mpiLinksRelations = relations(mpiLinks, ({ one, many }) => ({
 export const mpiLinksAuditRelations = relations(mpiLinksAudit, ({ one }) => ({
   mpiLink: one(mpiLinks, { fields: [mpiLinksAudit.mpi_link_id], references: [mpiLinks.id] }),
   user: one(users, { fields: [mpiLinksAudit.user_id], references: [users.id] }),
+}));
+
+export const potentialDuplicatesRelations = relations(potentialDuplicates, ({ one }) => ({
+  hospital: one(hospitals, { fields: [potentialDuplicates.hospital_id], references: [hospitals.hospital_id] }),
+  patientA: one(patients, { fields: [potentialDuplicates.patient_a_id], references: [patients.id], relationName: 'dedup_patient_a' }),
+  patientB: one(patients, { fields: [potentialDuplicates.patient_b_id], references: [patients.id], relationName: 'dedup_patient_b' }),
+  resolvedBy: one(users, { fields: [potentialDuplicates.resolved_by_user_id], references: [users.id] }),
 }));
 
 export const uhidSequencesRelations = relations(uhidSequences, ({ one }) => ({

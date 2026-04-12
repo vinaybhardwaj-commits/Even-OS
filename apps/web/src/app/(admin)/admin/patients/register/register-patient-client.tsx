@@ -28,6 +28,26 @@ interface RegistrationData {
 const bloodGroups = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
 const states = ['Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal'];
 
+interface DedupMatch {
+  id: string;
+  uhid: string;
+  name_full: string;
+  phone: string;
+  dob: string | null;
+  gender: string;
+  patient_category: string;
+  match_score: number;
+  match_method: string;
+}
+
+async function trpcQuery(path: string, input?: any) {
+  const params = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
+  const res = await fetch(`/api/trpc/${path}${params}`);
+  const json = await res.json();
+  if (json.error) throw new Error(json.error.message || 'Request failed');
+  return json.result?.data;
+}
+
 async function trpcMutate(path: string, input: any) {
   const res = await fetch(`/api/trpc/${path}`, {
     method: 'POST',
@@ -45,6 +65,9 @@ export function RegisterPatientClient() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uhid, setUhid] = useState<string | null>(null);
+  const [dedupMatches, setDedupMatches] = useState<DedupMatch[]>([]);
+  const [showDedupWarning, setShowDedupWarning] = useState(false);
+  const [dedupChecking, setDedupChecking] = useState(false);
   const [data, setData] = useState<RegistrationData>({
     givenName: '',
     familyName: '',
@@ -146,8 +169,35 @@ export function RegisterPatientClient() {
     }
   };
 
-  const handleNext = () => {
+  const runDedupCheck = async () => {
+    try {
+      setDedupChecking(true);
+      const nameFull = `${data.givenName} ${data.familyName}`;
+      const result = await trpcQuery('dedup.check', {
+        phone: data.phone,
+        name_full: nameFull,
+        dob: data.dob || '',
+      });
+      if (result.count > 0) {
+        setDedupMatches(result.duplicates);
+        setShowDedupWarning(true);
+        return true; // has duplicates
+      }
+    } catch {
+      // If dedup check fails, proceed anyway — don't block registration
+    } finally {
+      setDedupChecking(false);
+    }
+    return false;
+  };
+
+  const handleNext = async () => {
     if (validateStep()) {
+      // Run dedup check when leaving step 2 (Contact info with phone)
+      if (step === 2) {
+        const hasDupes = await runDedupCheck();
+        if (hasDupes) return; // Show warning modal instead of advancing
+      }
       if (step < 5) {
         setStep(step + 1);
       }
@@ -190,6 +240,23 @@ export function RegisterPatientClient() {
       };
 
       const result = await trpcMutate('patient.register', payload);
+
+      // Enqueue known dedup matches for admin review
+      if (dedupMatches.length > 0) {
+        try {
+          await trpcMutate('dedup.enqueue', {
+            patient_id: result.patient_id,
+            matches: dedupMatches.map(m => ({
+              candidate_id: m.id,
+              match_score: m.match_score,
+              match_method: m.match_method,
+            })),
+          });
+        } catch {
+          // Non-blocking — registration succeeded even if enqueue fails
+        }
+      }
+
       setUhid(result.uhid);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to register patient';
@@ -202,6 +269,84 @@ export function RegisterPatientClient() {
       setLoading(false);
     }
   };
+
+  // ─── DEDUP WARNING MODAL ────────────────────────────────────
+  if (showDedupWarning) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="bg-blue-900 text-white px-6 py-4">
+          <div className="max-w-3xl mx-auto">
+            <Link href="/admin/patients" className="text-blue-100 hover:text-white text-sm mb-2 inline-block">
+              ← Patient Registry
+            </Link>
+            <h1 className="text-3xl font-bold">Potential Duplicates Found</h1>
+          </div>
+        </div>
+
+        <div className="max-w-3xl mx-auto px-6 py-8">
+          <div className="bg-yellow-50 border border-yellow-200 rounded p-4 mb-6">
+            <p className="text-sm text-yellow-800 font-medium">
+              &#9888; We found {dedupMatches.length} existing patient{dedupMatches.length > 1 ? 's' : ''} that may match the person you are registering.
+              Please review before proceeding.
+            </p>
+          </div>
+
+          <div className="bg-white rounded border border-gray-200 shadow-sm mb-6">
+            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+              <p className="text-sm font-semibold text-gray-700">
+                Registering: {data.givenName} {data.familyName} &middot; {data.phone}
+              </p>
+            </div>
+            <div className="divide-y divide-gray-200">
+              {dedupMatches.map((match) => (
+                <div key={match.id} className="px-4 py-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{match.name_full}</p>
+                    <p className="text-xs text-gray-500">
+                      {match.uhid} &middot; {match.phone}
+                      {match.dob ? ` · DOB: ${new Date(match.dob).toLocaleDateString('en-IN')}` : ''}
+                      {` · ${match.gender}`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-xs font-bold px-2 py-1 rounded ${
+                      match.match_score > 0.90 ? 'bg-red-100 text-red-800' :
+                      match.match_score > 0.70 ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-gray-100 text-gray-700'
+                    }`}>
+                      {Math.round(match.match_score * 100)}% match
+                    </span>
+                    <span className="text-xs text-gray-500">{match.match_method.replace(/_/g, ' ')}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-4">
+            <button
+              onClick={() => {
+                setShowDedupWarning(false);
+                setStep(step + 1);
+              }}
+              className="px-6 py-2 bg-yellow-600 text-white rounded font-medium hover:bg-yellow-700 text-sm"
+            >
+              Continue Anyway &#8594;
+            </button>
+            <button
+              onClick={() => {
+                setShowDedupWarning(false);
+                setDedupMatches([]);
+              }}
+              className="px-6 py-2 bg-gray-200 text-gray-700 rounded font-medium hover:bg-gray-300 text-sm"
+            >
+              &#8592; Go Back & Edit
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (uhid) {
     return (

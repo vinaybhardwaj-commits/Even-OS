@@ -149,6 +149,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Register, search & manage</p>
                 </div>
               </a>
+              <a href="/admin/dedup" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-yellow-50 hover:border-yellow-200 transition-colors">
+                <span className="text-2xl">&#8596;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Dedup Queue</p>
+                  <p className="text-xs text-gray-500">Review & merge duplicates</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -186,7 +193,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S3a — Patient Registry: Register, search, list, stats. 25 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S3b — Dedup Engine: Live dedup check, admin queue, merge/dismiss. 26 routes.</p>
             </div>
           </div>
         </div>

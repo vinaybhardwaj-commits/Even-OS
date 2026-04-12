@@ -11,6 +11,7 @@ import { gstRatesRouter } from './gst-rates';
 import { approvalHierarchiesRouter } from './approval-hierarchies';
 import { nabhIndicatorsRouter } from './nabh-indicators';
 import { patientRouter } from './patient';
+import { dedupRouter } from './dedup';
 
 export const appRouter = router({
   auth: authRouter,
@@ -25,6 +26,7 @@ export const appRouter = router({
   approvalHierarchies: approvalHierarchiesRouter,
   nabhIndicators: nabhIndicatorsRouter,
   patient: patientRouter,
+  dedup: dedupRouter,
 });
 
 export type AppRouter = typeof appRouter;
