@@ -170,6 +170,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Print queue & tracking</p>
                 </div>
               </a>
+              <a href="/admin/admissions" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-orange-50 hover:border-orange-200 transition-colors">
+                <span className="text-2xl">&#127973;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Admissions</p>
+                  <p className="text-xs text-gray-500">Admit, checklist & pre-auth</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -207,7 +214,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S3c — Bed Board & Wristbands: 40 beds seeded, real-time grid, print queue. 28 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S4a — Admission Wizard: encounter engine, 4-step wizard, pre-auth gate, checklist, discharge milestones. 34 routes.</p>
             </div>
           </div>
         </div>

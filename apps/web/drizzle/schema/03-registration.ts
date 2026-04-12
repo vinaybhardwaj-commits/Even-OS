@@ -56,6 +56,14 @@ export const dedupMatchMethodEnum = pgEnum('dedup_match_method', ['exact_phone',
 
 export const lsqSyncStatusEnum = pgEnum('lsq_sync_status', ['success', 'partial', 'failed']);
 
+export const checklistItemStatusEnum = pgEnum('checklist_item_status', ['pending', 'done', 'skipped', 'not_applicable']);
+export const preAuthStatusEnum = pgEnum('pre_auth_status', ['not_required', 'pending', 'obtained', 'denied', 'override']);
+export const dischargeMilestoneEnum = pgEnum('discharge_milestone', [
+  'clinical_clearance', 'financial_settlement', 'discharge_summary',
+  'medication_reconciliation', 'patient_education', 'documents_ready',
+  'bed_cleaned', 'followup_scheduled',
+]);
+
 export const lsqLeadStatusEnum = pgEnum('lsq_lead_status', ['synced', 'processed', 'merged']);
 
 // ============================================================
@@ -235,10 +243,16 @@ export const encounters = pgTable('encounters', {
   admission_type: admissionTypeEnum('admission_type'),
   referral_source: referralSourceEnum('referral_source'),
   preliminary_diagnosis_icd10: text('preliminary_diagnosis_icd10'),
+  chief_complaint: text('chief_complaint'),
+  clinical_notes: text('clinical_notes'),
   diet_type: text('diet_type'), // e.g., 'regular', 'liquid', 'npk'
   expected_los_days: integer('expected_los_days'),
   current_location_id: uuid('current_location_id').references(() => locations.id, { onDelete: 'set null' }),
   attending_practitioner_id: uuid('attending_practitioner_id').references(() => users.id, { onDelete: 'set null' }),
+  pre_auth_status: preAuthStatusEnum('pre_auth_status').default('not_required'),
+  pre_auth_number: text('pre_auth_number'),
+  pre_auth_override_reason: text('pre_auth_override_reason'),
+  pre_auth_override_by: uuid('pre_auth_override_by').references(() => users.id, { onDelete: 'set null' }),
   admission_at: timestamp('admission_at', { withTimezone: true }),
   discharge_at: timestamp('discharge_at', { withTimezone: true }),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -495,6 +509,46 @@ export const dischargeOrders = pgTable('discharge_orders', {
 }));
 
 // ============================================================
+// ADMISSION CHECKLISTS (Pre-admission checklist items per encounter)
+// ============================================================
+
+export const admissionChecklists = pgTable('admission_checklists', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  hospital_id: text('hospital_id').notNull().references(() => hospitals.hospital_id, { onDelete: 'restrict' }),
+  encounter_id: uuid('encounter_id').notNull().references(() => encounters.id, { onDelete: 'cascade' }),
+  item_key: text('item_key').notNull(), // e.g., 'identity_docs', 'insurance_verified', 'pre_auth_obtained', 'consent_signed', 'emergency_contact'
+  item_label: text('item_label').notNull(),
+  is_mandatory: boolean('is_mandatory').notNull().default(true),
+  status: checklistItemStatusEnum('status').default('pending'),
+  completed_at: timestamp('completed_at', { withTimezone: true }),
+  completed_by_user_id: uuid('completed_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  notes: text('notes'),
+}, (table) => ({
+  encounterIdIdx: index('idx_admission_checklists_encounter_id').on(table.encounter_id),
+  hospitalIdIdx: index('idx_admission_checklists_hospital_id').on(table.hospital_id),
+  itemKeyIdx: index('idx_admission_checklists_item_key').on(table.encounter_id, table.item_key),
+}));
+
+// ============================================================
+// DISCHARGE MILESTONES (8-step discharge chain per encounter)
+// ============================================================
+
+export const dischargeMilestones = pgTable('discharge_milestones', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  hospital_id: text('hospital_id').notNull().references(() => hospitals.hospital_id, { onDelete: 'restrict' }),
+  encounter_id: uuid('encounter_id').notNull().references(() => encounters.id, { onDelete: 'cascade' }),
+  milestone: dischargeMilestoneEnum('milestone').notNull(),
+  sequence: integer('sequence').notNull(), // 1–8
+  completed_at: timestamp('completed_at', { withTimezone: true }),
+  completed_by_user_id: uuid('completed_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  notes: text('notes'),
+}, (table) => ({
+  encounterIdIdx: index('idx_discharge_milestones_encounter_id').on(table.encounter_id),
+  hospitalIdIdx: index('idx_discharge_milestones_hospital_id').on(table.hospital_id),
+  milestoneIdx: uniqueIndex('idx_discharge_milestones_unique').on(table.encounter_id, table.milestone),
+}));
+
+// ============================================================
 // RELATIONS
 // ============================================================
 
@@ -641,4 +695,16 @@ export const dischargeOrdersRelations = relations(dischargeOrders, ({ one }) => 
   hospital: one(hospitals, { fields: [dischargeOrders.hospital_id], references: [hospitals.hospital_id] }),
   encounter: one(encounters, { fields: [dischargeOrders.encounter_id], references: [encounters.id] }),
   orderedBy: one(users, { fields: [dischargeOrders.ordered_by_user_id], references: [users.id] }),
+}));
+
+export const admissionChecklistsRelations = relations(admissionChecklists, ({ one }) => ({
+  hospital: one(hospitals, { fields: [admissionChecklists.hospital_id], references: [hospitals.hospital_id] }),
+  encounter: one(encounters, { fields: [admissionChecklists.encounter_id], references: [encounters.id] }),
+  completedBy: one(users, { fields: [admissionChecklists.completed_by_user_id], references: [users.id] }),
+}));
+
+export const dischargeMilestonesRelations = relations(dischargeMilestones, ({ one }) => ({
+  hospital: one(hospitals, { fields: [dischargeMilestones.hospital_id], references: [hospitals.hospital_id] }),
+  encounter: one(encounters, { fields: [dischargeMilestones.encounter_id], references: [encounters.id] }),
+  completedBy: one(users, { fields: [dischargeMilestones.completed_by_user_id], references: [users.id] }),
 }));
