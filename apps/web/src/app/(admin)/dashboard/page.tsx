@@ -240,6 +240,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">SOAP, operative, co-sign queue</p>
                 </div>
               </a>
+              <a href="/admin/medication-orders" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-rose-50 hover:border-rose-200 transition-colors">
+                <span className="text-2xl">&#128138;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">CPOE &amp; eMAR</p>
+                  <p className="text-xs text-gray-500">Medication orders, labs, CDS</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -291,7 +298,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S5b — Clinical Notes: SOAP, nursing, operative, discharge notes. Co-signature queue. Procedures & MLC forms. 117 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S5c — CPOE &amp; eMAR: medication orders, CDS engine, service requests, diet &amp; nursing orders. 64 tables, 133 routes.</p>
             </div>
           </div>
         </div>

@@ -24,6 +24,7 @@ import { allergiesRouter } from './allergies';
 import { observationsRouter } from './observations';
 import { clinicalNotesRouter } from './clinical-notes';
 import { proceduresRouter } from './procedures';
+import { medicationOrdersRouter } from './medication-orders';
 
 export const appRouter = router({
   auth: authRouter,
@@ -51,6 +52,7 @@ export const appRouter = router({
   observations: observationsRouter,
   clinicalNotes: clinicalNotesRouter,
   procedures: proceduresRouter,
+  medicationOrders: medicationOrdersRouter,
 });
 
 export type AppRouter = typeof appRouter;
