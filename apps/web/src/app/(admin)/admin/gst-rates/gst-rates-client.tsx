@@ -54,7 +54,7 @@ function isCurrentRate(rate: GstRate, allRates: GstRate[], now: Date): boolean {
 export function GstRatesClient() {
   const [rates, setRates] = useState<GstRate[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
-  const [currentRates, setCurrentRates] = useState<Record<string, string>>({});
+  const [currentRates, setCurrentRates] = useState<Array<{ category: string; percentage: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -168,14 +168,14 @@ export function GstRatesClient() {
           <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
             <div className="text-gray-600 text-sm font-medium">Current Effective Rates</div>
             <div className="text-sm text-gray-700 mt-2 space-y-1">
-              {Object.entries(currentRates).slice(0, 2).map(([category, percentage]) => (
-                <div key={category} className="flex justify-between">
-                  <span>{category}:</span>
-                  <span className="font-semibold text-blue-900">{percentage}%</span>
+              {currentRates.slice(0, 2).map((r: any) => (
+                <div key={r.category} className="flex justify-between">
+                  <span>{r.category}:</span>
+                  <span className="font-semibold text-blue-900">{r.percentage}%</span>
                 </div>
               ))}
-              {Object.keys(currentRates).length > 2 && (
-                <div className="text-gray-500 text-xs">+{Object.keys(currentRates).length - 2} more</div>
+              {currentRates.length > 2 && (
+                <div className="text-gray-500 text-xs">+{currentRates.length - 2} more</div>
               )}
             </div>
           </div>

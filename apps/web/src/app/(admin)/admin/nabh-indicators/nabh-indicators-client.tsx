@@ -50,12 +50,13 @@ interface Stats {
 
 interface Indicator {
   id: string;
-  code: string;
+  indicator_code: string;
   name: string;
   category: string;
-  target?: string;
-  unit?: string;
-  type: 'auto' | 'manual';
+  description: string;
+  calculation_type: string;
+  target_value: string | null;
+  unit: string | null;
 }
 
 interface ListResponse {
@@ -314,7 +315,7 @@ export function NabhIndicatorsClient() {
                       return (
                         <tr key={indicator.id} className="hover:bg-gray-50">
                           <td className="px-6 py-3 text-sm font-medium text-gray-900">
-                            {indicator.code}
+                            {indicator.indicator_code}
                           </td>
                           <td className="px-6 py-3 text-sm text-gray-700">{indicator.name}</td>
                           <td className="px-6 py-3 text-sm">
@@ -325,7 +326,7 @@ export function NabhIndicatorsClient() {
                             </span>
                           </td>
                           <td className="px-6 py-3 text-sm text-gray-700">
-                            {indicator.target || '-'}
+                            {indicator.target_value || '-'}
                           </td>
                           <td className="px-6 py-3 text-sm text-gray-700">
                             {indicator.unit || '-'}
@@ -333,12 +334,12 @@ export function NabhIndicatorsClient() {
                           <td className="px-6 py-3 text-sm">
                             <span
                               className={`inline-block px-2 py-1 rounded text-xs font-medium ${
-                                indicator.type === 'auto'
+                                indicator.calculation_type === 'auto'
                                   ? 'bg-blue-100 text-blue-800'
                                   : 'bg-gray-100 text-gray-800'
                               }`}
                             >
-                              {indicator.type === 'auto' ? 'Auto' : 'Manual'}
+                              {indicator.calculation_type === 'auto' ? 'Auto' : 'Manual'}
                             </span>
                           </td>
                         </tr>
