@@ -30,6 +30,7 @@ import { carePathwaysRouter } from './care-pathways';
 import { insuranceClaimsRouter } from './insurance-claims';
 import { refundRevenueRouter } from './refund-revenue';
 import { pharmacyRouter } from './pharmacy';
+import { labRadiologyRouter } from './lab-radiology';
 
 export const appRouter = router({
   auth: authRouter,
@@ -63,6 +64,7 @@ export const appRouter = router({
   insuranceClaims: insuranceClaimsRouter,
   refundRevenue: refundRevenueRouter,
   pharmacy: pharmacyRouter,
+  labRadiology: labRadiologyRouter,
 });
 
 export type AppRouter = typeof appRouter;

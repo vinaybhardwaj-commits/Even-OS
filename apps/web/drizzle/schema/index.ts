@@ -10,3 +10,4 @@ export * from './09-billing';
 export * from './10-insurance';
 export * from './11-refunds';
 export * from './12-pharmacy';
+export * from './13-lab-radiology';
