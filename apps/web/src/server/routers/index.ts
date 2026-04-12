@@ -33,6 +33,7 @@ import { pharmacyRouter } from './pharmacy';
 import { labRadiologyRouter } from './lab-radiology';
 import { otManagementRouter } from './ot-management';
 import { incidentReportingRouter } from './incident-reporting';
+import { rcaRouter } from './rca';
 
 export const appRouter = router({
   auth: authRouter,
@@ -69,6 +70,7 @@ export const appRouter = router({
   labRadiology: labRadiologyRouter,
   otManagement: otManagementRouter,
   incidentReporting: incidentReportingRouter,
+  rca: rcaRouter,
 });
 
 export type AppRouter = typeof appRouter;

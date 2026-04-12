@@ -310,6 +310,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Adverse events, falls, medication errors</p>
                 </div>
               </a>
+              <a href="/admin/rca" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-orange-50 hover:border-orange-200 transition-colors">
+                <span className="text-2xl">&#128269;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">RCA Engine</p>
+                  <p className="text-xs text-gray-500">Root cause analysis, CAPA tracking</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -361,7 +368,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S8a — Incident reporting: adverse events, medication errors, Morse Fall Scale, quality indicator values. 124 tables, ~340 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S8b — RCA engine: investigations, fishbone, five-why, CAPA, effectiveness reviews. 130 tables, ~365 routes.</p>
             </div>
           </div>
         </div>

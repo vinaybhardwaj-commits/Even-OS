@@ -13,3 +13,4 @@ export * from './12-pharmacy';
 export * from './13-lab-radiology';
 export * from './14-ot-management';
 export * from './15-quality';
+export * from './16-rca';
