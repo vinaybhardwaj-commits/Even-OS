@@ -1,0 +1,23 @@
+{
+  "name": "even-os",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "db:push": "pnpm --filter @even-os/web db:push",
+    "db:seed": "pnpm --filter @even-os/web db:seed",
+    "db:studio": "pnpm --filter @even-os/web db:studio",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.2.0",
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
