@@ -275,6 +275,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Refunds, invoices, analytics, trends</p>
                 </div>
               </a>
+              <a href="/admin/pharmacy" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-green-50 hover:border-green-200 transition-colors">
+                <span className="text-2xl">&#128138;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Pharmacy</p>
+                  <p className="text-xs text-gray-500">Dispensing, inventory, narcotics, POs</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -326,7 +333,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S6c — Revenue Intelligence: refunds, invoices, payments, analytics, TPA performance. 89 tables, 228 routes. Phase C COMPLETE.</p>
+              <p className="text-sm text-gray-600">Sprint S7a — Pharmacy: dispensing, inventory, narcotics register, purchase orders, vendor management. 97 tables, 258 routes.</p>
             </div>
           </div>
         </div>
