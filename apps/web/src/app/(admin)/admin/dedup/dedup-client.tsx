@@ -232,7 +232,7 @@ export function DedupClient() {
 
       const [statsData, itemsData] = await Promise.all([
         trpcQuery('dedup.queueStats', {}),
-        trpcQuery('dedup.listQueue', { status, page, limit: ITEMS_PER_PAGE }),
+        trpcQuery('dedup.listQueue', { status, page, pageSize: ITEMS_PER_PAGE }),
       ]);
 
       setStats(statsData || { pending: 0, merged: 0, dismissed: 0 });
@@ -266,9 +266,9 @@ export function DedupClient() {
     try {
       setMergeModal({ ...mergeModal, isLoading: true });
       await trpcMutation('dedup.merge', {
-        queue_item_id: mergeModal.item.id,
+        duplicate_id: mergeModal.item.id,
         keep_patient_id: keepPatientId,
-        resolution_note: note,
+        note: note || undefined,
       });
       setMergeModal(null);
       fetchData();
@@ -285,8 +285,8 @@ export function DedupClient() {
     try {
       setActionLoading(item.id);
       await trpcMutation('dedup.dismiss', {
-        queue_item_id: item.id,
-        resolution_note: note || undefined,
+        duplicate_id: item.id,
+        note: note || undefined,
       });
       fetchData();
     } catch (err) {
