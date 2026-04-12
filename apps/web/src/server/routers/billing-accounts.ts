@@ -1156,4 +1156,515 @@ export const billingAccountsRouter = router({
         });
       }
     }),
+
+  // ═══════════════════════════════════════════════════════════════
+  // PACKAGE CEILING & AUTO-APPLICATION (21-25)
+  // ═══════════════════════════════════════════════════════════════
+
+  // 21. AUTO-APPLY CHARGES
+  autoApplyCharges: protectedProcedure
+    .input(z.object({
+      encounter_charge_id: z.string().uuid(),
+      package_application_id: z.string().uuid(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const hospitalId = ctx.user.hospital_id;
+
+        // Get the charge details
+        const chargeResult = await sql`
+          SELECT
+            id, encounter_id, category, CAST(net_amount AS NUMERIC) as net_amount
+          FROM encounter_charges
+          WHERE id = ${input.encounter_charge_id} AND hospital_id = ${hospitalId}
+          LIMIT 1
+        `;
+
+        if (!chargeResult || chargeResult.length === 0) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Encounter charge not found',
+          });
+        }
+
+        const charge = (chargeResult as any)[0];
+        const encounterId = charge.encounter_id;
+        const chargeCategory = charge.category;
+        const chargeAmount = parseFloat(charge.net_amount);
+
+        // Get package and encounter details
+        const packageResult = await sql`
+          SELECT
+            id, pa_encounter_id, package_price, max_los_days,
+            includes_room, includes_pharmacy, includes_investigations
+          FROM package_applications
+          WHERE id = ${input.package_application_id} AND hospital_id = ${hospitalId}
+          LIMIT 1
+        `;
+
+        if (!packageResult || packageResult.length === 0) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Package application not found',
+          });
+        }
+
+        const packageApp = (packageResult as any)[0];
+
+        // Check if charge category is covered by package
+        let isCovered = false;
+        if (chargeCategory === 'room_charges' && packageApp.includes_room) isCovered = true;
+        if (chargeCategory === 'pharmacy' && packageApp.includes_pharmacy) isCovered = true;
+        if (chargeCategory === 'investigations' && packageApp.includes_investigations) isCovered = true;
+
+        if (!isCovered) {
+          return {
+            auto_applied: false,
+            reason: 'charge_category_not_covered',
+            charge_id: charge.id,
+          };
+        }
+
+        // Find matching component for this category
+        const componentResult = await sql`
+          SELECT id, budgeted_amount, pc_actual_amount, pc_cap_amount
+          FROM package_components
+          WHERE pc_package_app_id = ${input.package_application_id}
+            AND pc_category = ${chargeCategory}
+          LIMIT 1
+        `;
+
+        if (!componentResult || componentResult.length === 0) {
+          return {
+            auto_applied: false,
+            reason: 'no_matching_component',
+            charge_id: charge.id,
+          };
+        }
+
+        const component = (componentResult as any)[0];
+        const budgetedAmount = parseFloat(component.budgeted_amount);
+        const actualAmount = parseFloat(component.pc_actual_amount || 0);
+        const capAmount = component.pc_cap_amount ? parseFloat(component.pc_cap_amount) : null;
+
+        // Check ceiling
+        const newActual = actualAmount + chargeAmount;
+        if (capAmount && newActual > capAmount) {
+          return {
+            auto_applied: false,
+            reason: 'component_ceiling_exceeded',
+            charge_id: charge.id,
+            current: roundToTwo(actualAmount),
+            ceiling: roundToTwo(capAmount),
+            excess: roundToTwo(newActual - capAmount),
+          };
+        }
+
+        // Record auto-application in package_components
+        await sql`
+          UPDATE package_components
+          SET
+            pc_actual_amount = ${newActual},
+            pc_variance = ${newActual - budgetedAmount}
+          WHERE id = ${component.id}
+        `;
+
+        // Create audit log if desired (optional log table)
+        // Can be expanded to log auto-applications for transparency
+
+        return {
+          auto_applied: true,
+          charge_id: charge.id,
+          component_id: component.id,
+          applied_amount: roundToTwo(chargeAmount),
+          component_actual_after: roundToTwo(newActual),
+        };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Error auto-applying charge',
+        });
+      }
+    }),
+
+  // 22. GET PACKAGE UTILIZATION
+  getPackageUtilization: protectedProcedure
+    .input(z.object({ package_application_id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const hospitalId = ctx.user.hospital_id;
+
+        // Get package and encounter info
+        const packageResult = await sql`
+          SELECT
+            id, package_name, package_code, package_price, actual_cost,
+            pa_status, max_los_days, applied_at, pa_encounter_id
+          FROM package_applications
+          WHERE id = ${input.package_application_id} AND hospital_id = ${hospitalId}
+          LIMIT 1
+        `;
+
+        if (!packageResult || packageResult.length === 0) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Package not found',
+          });
+        }
+
+        const packageApp = (packageResult as any)[0];
+        const encounterId = packageApp.pa_encounter_id;
+        const packagePrice = parseFloat(packageApp.package_price || 0);
+        const maxLosDays = packageApp.max_los_days || 0;
+
+        // Get encounter admission/discharge for LOS
+        const encounterResult = await sql`
+          SELECT admission_date, discharge_date FROM encounters
+          WHERE id = ${encounterId}
+          LIMIT 1
+        `;
+
+        let actualLosDays = 0;
+        if (encounterResult && encounterResult.length > 0) {
+          const enc = (encounterResult as any)[0];
+          if (enc.admission_date && enc.discharge_date) {
+            const admDate = new Date(enc.admission_date);
+            const disDate = new Date(enc.discharge_date);
+            actualLosDays = Math.ceil((disDate.getTime() - admDate.getTime()) / (1000 * 3600 * 24));
+          }
+        }
+
+        // Get components with utilization
+        const componentsResult = await sql`
+          SELECT
+            id, component_name, pc_category as category, budgeted_amount,
+            COALESCE(pc_actual_amount, 0) as actual_amount,
+            pc_variance as variance, pc_cap_amount as cap_amount,
+            pc_is_capped as is_capped
+          FROM package_components
+          WHERE pc_package_app_id = ${input.package_application_id}
+          ORDER BY pc_category
+        `;
+
+        const components = ((componentsResult || []) as any).map((comp: any) => {
+          const budgeted = parseFloat(comp.budgeted_amount);
+          const actual = parseFloat(comp.actual_amount);
+          const pctConsumed = budgeted > 0 ? Math.round((actual / budgeted) * 100) : 0;
+
+          return {
+            component_id: comp.id,
+            component_name: comp.component_name,
+            category: comp.category,
+            budgeted_amount: roundToTwo(budgeted),
+            actual_amount: roundToTwo(actual),
+            percent_consumed: pctConsumed,
+            variance: roundToTwo(comp.variance || 0),
+            cap_amount: comp.cap_amount ? roundToTwo(comp.cap_amount) : null,
+            is_capped: comp.is_capped || false,
+            breach_flag: comp.cap_amount && actual > parseFloat(comp.cap_amount),
+          };
+        });
+
+        // Overall package health
+        const totalActual = parseFloat(packageApp.actual_cost || 0);
+        const packageVariance = totalActual - packagePrice;
+        const packagePctConsumed = packagePrice > 0 ? Math.round((totalActual / packagePrice) * 100) : 0;
+
+        return {
+          package_id: packageApp.id,
+          package_name: packageApp.package_name,
+          package_code: packageApp.package_code,
+          status: packageApp.pa_status,
+          applied_at: packageApp.applied_at,
+          package_price: roundToTwo(packagePrice),
+          total_actual: roundToTwo(totalActual),
+          total_variance: roundToTwo(packageVariance),
+          package_percent_consumed: packagePctConsumed,
+          los_tracking: {
+            max_los_days: maxLosDays,
+            actual_los_days: actualLosDays,
+            los_remaining: Math.max(0, maxLosDays - actualLosDays),
+            los_percent_used: maxLosDays > 0 ? Math.round((actualLosDays / maxLosDays) * 100) : 0,
+          },
+          components,
+          health_indicator: packagePctConsumed > 100 ? 'exceeded' : packagePctConsumed > 80 ? 'caution' : 'healthy',
+        };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Error fetching package utilization',
+        });
+      }
+    }),
+
+  // 23. CHECK PACKAGE CEILING
+  checkPackageCeiling: protectedProcedure
+    .input(z.object({
+      package_application_id: z.string().uuid(),
+      category: z.string(),
+      proposed_amount: z.string().regex(/^\d+(\.\d{1,2})?$/),
+    }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const hospitalId = ctx.user.hospital_id;
+        const proposedAmount = parseFloat(input.proposed_amount);
+
+        // Get package
+        const packageResult = await sql`
+          SELECT package_price, actual_cost FROM package_applications
+          WHERE id = ${input.package_application_id} AND hospital_id = ${hospitalId}
+          LIMIT 1
+        `;
+
+        if (!packageResult || packageResult.length === 0) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Package not found',
+          });
+        }
+
+        const pkg = (packageResult as any)[0];
+        const packagePrice = parseFloat(pkg.package_price);
+        const currentPackageActual = parseFloat(pkg.actual_cost || 0);
+
+        // Check total package ceiling
+        const newPackageTotal = currentPackageActual + proposedAmount;
+        const packageBreach = newPackageTotal > packagePrice;
+        const packageRemaining = Math.max(0, packagePrice - currentPackageActual);
+
+        // Get component details
+        const componentResult = await sql`
+          SELECT
+            id, pc_actual_amount, pc_cap_amount, budgeted_amount
+          FROM package_components
+          WHERE pc_package_app_id = ${input.package_application_id}
+            AND pc_category = ${input.category}
+          LIMIT 1
+        `;
+
+        let componentBreach = false;
+        let componentRemaining = 0;
+        let componentCeiling = null;
+
+        if (componentResult && componentResult.length > 0) {
+          const comp = (componentResult as any)[0];
+          const componentActual = parseFloat(comp.pc_actual_amount || 0);
+          componentCeiling = comp.pc_cap_amount ? parseFloat(comp.pc_cap_amount) : null;
+
+          if (componentCeiling) {
+            const newComponentTotal = componentActual + proposedAmount;
+            componentBreach = newComponentTotal > componentCeiling;
+            componentRemaining = Math.max(0, componentCeiling - componentActual);
+          } else {
+            componentRemaining = parseFloat(comp.budgeted_amount) - componentActual;
+          }
+        }
+
+        // Determine if charge is allowed
+        const allowed = !packageBreach && !componentBreach;
+
+        let warning = '';
+        if (packageBreach && componentBreach) {
+          warning = 'Both package and component ceilings would be breached';
+        } else if (packageBreach) {
+          warning = 'Package ceiling would be breached';
+        } else if (componentBreach) {
+          warning = 'Component ceiling would be breached';
+        }
+
+        return {
+          allowed,
+          package_breach: packageBreach,
+          component_breach: componentBreach,
+          package_remaining: roundToTwo(packageRemaining),
+          component_remaining: roundToTwo(componentRemaining),
+          component_ceiling: componentCeiling ? roundToTwo(componentCeiling) : null,
+          warning: warning || null,
+        };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Error checking package ceiling',
+        });
+      }
+    }),
+
+  // 24. PER-DIEM CALCULATION
+  perDiemCalculation: protectedProcedure
+    .input(z.object({
+      package_application_id: z.string().uuid(),
+      room_charge_category: z.string().optional().default('room_charges'),
+    }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const hospitalId = ctx.user.hospital_id;
+
+        // Get package
+        const packageResult = await sql`
+          SELECT id, package_price, max_los_days, pa_encounter_id
+          FROM package_applications
+          WHERE id = ${input.package_application_id} AND hospital_id = ${hospitalId}
+          LIMIT 1
+        `;
+
+        if (!packageResult || packageResult.length === 0) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Package not found',
+          });
+        }
+
+        const pkg = (packageResult as any)[0];
+        const packagePrice = parseFloat(pkg.package_price);
+        const maxLosDays = pkg.max_los_days || 1;
+        const encounterId = pkg.pa_encounter_id;
+
+        // Calculate daily rate
+        const dailyRate = packagePrice / maxLosDays;
+
+        // Get encounter admission and discharge dates
+        const encounterResult = await sql`
+          SELECT admission_date, discharge_date FROM encounters
+          WHERE id = ${encounterId}
+          LIMIT 1
+        `;
+
+        let actualLosDays = 0;
+        if (encounterResult && encounterResult.length > 0) {
+          const enc = (encounterResult as any)[0];
+          if (enc.admission_date && enc.discharge_date) {
+            const admDate = new Date(enc.admission_date);
+            const disDate = new Date(enc.discharge_date);
+            actualLosDays = Math.ceil((disDate.getTime() - admDate.getTime()) / (1000 * 3600 * 24));
+          }
+        }
+
+        // Get eligible room charges
+        const roomChargesResult = await sql`
+          SELECT
+            COALESCE(SUM(CAST(net_amount AS NUMERIC)), 0) as total_room_charges
+          FROM encounter_charges
+          WHERE encounter_id = ${encounterId}
+            AND category = ${input.room_charge_category}
+            AND hospital_id = ${hospitalId}
+        `;
+
+        const totalRoomCharges = parseFloat((roomChargesResult as any)[0]?.total_room_charges || 0);
+
+        // Calculate eligible charges (capped at daily_rate * actual_los_days)
+        const eligibleRoomChargeCap = dailyRate * actualLosDays;
+        const eligibleRoomCharges = Math.min(totalRoomCharges, eligibleRoomChargeCap);
+        const excessRoomCharges = Math.max(0, totalRoomCharges - eligibleRoomChargeCap);
+
+        return {
+          package_id: pkg.id,
+          daily_rate: roundToTwo(dailyRate),
+          max_los_days: maxLosDays,
+          actual_los_days: actualLosDays,
+          package_price: roundToTwo(packagePrice),
+          room_charges: {
+            total_charges: roundToTwo(totalRoomCharges),
+            eligible_cap: roundToTwo(eligibleRoomChargeCap),
+            eligible_to_apply: roundToTwo(eligibleRoomCharges),
+            excess_charges: roundToTwo(excessRoomCharges),
+          },
+        };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Error calculating per-diem charges',
+        });
+      }
+    }),
+
+  // 25. CLOSE PACKAGE
+  closePackage: protectedProcedure
+    .input(z.object({
+      package_application_id: z.string().uuid(),
+      finalize_reason: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const hospitalId = ctx.user.hospital_id;
+        const userId = ctx.user.sub;
+
+        // Get package
+        const packageResult = await sql`
+          SELECT
+            id, package_price, actual_cost, pa_encounter_id, pa_status
+          FROM package_applications
+          WHERE id = ${input.package_application_id} AND hospital_id = ${hospitalId}
+          LIMIT 1
+        `;
+
+        if (!packageResult || packageResult.length === 0) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Package not found',
+          });
+        }
+
+        const pkg = (packageResult as any)[0];
+        if (pkg.pa_status === 'closed') {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Package is already closed',
+          });
+        }
+
+        const packagePrice = parseFloat(pkg.package_price);
+        const actualCost = parseFloat(pkg.actual_cost || 0);
+        const finalVariance = actualCost - packagePrice;
+        const finalStatus = actualCost > packagePrice ? 'exceeded' : 'within_budget';
+
+        // Close the package
+        await sql`
+          UPDATE package_applications
+          SET
+            pa_status = 'closed',
+            variance_amount = ${finalVariance},
+            pa_closed_reason = ${input.finalize_reason || null},
+            pa_closed_by = ${userId},
+            pa_closed_at = NOW(),
+            pa_updated_at = NOW()
+          WHERE id = ${input.package_application_id}
+        `;
+
+        // Get final component summary
+        const componentsResult = await sql`
+          SELECT
+            component_name, pc_category as category, budgeted_amount,
+            pc_actual_amount as actual_amount, pc_variance as variance
+          FROM package_components
+          WHERE pc_package_app_id = ${input.package_application_id}
+        `;
+
+        const components = ((componentsResult || []) as any).map((comp: any) => ({
+          component_name: comp.component_name,
+          category: comp.category,
+          budgeted_amount: roundToTwo(comp.budgeted_amount),
+          actual_amount: roundToTwo(comp.actual_amount || 0),
+          variance: roundToTwo(comp.variance || 0),
+        }));
+
+        return {
+          package_id: pkg.id,
+          package_price: roundToTwo(packagePrice),
+          actual_cost: roundToTwo(actualCost),
+          final_variance: roundToTwo(finalVariance),
+          final_status: finalStatus,
+          component_summary: components,
+          closed_at: new Date().toISOString(),
+        };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Error closing package',
+        });
+      }
+    }),
 });

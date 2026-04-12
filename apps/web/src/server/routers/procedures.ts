@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import { neon } from '@neondatabase/serverless';
 import { writeAuditLog } from '@/lib/audit/logger';
+import { writeEvent } from '@/lib/event-log';
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -101,6 +102,30 @@ export const proceduresRouter = router({
           },
         });
 
+        // 5. Log event (fire-and-forget)
+        try {
+          await writeEvent({
+            hospital_id: hospitalId,
+            resource_type: 'procedure',
+            resource_id: procedure.id,
+            event_type: 'created',
+            data: {
+              patient_id: input.patient_id,
+              encounter_id: input.encounter_id,
+              procedure_code: input.procedure_code || null,
+              procedure_name: input.procedure_name,
+              status: 'preparation',
+              performer_id: input.performer_id,
+              performer_role: input.performer_role,
+              performed_datetime: input.performed_datetime || null,
+            },
+            actor_id: userId,
+            actor_email: ctx.user.email,
+          });
+        } catch (error) {
+          console.error('Failed to write event log for procedure creation:', error);
+        }
+
         return {
           procedure_id: procedure.id,
           procedure_name: procedure.procedure_name,
@@ -172,6 +197,45 @@ export const proceduresRouter = router({
           old_values: { status: current.status },
           new_values: { status: input.status },
         });
+
+        // 5. Log event (fire-and-forget)
+        try {
+          const procDetail = await sql`
+            SELECT id, patient_id, encounter_id, procedure_code, procedure_name,
+                   performer_id, performer_role, performed_datetime
+            FROM procedures
+            WHERE id = ${input.procedure_id}::uuid
+            AND hospital_id = ${hospitalId}
+            LIMIT 1
+          `;
+          const procRows = (procDetail as any);
+          if (procRows && procRows.length > 0) {
+            const proc = procRows[0];
+            await writeEvent({
+              hospital_id: hospitalId,
+              resource_type: 'procedure',
+              resource_id: proc.id,
+              event_type: 'status_changed',
+              data: {
+                patient_id: proc.patient_id,
+                encounter_id: proc.encounter_id,
+                procedure_code: proc.procedure_code,
+                procedure_name: proc.procedure_name,
+                status: input.status,
+                performer_id: proc.performer_id,
+                performer_role: proc.performer_role,
+                performed_datetime: proc.performed_datetime,
+              },
+              delta: {
+                status: input.status,
+              },
+              actor_id: userId,
+              actor_email: ctx.user.email,
+            });
+          }
+        } catch (error) {
+          console.error('Failed to write event log for procedure status change:', error);
+        }
 
         return {
           procedure_id: updateRows[0].id,

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { router, protectedProcedure } from '../trpc';
+import { router, protectedProcedure, adminProcedure } from '../trpc';
 import { neon } from '@neondatabase/serverless';
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -987,5 +987,79 @@ export const labRadiologyRouter = router({
 
       const stats = await sql(query, [ctx.user.hospital_id]);
       return stats;
+    }),
+
+  // ===== PACS/OHIF INTEGRATION =====
+
+  studyMetadata: protectedProcedure
+    .input(z.object({
+      radiology_order_id: z.string().uuid(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const order = await sql(
+        `SELECT id, dicom_study_uid, ro_modality, ro_ordered_at
+         FROM radiology_orders
+         WHERE id = $1 AND hospital_id = $2`,
+        [input.radiology_order_id, ctx.user.hospital_id]
+      );
+
+      if (order.length === 0) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Radiology order not found',
+        });
+      }
+
+      const ro = order[0];
+      return {
+        study_uid: ro.dicom_study_uid || null,
+        accession_number: ro.accession_number_dicom || null,
+        modality: ro.ro_modality,
+        study_date: ro.ro_ordered_at,
+        series_count: 0,
+        instance_count: 0,
+      };
+    }),
+
+  viewerUrl: protectedProcedure
+    .input(z.object({
+      study_uid: z.string(),
+    }))
+    .query(async ({ input }) => {
+      const ohifUrl = process.env.OHIF_VIEWER_URL || 'https://viewer.ohif.org';
+      const viewerUrl = `${ohifUrl}/viewer/${input.study_uid}`;
+
+      return {
+        url: viewerUrl,
+        viewer: 'ohif' as const,
+        orthanc_base: process.env.ORTHANC_BASE_URL || 'https://orthanc.example.com',
+      };
+    }),
+
+  linkDicomStudy: adminProcedure
+    .input(z.object({
+      radiology_order_id: z.string().uuid(),
+      study_uid: z.string(),
+      accession_number: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date().toISOString();
+
+      const result = await sql(
+        `UPDATE radiology_orders
+         SET dicom_study_uid = $1, accession_number_dicom = $2, updated_at = $3
+         WHERE id = $4 AND hospital_id = $5
+         RETURNING id, dicom_study_uid, accession_number_dicom`,
+        [input.study_uid, input.accession_number || null, now, input.radiology_order_id, ctx.user.hospital_id]
+      );
+
+      if (result.length === 0) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Radiology order not found',
+        });
+      }
+
+      return result[0];
     }),
 });

@@ -296,6 +296,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Scheduling, WHO checklist, anesthesia</p>
                 </div>
               </a>
+              <a href="/admin/emar" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
+                <span className="text-2xl">&#128137;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">eMAR</p>
+                  <p className="text-xs text-gray-500">Medication administration, 5 Rights</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -347,7 +354,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S7c — OT Management: scheduling, WHO checklist, anesthesia records, equipment, turnover tracking. 118 tables, 311 routes. Phase D complete.</p>
+              <p className="text-sm text-gray-600">Hole-plug sprint complete: package ceiling engine, PACS/OHIF stubs, eMAR 5-Rights, event sourcing. 118 tables, 311 routes, 48 pages.</p>
             </div>
           </div>
         </div>

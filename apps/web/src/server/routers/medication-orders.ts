@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import { neon } from '@neondatabase/serverless';
+import { writeEvent } from '@/lib/event-log';
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -236,6 +237,45 @@ export const medicationOrdersRouter = router({
             NOW()
           );
         `;
+
+        // Log event (fire-and-forget)
+        try {
+          await writeEvent({
+            hospital_id: hospitalId,
+            resource_type: 'medication_request',
+            resource_id: rows[0].id,
+            event_type: 'created',
+            data: {
+              patient_id: input.patient_id,
+              encounter_id: input.encounter_id || null,
+              drug_name: input.drug_name,
+              generic_name: input.generic_name || null,
+              drug_code: input.drug_code || null,
+              dose_quantity: input.dose_quantity || null,
+              dose_unit: input.dose_unit || null,
+              route: input.route || null,
+              frequency_code: input.frequency_code || null,
+              frequency_value: input.frequency_value || null,
+              frequency_unit: input.frequency_unit || null,
+              duration_days: input.duration_days || null,
+              max_dose_per_day: input.max_dose_per_day || null,
+              is_prn: input.is_prn,
+              prn_indication: input.prn_indication || null,
+              is_high_alert: input.is_high_alert,
+              is_lasa: input.is_lasa,
+              narcotics_class: input.narcotics_class || null,
+              instructions: input.instructions || null,
+              substitution_allowed: input.substitution_allowed,
+              start_date: input.start_date || null,
+              end_date: input.end_date || null,
+              status: 'active',
+            },
+            actor_id: ctx.user.sub,
+            actor_email: ctx.user.email,
+          });
+        } catch (error) {
+          console.error('Failed to write event log for medication order creation:', error);
+        }
 
         return {
           id: rows[0].id,
@@ -1420,6 +1460,474 @@ export const medicationOrdersRouter = router({
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: `Failed to list nursing orders: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  // ─── eMAR ENDPOINTS ───────────────────────────────────────────
+  // 17. eMAR SCHEDULE - Get medication administration schedule for patient
+  emarSchedule: protectedProcedure
+    .input(z.object({
+      encounter_id: z.string().uuid(),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().default(() => new Date().toISOString().split('T')[0]),
+    }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const hospitalId = ctx.user.hospital_id;
+        const startOfDay = input.date + 'T00:00:00Z';
+        const endOfDay = input.date + 'T23:59:59Z';
+
+        // Map frequency codes to slots per day
+        const frequencyToSlots: Record<string, number> = {
+          'OD': 1, 'BD': 2, 'TDS': 3, 'QID': 4,
+          'Q4H': 6, 'Q6H': 4, 'Q8H': 3, 'Q12H': 2,
+          'STAT': 1, 'HS': 1,
+        };
+
+        // Get active medication requests for this encounter
+        const requestsResult = await sql`
+          SELECT
+            mr.id, mr.drug_name, mr.dose_quantity, mr.dose_unit,
+            mr.route, mr.frequency_code, mr.start_date, mr.end_date
+          FROM medication_requests mr
+          WHERE mr.encounter_id = ${input.encounter_id}::uuid
+            AND mr.hospital_id = ${hospitalId}
+            AND mr.status = 'active'
+            AND mr.start_date <= ${endOfDay}::timestamp
+            AND (mr.end_date IS NULL OR mr.end_date >= ${startOfDay}::timestamp)
+          ORDER BY mr.drug_name;
+        `;
+
+        const requests = (requestsResult as any) || [];
+        const scheduleMap = new Map<string, any[]>();
+
+        // Generate time slots for each medication
+        for (const req of requests) {
+          const freqCode = req.frequency_code || 'OD';
+          const slotsPerDay = frequencyToSlots[freqCode] || 1;
+          const timeSlots: string[] = [];
+
+          // Generate time slots based on frequency
+          if (freqCode === 'OD' || freqCode === 'STAT' || freqCode === 'HS') {
+            timeSlots.push('08:00');
+          } else if (freqCode === 'BD') {
+            timeSlots.push('08:00', '20:00');
+          } else if (freqCode === 'TDS') {
+            timeSlots.push('08:00', '14:00', '20:00');
+          } else if (freqCode === 'QID') {
+            timeSlots.push('06:00', '12:00', '18:00', '22:00');
+          } else if (freqCode === 'Q4H') {
+            timeSlots.push('00:00', '04:00', '08:00', '12:00', '16:00', '20:00');
+          } else if (freqCode === 'Q6H') {
+            timeSlots.push('06:00', '12:00', '18:00', '00:00');
+          } else if (freqCode === 'Q8H') {
+            timeSlots.push('06:00', '14:00', '22:00');
+          } else if (freqCode === 'Q12H') {
+            timeSlots.push('06:00', '18:00');
+          }
+
+          // For each time slot, check if administration record exists
+          for (const timeSlot of timeSlots) {
+            const scheduledDateTime = input.date + 'T' + timeSlot + ':00Z';
+
+            // Check for existing administration record
+            const adminResult = await sql`
+              SELECT id, status, administered_datetime, dose_given, route
+              FROM medication_administrations
+              WHERE medication_request_id = ${req.id}::uuid
+                AND hospital_id = ${hospitalId}
+                AND scheduled_datetime = ${scheduledDateTime}::timestamp
+              LIMIT 1;
+            `;
+
+            const adminRecord = (adminResult as any)?.[0];
+            const status = adminRecord?.status || 'pending';
+
+            if (!scheduleMap.has(timeSlot)) {
+              scheduleMap.set(timeSlot, []);
+            }
+
+            scheduleMap.get(timeSlot)!.push({
+              request_id: req.id,
+              drug_name: req.drug_name,
+              dose_quantity: req.dose_quantity,
+              dose_unit: req.dose_unit,
+              route: req.route,
+              time_slot: timeSlot,
+              scheduled_datetime: scheduledDateTime,
+              administration: adminRecord ? {
+                id: adminRecord.id,
+                status,
+                administered_datetime: adminRecord.administered_datetime,
+                dose_given: adminRecord.dose_given,
+                route: adminRecord.route,
+              } : null,
+            });
+          }
+        }
+
+        // Convert to sorted array
+        const schedule = Array.from(scheduleMap.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([timeSlot, meds]) => ({ time_slot: timeSlot, medications: meds }));
+
+        return schedule;
+      } catch (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Failed to get MAR schedule: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  // 18. eMAR RECORD - Nurse records giving a medication
+  emarRecord: protectedProcedure
+    .input(z.object({
+      medication_request_id: z.string().uuid(),
+      encounter_id: z.string().uuid(),
+      patient_id: z.string().uuid(),
+      scheduled_datetime: z.string().datetime(),
+      dose_given: z.number(),
+      dose_unit: z.string(),
+      route: z.string(),
+      patient_barcode_scanned: z.boolean().default(false),
+      medication_barcode_scanned: z.boolean().default(false),
+      administration_site: z.string().optional(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const hospitalId = ctx.user.hospital_id;
+
+        // Insert medication administration record
+        const result = await sql`
+          INSERT INTO medication_administrations (
+            medication_request_id, patient_id, encounter_id, hospital_id,
+            scheduled_datetime, administered_datetime,
+            dose_given, dose_unit, route,
+            patient_barcode_scanned, medication_barcode_scanned,
+            administration_site, notes, status,
+            recorded_by,
+            created_at, updated_at
+          )
+          VALUES (
+            ${input.medication_request_id}::uuid,
+            ${input.patient_id}::uuid,
+            ${input.encounter_id}::uuid,
+            ${hospitalId},
+            ${input.scheduled_datetime},
+            NOW(),
+            ${input.dose_given},
+            ${input.dose_unit},
+            ${input.route},
+            ${input.patient_barcode_scanned},
+            ${input.medication_barcode_scanned},
+            ${input.administration_site || null},
+            ${input.notes || null},
+            'completed',
+            ${ctx.user.sub},
+            NOW(),
+            NOW()
+          )
+          RETURNING id;
+        `;
+
+        const adminRows = (result as any);
+        if (!adminRows || adminRows.length === 0) {
+          throw new Error('Failed to record administration');
+        }
+
+        // Audit log
+        await sql`
+          INSERT INTO audit_logs (
+            hospital_id, user_id, action, table_name, row_id,
+            new_values, ip_address, created_at
+          )
+          VALUES (
+            ${hospitalId},
+            ${ctx.user.sub},
+            'INSERT',
+            'medication_administrations',
+            ${adminRows[0].id}::uuid,
+            ${ { status: 'completed', dose_given: input.dose_given } },
+            '0.0.0.0',
+            NOW()
+          );
+        `;
+
+        return { success: true, administration_id: adminRows[0].id };
+      } catch (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Failed to record administration: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  // 19. eMAR HOLD - Put a scheduled dose on hold
+  emarHold: protectedProcedure
+    .input(z.object({
+      medication_request_id: z.string().uuid(),
+      encounter_id: z.string().uuid(),
+      patient_id: z.string().uuid(),
+      scheduled_datetime: z.string().datetime(),
+      hold_reason: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const hospitalId = ctx.user.hospital_id;
+
+        // Check if record exists, update or create
+        const existingResult = await sql`
+          SELECT id FROM medication_administrations
+          WHERE medication_request_id = ${input.medication_request_id}::uuid
+            AND hospital_id = ${hospitalId}
+            AND scheduled_datetime = ${input.scheduled_datetime}::timestamp
+          LIMIT 1;
+        `;
+
+        const existing = (existingResult as any)?.[0];
+
+        if (existing) {
+          await sql`
+            UPDATE medication_administrations
+            SET status = 'held', hold_reason = ${input.hold_reason},
+                updated_at = NOW()
+            WHERE id = ${existing.id}::uuid;
+          `;
+        } else {
+          await sql`
+            INSERT INTO medication_administrations (
+              medication_request_id, patient_id, encounter_id, hospital_id,
+              scheduled_datetime, hold_reason, status,
+              created_at, updated_at
+            )
+            VALUES (
+              ${input.medication_request_id}::uuid,
+              ${input.patient_id}::uuid,
+              ${input.encounter_id}::uuid,
+              ${hospitalId},
+              ${input.scheduled_datetime},
+              ${input.hold_reason},
+              'held',
+              NOW(),
+              NOW()
+            );
+          `;
+        }
+
+        // Audit
+        await sql`
+          INSERT INTO audit_logs (
+            hospital_id, user_id, action, table_name, row_id,
+            new_values, ip_address, created_at
+          )
+          VALUES (
+            ${hospitalId},
+            ${ctx.user.sub},
+            'UPDATE',
+            'medication_administrations',
+            ${input.medication_request_id}::uuid,
+            ${ { status: 'held', hold_reason: input.hold_reason } },
+            '0.0.0.0',
+            NOW()
+          );
+        `;
+
+        return { success: true };
+      } catch (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Failed to hold medication: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  // 20. eMAR REFUSE - Patient refused medication
+  emarRefuse: protectedProcedure
+    .input(z.object({
+      medication_request_id: z.string().uuid(),
+      encounter_id: z.string().uuid(),
+      patient_id: z.string().uuid(),
+      scheduled_datetime: z.string().datetime(),
+      not_done_reason: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const hospitalId = ctx.user.hospital_id;
+
+        // Check if record exists, update or create
+        const existingResult = await sql`
+          SELECT id FROM medication_administrations
+          WHERE medication_request_id = ${input.medication_request_id}::uuid
+            AND hospital_id = ${hospitalId}
+            AND scheduled_datetime = ${input.scheduled_datetime}::timestamp
+          LIMIT 1;
+        `;
+
+        const existing = (existingResult as any)?.[0];
+
+        if (existing) {
+          await sql`
+            UPDATE medication_administrations
+            SET status = 'not_done', not_done_reason = ${input.not_done_reason},
+                updated_at = NOW()
+            WHERE id = ${existing.id}::uuid;
+          `;
+        } else {
+          await sql`
+            INSERT INTO medication_administrations (
+              medication_request_id, patient_id, encounter_id, hospital_id,
+              scheduled_datetime, not_done_reason, status,
+              created_at, updated_at
+            )
+            VALUES (
+              ${input.medication_request_id}::uuid,
+              ${input.patient_id}::uuid,
+              ${input.encounter_id}::uuid,
+              ${hospitalId},
+              ${input.scheduled_datetime},
+              ${input.not_done_reason},
+              'not_done',
+              NOW(),
+              NOW()
+            );
+          `;
+        }
+
+        // Audit
+        await sql`
+          INSERT INTO audit_logs (
+            hospital_id, user_id, action, table_name, row_id,
+            new_values, ip_address, created_at
+          )
+          VALUES (
+            ${hospitalId},
+            ${ctx.user.sub},
+            'UPDATE',
+            'medication_administrations',
+            ${input.medication_request_id}::uuid,
+            ${ { status: 'not_done', not_done_reason: input.not_done_reason } },
+            '0.0.0.0',
+            NOW()
+          );
+        `;
+
+        return { success: true };
+      } catch (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Failed to refuse medication: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  // 21. eMAR ANALYTICS - Admin analytics on medication administration
+  emarAnalytics: protectedProcedure
+    .input(z.object({
+      date_from: z.string().datetime().optional(),
+      date_to: z.string().datetime().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const hospitalId = ctx.user.hospital_id;
+
+        const dateFromFilter = input.date_from
+          ? sql`AND ma.administered_datetime >= ${input.date_from}::timestamp`
+          : sql`AND DATE(ma.administered_datetime) = CURRENT_DATE`;
+
+        const dateToFilter = input.date_to
+          ? sql`AND ma.administered_datetime <= ${input.date_to}::timestamp`
+          : sql``;
+
+        // Total administrations
+        const totalResult = await sql`
+          SELECT COUNT(*) as count
+          FROM medication_administrations ma
+          WHERE ma.hospital_id = ${hospitalId}
+            AND ma.status = 'completed'
+            ${dateFromFilter}
+            ${dateToFilter};
+        `;
+
+        const totalAdministrations = (totalResult as any)?.[0]?.count || 0;
+
+        // On-time rate (within 30 minutes of scheduled time)
+        const onTimeResult = await sql`
+          SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN ABS(EXTRACT(EPOCH FROM (ma.administered_datetime - ma.scheduled_datetime))/60) <= 30 THEN 1 ELSE 0 END) as on_time
+          FROM medication_administrations ma
+          WHERE ma.hospital_id = ${hospitalId}
+            AND ma.status = 'completed'
+            ${dateFromFilter}
+            ${dateToFilter};
+        `;
+
+        const onTimeData = (onTimeResult as any)?.[0];
+        const onTimeRate = onTimeData?.total > 0
+          ? Math.round((Number(onTimeData.on_time) / Number(onTimeData.total)) * 100)
+          : 0;
+
+        // Barcode scan rate
+        const barcodeResult = await sql`
+          SELECT
+            SUM(CASE WHEN patient_barcode_scanned = true THEN 1 ELSE 0 END) as patient_scans,
+            SUM(CASE WHEN medication_barcode_scanned = true THEN 1 ELSE 0 END) as med_scans,
+            COUNT(*) as total
+          FROM medication_administrations ma
+          WHERE ma.hospital_id = ${hospitalId}
+            AND ma.status = 'completed'
+            ${dateFromFilter}
+            ${dateToFilter};
+        `;
+
+        const barcodeData = (barcodeResult as any)?.[0];
+        const barcodeScanRate = barcodeData?.total > 0
+          ? Math.round((Number(barcodeData.patient_scans) / Number(barcodeData.total)) * 100)
+          : 0;
+
+        // Top held medications
+        const heldResult = await sql`
+          SELECT
+            mr.drug_name,
+            COUNT(*) as hold_count
+          FROM medication_administrations ma
+          JOIN medication_requests mr ON ma.medication_request_id = mr.id
+          WHERE ma.hospital_id = ${hospitalId}
+            AND ma.status = 'held'
+            ${dateFromFilter}
+            ${dateToFilter}
+          GROUP BY mr.drug_name
+          ORDER BY hold_count DESC
+          LIMIT 5;
+        `;
+
+        const topHeldMedications = (heldResult as any) || [];
+
+        // Refusal count
+        const refusalResult = await sql`
+          SELECT COUNT(*) as count
+          FROM medication_administrations ma
+          WHERE ma.hospital_id = ${hospitalId}
+            AND ma.status = 'not_done'
+            ${dateFromFilter}
+            ${dateToFilter};
+        `;
+
+        const refusalCount = (refusalResult as any)?.[0]?.count || 0;
+
+        return {
+          total_administrations: totalAdministrations,
+          on_time_rate: onTimeRate,
+          barcode_scan_rate: barcodeScanRate,
+          top_held_medications: topHeldMedications,
+          refusal_count: refusalCount,
+        };
+      } catch (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Failed to get MAR analytics: ${error instanceof Error ? error.message : 'Unknown error'}`,
         });
       }
     }),

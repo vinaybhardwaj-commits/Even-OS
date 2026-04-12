@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import { neon } from '@neondatabase/serverless';
+import { writeEvent } from '@/lib/event-log';
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -410,6 +411,37 @@ export const observationsRouter = router({
           `;
         }
 
+        // Log event for main vitals set (fire-and-forget)
+        try {
+          if (insertedObs.length > 0) {
+            await writeEvent({
+              hospital_id: hospitalId,
+              resource_type: 'observation',
+              resource_id: insertedObs[0].id,
+              event_type: 'created',
+              data: {
+                patient_id: input.patient_id,
+                encounter_id: input.encounter_id,
+                effective_datetime: input.effective_datetime,
+                temperature: input.temperature || null,
+                pulse: input.pulse || null,
+                bp_systolic: input.bp_systolic || null,
+                bp_diastolic: input.bp_diastolic || null,
+                spo2: input.spo2 || null,
+                rr: input.rr || null,
+                pain_score: input.pain_score || null,
+                weight: input.weight || null,
+                height: input.height || null,
+                observation_count: insertedObs.length,
+              },
+              actor_id: userId,
+              actor_email: ctx.user.email,
+            });
+          }
+        } catch (error) {
+          console.error('Failed to write event log for vitals creation:', error);
+        }
+
         return {
           success: true,
           vitals: insertedObs,
@@ -739,6 +771,31 @@ export const observationsRouter = router({
 
         if (!rows || rows.length === 0) {
           throw new Error('Failed to create intake/output record');
+        }
+
+        // Log event (fire-and-forget)
+        try {
+          await writeEvent({
+            hospital_id: hospitalId,
+            resource_type: 'observation',
+            resource_id: rows[0].id,
+            event_type: 'created',
+            data: {
+              patient_id: input.patient_id,
+              encounter_id: input.encounter_id,
+              observation_type: input.observation_type,
+              value_quantity: input.value_quantity,
+              unit: 'ml',
+              effective_datetime: input.effective_datetime,
+              io_color: input.io_color || null,
+              io_clarity: input.io_clarity || null,
+              io_notes: input.io_notes || null,
+            },
+            actor_id: userId,
+            actor_email: ctx.user.email,
+          });
+        } catch (error) {
+          console.error('Failed to write event log for intake/output creation:', error);
         }
 
         return {

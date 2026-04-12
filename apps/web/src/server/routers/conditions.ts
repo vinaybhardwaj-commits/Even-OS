@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import { neon } from '@neondatabase/serverless';
+import { writeEvent } from '@/lib/event-log';
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -111,6 +112,32 @@ export const conditionsRouter = router({
           });
         }
 
+        // Log event (fire-and-forget)
+        try {
+          await writeEvent({
+            hospital_id: hospitalId,
+            resource_type: 'condition',
+            resource_id: rows[0].id,
+            event_type: 'created',
+            data: {
+              patient_id: input.patient_id,
+              encounter_id: input.encounter_id || null,
+              icd10_code: input.icd10_code || null,
+              condition_name: input.condition_name,
+              clinical_status: input.clinical_status,
+              verification_status: input.verification_status,
+              severity: input.severity || null,
+              onset_date: input.onset_date || null,
+              notes: input.notes || null,
+            },
+            actor_id: userId,
+            actor_email: ctx.user.email,
+          });
+        } catch (error) {
+          // Log but don't throw
+          console.error('Failed to write event log for condition creation:', error);
+        }
+
         return {
           condition_id: rows[0].id,
           condition_name: rows[0].condition_name,
@@ -214,6 +241,40 @@ export const conditionsRouter = router({
           });
         }
 
+        // Log event (fire-and-forget)
+        try {
+          await writeEvent({
+            hospital_id: hospitalId,
+            resource_type: 'condition',
+            resource_id: rows[0].id,
+            event_type: 'updated',
+            data: {
+              patient_id: condition.patient_id,
+              encounter_id: condition.encounter_id || null,
+              icd10_code: condition.icd10_code || null,
+              condition_name: condition.condition_name,
+              clinical_status: input.clinical_status !== undefined ? input.clinical_status : condition.clinical_status,
+              verification_status: input.verification_status !== undefined ? input.verification_status : condition.verification_status,
+              severity: input.severity !== undefined ? input.severity : condition.severity,
+              onset_date: condition.onset_date || null,
+              abatement_date: input.abatement_date || null,
+              notes: input.notes !== undefined ? input.notes : condition.notes,
+            },
+            delta: {
+              clinical_status: input.clinical_status,
+              verification_status: input.verification_status,
+              severity: input.severity,
+              abatement_date: input.abatement_date,
+              notes: input.notes,
+            },
+            actor_id: userId,
+            actor_email: ctx.user.email,
+          });
+        } catch (error) {
+          // Log but don't throw
+          console.error('Failed to write event log for condition update:', error);
+        }
+
         return {
           condition_id: rows[0].id,
           version: rows[0].version,
@@ -238,21 +299,27 @@ export const conditionsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        // Verify condition exists
-        const condition = await sql`
-          SELECT id FROM conditions
+        // Verify condition exists and get full snapshot
+        const conditionCheck = await sql`
+          SELECT
+            id, hospital_id, patient_id, encounter_id, icd10_code,
+            condition_name, clinical_status, verification_status, severity,
+            onset_date, notes
+          FROM conditions
           WHERE id = ${input.condition_id}
           AND hospital_id = ${hospitalId}
           AND is_deleted = false
           LIMIT 1
         `;
 
-        if (!condition || condition.length === 0) {
+        if (!conditionCheck || conditionCheck.length === 0) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Condition not found',
           });
         }
+
+        const conditionData = conditionCheck[0];
 
         // Soft delete
         const result = await sql`
@@ -270,6 +337,22 @@ export const conditionsRouter = router({
             code: 'INTERNAL_SERVER_ERROR',
             message: 'Failed to delete condition',
           });
+        }
+
+        // Log event (fire-and-forget)
+        try {
+          await writeEvent({
+            hospital_id: hospitalId,
+            resource_type: 'condition',
+            resource_id: rows[0].id,
+            event_type: 'deleted',
+            data: conditionData,
+            actor_id: ctx.user.sub,
+            actor_email: ctx.user.email,
+          });
+        } catch (error) {
+          // Log but don't throw
+          console.error('Failed to write event log for condition deletion:', error);
         }
 
         return {

@@ -53,6 +53,8 @@ interface RadiologyOrder {
   completed_at: string | null;
   ordered_at: string;
   ordered_by: string;
+  dicom_study_uid?: string | null;
+  accession_number_dicom?: string | null;
 }
 
 interface Specimen {
@@ -950,7 +952,7 @@ export default function LabRadiologyClient({ user }: { user: User }) {
                           </span>
                         </td>
                         <td style={{ padding: '12px', color: '#6b7280', fontSize: '13px' }}>{formatDate(order.scheduled_at)}</td>
-                        <td style={{ padding: '12px' }}>
+                        <td style={{ padding: '12px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                           {order.status === 'scheduled' && (
                             <button
                               onClick={() => { setSelectedRadiologyOrder(order); setShowScheduleModal(true); }}
@@ -965,6 +967,27 @@ export default function LabRadiologyClient({ user }: { user: User }) {
                               }}
                             >
                               Schedule
+                            </button>
+                          )}
+                          {order.dicom_study_uid && (
+                            <button
+                              onClick={() => {
+                                const ohifUrl = process.env.NEXT_PUBLIC_OHIF_VIEWER_URL || 'https://viewer.ohif.org';
+                                const viewerUrl = `${ohifUrl}/viewer/${order.dicom_study_uid}`;
+                                window.open(viewerUrl, '_blank');
+                              }}
+                              style={{
+                                padding: '6px 10px',
+                                backgroundColor: '#0891b2',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: '4px',
+                                fontSize: '12px',
+                                cursor: 'pointer',
+                              }}
+                              title="View in OHIF DICOM viewer"
+                            >
+                              ☐ View DICOM
                             </button>
                           )}
                         </td>
