@@ -268,6 +268,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Pre-auth, TPA, deductions, settlement</p>
                 </div>
               </a>
+              <a href="/admin/revenue-dashboard" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-emerald-50 hover:border-emerald-200 transition-colors">
+                <span className="text-2xl">&#128200;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Revenue Dashboard</p>
+                  <p className="text-xs text-gray-500">Refunds, invoices, analytics, trends</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -319,7 +326,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S6b — Insurance Claims: pre-auth, enhancement, TPA deductions, settlement, Kanban board. 85 tables, 203 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S6c — Revenue Intelligence: refunds, invoices, payments, analytics, TPA performance. 89 tables, 228 routes. Phase C COMPLETE.</p>
             </div>
           </div>
         </div>
