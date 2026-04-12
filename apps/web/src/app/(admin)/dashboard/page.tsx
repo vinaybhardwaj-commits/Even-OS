@@ -233,6 +233,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Observations, NEWS2, alerts</p>
                 </div>
               </a>
+              <a href="/admin/clinical-notes" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-violet-50 hover:border-violet-200 transition-colors">
+                <span className="text-2xl">&#128221;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Clinical Notes</p>
+                  <p className="text-xs text-gray-500">SOAP, operative, co-sign queue</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -284,7 +291,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S5a — EMR Foundation: Problem list (ICD-10), allergy tracking, FHIR observations, NEWS2 scoring, clinical alerts. 95 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S5b — Clinical Notes: SOAP, nursing, operative, discharge notes. Co-signature queue. Procedures & MLC forms. 117 routes.</p>
             </div>
           </div>
         </div>
