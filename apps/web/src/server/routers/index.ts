@@ -7,6 +7,9 @@ import { drugMasterRouter } from './drug-master';
 import { orderSetsRouter } from './order-sets';
 import { consentTemplatesRouter } from './consent-templates';
 import { dischargeTemplatesRouter } from './discharge-templates';
+import { gstRatesRouter } from './gst-rates';
+import { approvalHierarchiesRouter } from './approval-hierarchies';
+import { nabhIndicatorsRouter } from './nabh-indicators';
 
 export const appRouter = router({
   auth: authRouter,
@@ -17,6 +20,9 @@ export const appRouter = router({
   orderSets: orderSetsRouter,
   consentTemplates: consentTemplatesRouter,
   dischargeTemplates: dischargeTemplatesRouter,
+  gstRates: gstRatesRouter,
+  approvalHierarchies: approvalHierarchiesRouter,
+  nabhIndicators: nabhIndicatorsRouter,
 });
 
 export type AppRouter = typeof appRouter;

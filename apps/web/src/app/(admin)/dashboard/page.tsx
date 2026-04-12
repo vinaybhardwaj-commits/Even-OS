@@ -138,11 +138,41 @@ export default async function DashboardPage() {
             </div>
           )}
 
+          {/* Governance */}
+          {isAdmin && (
+            <div className="mt-8 pt-8 border-t border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Governance</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <a href="/admin/gst-rates" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
+                  <span className="text-2xl">&#37;</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">GST Rates</p>
+                    <p className="text-xs text-gray-500">Tax rates & effective dates</p>
+                  </div>
+                </a>
+                <a href="/admin/approval-hierarchies" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
+                  <span className="text-2xl">&#9878;</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Approval Hierarchies</p>
+                    <p className="text-xs text-gray-500">Thresholds & approvers</p>
+                  </div>
+                </a>
+                <a href="/admin/nabh-indicators" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
+                  <span className="text-2xl">&#9733;</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">NABH Indicators</p>
+                    <p className="text-xs text-gray-500">100 quality metrics</p>
+                  </div>
+                </a>
+              </div>
+            </div>
+          )}
+
           <div className="mt-8 pt-8 border-t border-gray-200">
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S2b — Clinical Templates: Order Sets, Consent Forms, Discharge Templates.</p>
+              <p className="text-sm text-gray-600">Sprint S2c — Governance Layer: GST Rates, Approval Hierarchies, NABH Indicators.</p>
             </div>
           </div>
         </div>
