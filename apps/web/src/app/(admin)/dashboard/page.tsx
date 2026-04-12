@@ -289,6 +289,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Orders, results, specimens, imaging</p>
                 </div>
               </a>
+              <a href="/admin/ot-management" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
+                <span className="text-2xl">&#129657;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">OT Management</p>
+                  <p className="text-xs text-gray-500">Scheduling, WHO checklist, anesthesia</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -340,7 +347,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S7b — Lab &amp; Radiology: orders, results, LOINC, specimens, imaging reports, TAT tracking. 104 tables, 283 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S7c — OT Management: scheduling, WHO checklist, anesthesia records, equipment, turnover tracking. 118 tables, 311 routes. Phase D complete.</p>
             </div>
           </div>
         </div>
