@@ -18,3 +18,4 @@ export * from './17-infection-surveillance';
 export * from './18-safety-audits';
 export * from './19-critical-values';
 export * from './20-test-catalog';
+export * from './21-lab-reports';

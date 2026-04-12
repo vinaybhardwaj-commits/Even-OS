@@ -38,6 +38,7 @@ import { infectionSurveillanceRouter } from './infection-surveillance';
 import { safetyAuditsRouter } from './safety-audits';
 import { criticalValuesRouter } from './critical-values';
 import { testCatalogRouter } from './test-catalog';
+import { labReportsRouter } from './lab-reports';
 import { drizzleTestRouter } from './drizzle-test';
 
 export const appRouter = router({
@@ -80,6 +81,7 @@ export const appRouter = router({
   safetyAudits: safetyAuditsRouter,
   criticalValues: criticalValuesRouter,
   testCatalog: testCatalogRouter,
+  labReports: labReportsRouter,
   drizzleTest: drizzleTestRouter,
 });
 
