@@ -4,7 +4,7 @@ const envSchema = z.object({
   // Required
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
-  ENCRYPTION_KEY: z.string().length(32, 'ENCRYPTION_KEY must be exactly 32 characters'),
+  ENCRYPTION_KEY: z.string().min(16, 'ENCRYPTION_KEY must be at least 16 characters'),
 
   // Optional with defaults
   NEXT_PUBLIC_APP_URL: z.string().default('http://localhost:3000'),
