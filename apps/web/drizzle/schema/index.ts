@@ -12,3 +12,4 @@ export * from './11-refunds';
 export * from './12-pharmacy';
 export * from './13-lab-radiology';
 export * from './14-ot-management';
+export * from './15-quality';
