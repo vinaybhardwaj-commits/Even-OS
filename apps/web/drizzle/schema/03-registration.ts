@@ -212,6 +212,7 @@ export const locations = pgTable('locations', {
   name: text('name').notNull(),
   capacity: integer('capacity'), // For wards/rooms
   status: locationStatusEnum('status').default('active'),
+  bed_status: bedStatusEnum('bed_status').default('available'), // Denormalized for beds; null for non-bed locations
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   hospitalIdIdx: index('idx_locations_hospital_id').on(table.hospital_id),

@@ -12,6 +12,8 @@ import { approvalHierarchiesRouter } from './approval-hierarchies';
 import { nabhIndicatorsRouter } from './nabh-indicators';
 import { patientRouter } from './patient';
 import { dedupRouter } from './dedup';
+import { bedRouter } from './bed';
+import { wristbandRouter } from './wristband';
 
 export const appRouter = router({
   auth: authRouter,
@@ -27,6 +29,8 @@ export const appRouter = router({
   nabhIndicators: nabhIndicatorsRouter,
   patient: patientRouter,
   dedup: dedupRouter,
+  bed: bedRouter,
+  wristband: wristbandRouter,
 });
 
 export type AppRouter = typeof appRouter;

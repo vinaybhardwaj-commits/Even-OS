@@ -156,6 +156,20 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Review & merge duplicates</p>
                 </div>
               </a>
+              <a href="/admin/bed-board" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-green-50 hover:border-green-200 transition-colors">
+                <span className="text-2xl">&#128719;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Bed Board</p>
+                  <p className="text-xs text-gray-500">Real-time bed grid</p>
+                </div>
+              </a>
+              <a href="/admin/wristbands" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-purple-50 hover:border-purple-200 transition-colors">
+                <span className="text-2xl">&#9000;</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Wristbands</p>
+                  <p className="text-xs text-gray-500">Print queue & tracking</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -193,7 +207,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S3b — Dedup Engine: Live dedup check, admin queue, merge/dismiss. 26 routes.</p>
+              <p className="text-sm text-gray-600">Sprint S3c — Bed Board & Wristbands: 40 beds seeded, real-time grid, print queue. 28 routes.</p>
             </div>
           </div>
         </div>
