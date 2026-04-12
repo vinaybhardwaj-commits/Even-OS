@@ -571,12 +571,41 @@ export const labRadiologyRouter = router({
 
         inserted.push(resultId);
 
-        // Update order if critical
+        // Update order if critical + auto-create critical value alert
         if (is_critical) {
           await sql(
             `UPDATE lab_orders SET lo_is_critical = true WHERE id = $1`,
             [result.lr_order_id]
           );
+
+          // Get patient_id and ordering clinician from order
+          const orderInfo = await sql(
+            `SELECT lo_patient_id, lo_ordered_by FROM lab_orders WHERE id = $1 AND hospital_id = $2`,
+            [result.lr_order_id, ctx.user.hospital_id]
+          );
+
+          if (orderInfo.length > 0) {
+            const alertId = crypto.randomUUID();
+            const comp = componentQuery[0];
+            await sql(
+              `INSERT INTO critical_value_alerts (
+                id, hospital_id, cva_lab_order_id, cva_lab_result_id, cva_patient_id,
+                cva_test_code, cva_test_name, cva_value_numeric, cva_unit,
+                cva_critical_low, cva_critical_high, cva_flag, cva_status,
+                cva_ordering_clinician_id, cva_escalation_chain, cva_created_at, cva_updated_at
+              ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'sent', $13, '[]', $14, $14
+              )`,
+              [
+                alertId, ctx.user.hospital_id, result.lr_order_id, resultId,
+                orderInfo[0].lo_patient_id,
+                result.lr_test_code, result.lr_test_name,
+                result.value_numeric ?? null, result.lr_unit || null,
+                comp?.critical_low ?? null, comp?.critical_high ?? null,
+                flag, orderInfo[0].lo_ordered_by, now,
+              ]
+            );
+          }
         }
       }
 
@@ -987,6 +1016,71 @@ export const labRadiologyRouter = router({
 
       const stats = await sql(query, [ctx.user.hospital_id]);
       return stats;
+    }),
+
+  // ===== SPECIMEN BARCODE LOOKUP =====
+
+  getByBarcode: protectedProcedure
+    .input(z.object({ barcode: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const query = `
+        SELECT
+          sp.id as specimen_id, sp.sp_barcode, sp.sp_status, sp.sp_sample_type,
+          sp.sp_collected_at, sp.sp_received_at,
+          lo.id as order_id, lo.lo_order_number, lo.lo_status, lo.lo_urgency,
+          lo.lo_panel_name, lo.lo_clinical_notes, lo.lo_ordered_at, lo.lo_is_critical,
+          p.id as patient_id, p.uhid, p.first_name, p.last_name, p.date_of_birth, p.gender,
+          u.full_name as ordered_by_name
+        FROM specimens sp
+        JOIN lab_orders lo ON sp.sp_order_id = lo.id
+        JOIN patients p ON sp.sp_patient_id = p.id
+        LEFT JOIN users u ON lo.lo_ordered_by = u.id
+        WHERE sp.sp_barcode = $1 AND sp.hospital_id = $2
+        LIMIT 1
+      `;
+
+      const rows = await sql(query, [input.barcode, ctx.user.hospital_id]);
+      if (rows.length === 0) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `Specimen with barcode "${input.barcode}" not found` });
+      }
+
+      // Also fetch any existing results for this order
+      const resultQuery = `
+        SELECT id, lr_test_code, lr_test_name, value_numeric, value_text,
+               lr_unit, lr_flag, lr_is_critical, lr_resulted_at
+        FROM lab_results
+        WHERE lr_order_id = $1 AND hospital_id = $2
+        ORDER BY lr_resulted_at ASC
+      `;
+
+      const results = await sql(resultQuery, [rows[0].order_id, ctx.user.hospital_id]);
+
+      return { ...rows[0], results };
+    }),
+
+  // ===== LAB STATS =====
+
+  labStats: protectedProcedure
+    .query(async ({ ctx }) => {
+      const statsQuery = `
+        SELECT
+          COUNT(*) FILTER (WHERE lo_status = 'ordered') as pending_orders,
+          COUNT(*) FILTER (WHERE lo_status = 'collected') as collected,
+          COUNT(*) FILTER (WHERE lo_status = 'received') as received,
+          COUNT(*) FILTER (WHERE lo_status = 'processing') as processing,
+          COUNT(*) FILTER (WHERE lo_status = 'resulted') as awaiting_verification,
+          COUNT(*) FILTER (WHERE lo_status = 'verified') as verified_today,
+          COUNT(*) FILTER (WHERE lo_is_critical = true AND lo_status != 'verified' AND lo_status != 'cancelled') as critical_pending,
+          COUNT(*) FILTER (WHERE lo_urgency = 'stat' AND lo_status NOT IN ('verified', 'cancelled')) as stat_pending
+        FROM lab_orders
+        WHERE hospital_id = $1 AND DATE(lo_ordered_at) = CURRENT_DATE
+      `;
+
+      const rows = await sql(statsQuery, [ctx.user.hospital_id]);
+      return rows[0] || {
+        pending_orders: 0, collected: 0, received: 0, processing: 0,
+        awaiting_verification: 0, verified_today: 0, critical_pending: 0, stat_pending: 0,
+      };
     }),
 
   // ===== PACS/OHIF INTEGRATION =====

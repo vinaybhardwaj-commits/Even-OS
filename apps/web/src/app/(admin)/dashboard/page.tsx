@@ -289,6 +289,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-gray-500">Orders, results, specimens, imaging</p>
                 </div>
               </a>
+              <a href="/admin/lab-worklist" className="flex items-center gap-3 p-4 bg-indigo-50 rounded-lg border border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300 transition-colors">
+                <span className="text-2xl">&#128218;</span>
+                <div>
+                  <p className="text-sm font-semibold text-indigo-800">Lab Worklist</p>
+                  <p className="text-xs text-indigo-600">Worklist, specimens, barcode, TAT</p>
+                </div>
+              </a>
               <a href="/admin/ot-management" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
                 <span className="text-2xl">&#129657;</span>
                 <div>
@@ -389,7 +396,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint S8d — Module 13 COMPLETE: Quality &amp; NABH — incidents, RCA, infection surveillance, safety rounds, audits, complaints. 142 tables, ~420 routes.</p>
+              <p className="text-sm text-gray-600">Sprint L.2 — Lab Worklist &amp; auto-critical-alert. 144 tables, ~434 routes.</p>
             </div>
           </div>
         </div>
