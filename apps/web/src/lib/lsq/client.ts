@@ -137,7 +137,7 @@ export function normalizeLeadToPatient(lead: LsqLead): {
   email: string | null;
   gender: 'male' | 'female' | 'other' | 'unknown';
   dob: string | null;
-  referral_source: 'lsq_lead';
+  source_type: 'lsq_lead';
   patient_category: 'insured' | 'cash';
   lsq_stage: string;
 } {
@@ -158,7 +158,7 @@ export function normalizeLeadToPatient(lead: LsqLead): {
     email: lead.EmailAddress || null,
     gender: mappedGender,
     dob: lead.mx_Date_of_Birth || null,
-    referral_source: 'lsq_lead',
+    source_type: 'lsq_lead',
     patient_category: isInsured ? 'insured' : 'cash',
     lsq_stage: lead.ProspectStage || 'unknown',
   };

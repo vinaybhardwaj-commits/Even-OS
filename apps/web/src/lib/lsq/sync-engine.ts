@@ -154,7 +154,7 @@ export async function runLsqSync(hospitalId: string, userId: string): Promise<Sy
           email: normalized.email,
           gender: normalized.gender as any,
           dob: normalized.dob ? new Date(normalized.dob) : null,
-          referral_source: 'lsq_lead' as any,
+          source_type: 'lsq_lead' as any,
           patient_category: normalized.patient_category as any,
           lsq_lead_id: normalized.lsq_lead_id,
           status: 'active' as any,

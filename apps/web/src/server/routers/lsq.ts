@@ -24,7 +24,7 @@ export const lsqRouter = router({
         (SELECT MAX(sync_at) FROM lsq_sync_log WHERE hospital_id = ${hospitalId} AND status = 'success') as last_successful_sync,
         (SELECT count(*)::int FROM lsq_api_log WHERE hospital_id = ${hospitalId}) as total_api_calls,
         (SELECT coalesce(avg(latency_ms)::int, 0) FROM lsq_api_log WHERE hospital_id = ${hospitalId} AND latency_ms > 0) as avg_api_latency_ms,
-        (SELECT count(*)::int FROM patients WHERE hospital_id = ${hospitalId} AND referral_source = 'lsq_lead') as patients_from_lsq
+        (SELECT count(*)::int FROM patients WHERE hospital_id = ${hospitalId} AND source_type = 'lsq_lead') as patients_from_lsq
     `);
 
     const rows = (result as any).rows || result;
@@ -123,7 +123,7 @@ export const lsqRouter = router({
       const result = await db.execute(sql`
         SELECT
           ls.id, ls.lsq_lead_id, ls.status as sync_status, ls.synced_at,
-          p.id as patient_id, p.uhid, p.name_full, p.phone, p.patient_category, p.referral_source
+          p.id as patient_id, p.uhid, p.name_full, p.phone, p.patient_category, p.source_type
         FROM lsq_sync_state ls
         LEFT JOIN patients p ON ls.patient_id = p.id
         WHERE ls.hospital_id = ${hospitalId}
