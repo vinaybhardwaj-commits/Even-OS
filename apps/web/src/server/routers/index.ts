@@ -47,6 +47,8 @@ import { drizzleTestRouter } from './drizzle-test';
 import { dashboardsRouter } from './dashboards';
 import { integrationsRouter } from './integrations';
 import { mrdDocumentsRouter } from './mrd-documents';
+import { hardeningRouter } from './hardening';
+import { patientPortalRouter } from './patient-portal';
 
 export const appRouter = router({
   auth: authRouter,
@@ -97,6 +99,8 @@ export const appRouter = router({
   dashboards: dashboardsRouter,
   integrations: integrationsRouter,
   mrdDocuments: mrdDocumentsRouter,
+  hardening: hardeningRouter,
+  patientPortal: patientPortalRouter,
 });
 
 export type AppRouter = typeof appRouter;

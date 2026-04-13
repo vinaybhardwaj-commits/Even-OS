@@ -26,3 +26,5 @@ export * from './25-hl7-analyzer';
 export * from './26-dashboards';
 export * from './27-integrations';
 export * from './28-mrd-documents';
+export * from './29-hardening';
+export * from './30-patient-portal';
