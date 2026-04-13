@@ -148,8 +148,8 @@ export const refundRevenueRouter = router({
           r.rr_approved_amount, r.approval_tier, r.rr_approved_by, r.rr_approved_at,
           r.rr_rejection_reason, r.rr_payment_method, r.rr_payment_reference,
           r.rr_processed_at, r.rr_requested_by, r.rr_created_at, r.rr_updated_at,
-          p.patient_name, req_user.user_full_name AS requested_by_name,
-          app_user.user_full_name AS approved_by_name
+          p.name_full, req_user.full_name AS requested_by_name,
+          app_user.full_name AS approved_by_name
         FROM refund_requests r
         LEFT JOIN patients p ON r.rr_patient_id = p.id
         LEFT JOIN users req_user ON r.rr_requested_by = req_user.id
@@ -181,7 +181,7 @@ export const refundRevenueRouter = router({
       const rows = await getSql()`
         SELECT
           r.id, r.refund_number, r.rr_patient_id, r.rr_status, r.rr_reason, r.rr_amount,
-          r.rr_approved_amount, r.approval_tier, r.rr_created_at, p.patient_name
+          r.rr_approved_amount, r.approval_tier, r.rr_created_at, p.name_full
         FROM refund_requests r
         LEFT JOIN patients p ON r.rr_patient_id = p.id
         WHERE r.hospital_id = ${ctx.user.hospital_id}
@@ -360,7 +360,7 @@ export const refundRevenueRouter = router({
           i.invoice_status, i.subtotal, i.discount_total, i.gst_total, i.grand_total,
           i.amount_paid, i.balance_due, i.generated_at, i.due_date, i.finalized_at,
           i.notes, i.created_by_user_id, i.inv_account_id, i.inv_claim_id,
-          i.created_at, i.updated_at, p.patient_name, u.user_full_name
+          i.created_at, i.updated_at, p.name_full, u.full_name
         FROM invoices i
         LEFT JOIN patients p ON i.patient_id = p.id
         LEFT JOIN users u ON i.created_by_user_id = u.id
@@ -393,7 +393,7 @@ export const refundRevenueRouter = router({
         SELECT
           i.id, i.invoice_number, i.patient_id, i.encounter_id, i.inv_type,
           i.invoice_status, i.grand_total, i.amount_paid, i.balance_due,
-          i.created_at, p.patient_name
+          i.created_at, p.name_full
         FROM invoices i
         LEFT JOIN patients p ON i.patient_id = p.id
         WHERE i.hospital_id = ${ctx.user.hospital_id}
@@ -506,7 +506,7 @@ export const refundRevenueRouter = router({
         SELECT
           p.id, p.invoice_id, p.patient_id, p.amount, p.payment_method,
           p.reference_number, p.payment_date, p.pay_receipt_number, p.pay_status,
-          u.user_full_name, i.invoice_number
+          u.full_name, i.invoice_number
         FROM payments p
         LEFT JOIN users u ON p.received_by_user_id = u.id
         LEFT JOIN invoices i ON p.invoice_id = i.id

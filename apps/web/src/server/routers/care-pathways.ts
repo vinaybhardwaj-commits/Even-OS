@@ -125,19 +125,19 @@ export const carePathwaysRouter = router({
 
       if (status && category) {
         return await getSql()`
-          SELECT t.*, u.name as created_by_name FROM pathway_templates t LEFT JOIN users u ON u.id = t.pathway_created_by
+          SELECT t.*, u.full_name as created_by_name FROM pathway_templates t LEFT JOIN users u ON u.id = t.pathway_created_by
           WHERE t.hospital_id = ${hospitalId} AND t.pathway_status = ${status} AND t.pathway_category = ${category}
           ORDER BY t.pathway_created_at DESC LIMIT 100
         ` || [];
       } else if (status) {
         return await getSql()`
-          SELECT t.*, u.name as created_by_name FROM pathway_templates t LEFT JOIN users u ON u.id = t.pathway_created_by
+          SELECT t.*, u.full_name as created_by_name FROM pathway_templates t LEFT JOIN users u ON u.id = t.pathway_created_by
           WHERE t.hospital_id = ${hospitalId} AND t.pathway_status = ${status}
           ORDER BY t.pathway_created_at DESC LIMIT 100
         ` || [];
       } else {
         return await getSql()`
-          SELECT t.*, u.name as created_by_name FROM pathway_templates t LEFT JOIN users u ON u.id = t.pathway_created_by
+          SELECT t.*, u.full_name as created_by_name FROM pathway_templates t LEFT JOIN users u ON u.id = t.pathway_created_by
           WHERE t.hospital_id = ${hospitalId}
           ORDER BY t.pathway_created_at DESC LIMIT 100
         ` || [];
@@ -149,7 +149,7 @@ export const carePathwaysRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const tpl = await getSql()`SELECT t.*, u.name as created_by_name FROM pathway_templates t LEFT JOIN users u ON u.id = t.pathway_created_by WHERE t.id = ${input.id} AND t.hospital_id = ${hospitalId} LIMIT 1`;
+      const tpl = await getSql()`SELECT t.*, u.full_name as created_by_name FROM pathway_templates t LEFT JOIN users u ON u.id = t.pathway_created_by WHERE t.id = ${input.id} AND t.hospital_id = ${hospitalId} LIMIT 1`;
       if (!tpl?.length) throw new TRPCError({ code: 'NOT_FOUND', message: 'Template not found' });
 
       const nodes = await getSql()`SELECT * FROM pathway_nodes WHERE template_id = ${input.id} AND hospital_id = ${hospitalId} ORDER BY sort_order, pn_created_at`;
@@ -309,7 +309,7 @@ export const carePathwaysRouter = router({
 
       const cp = await getSql()`
         SELECT cp.*, pt.pathway_name as template_name, pt.pathway_category as template_category,
-               p.first_name || ' ' || p.last_name as patient_name, p.uhid
+               p.name_full as patient_name, p.uhid
         FROM care_plans cp
         LEFT JOIN pathway_templates pt ON pt.id = cp.cp_template_id
         LEFT JOIN patients p ON p.id = cp.cp_patient_id
@@ -319,7 +319,7 @@ export const carePathwaysRouter = router({
 
       const milestones = await getSql()`SELECT * FROM care_plan_milestones WHERE care_plan_id = ${input.care_plan_id} AND hospital_id = ${hospitalId} ORDER BY ms_sort_order, ms_created_at`;
       const team = await getSql()`
-        SELECT ct.*, u.name as member_name FROM care_teams ct LEFT JOIN users u ON u.id = ct.member_user_id
+        SELECT ct.*, u.full_name as member_name FROM care_teams ct LEFT JOIN users u ON u.id = ct.member_user_id
         WHERE ct.ct_care_plan_id = ${input.care_plan_id} AND ct.hospital_id = ${hospitalId} AND ct.ct_removed_at IS NULL
       `;
 
@@ -336,21 +336,21 @@ export const carePathwaysRouter = router({
 
       if (input?.patient_id) {
         return await getSql()`
-          SELECT cp.*, pt.pathway_name as template_name, p.first_name || ' ' || p.last_name as patient_name, p.uhid
+          SELECT cp.*, pt.pathway_name as template_name, p.name_full as patient_name, p.uhid
           FROM care_plans cp LEFT JOIN pathway_templates pt ON pt.id = cp.cp_template_id LEFT JOIN patients p ON p.id = cp.cp_patient_id
           WHERE cp.hospital_id = ${hospitalId} AND cp.cp_patient_id = ${input.patient_id}
           ORDER BY cp.activated_at DESC LIMIT 50
         ` || [];
       } else if (input?.status) {
         return await getSql()`
-          SELECT cp.*, pt.pathway_name as template_name, p.first_name || ' ' || p.last_name as patient_name, p.uhid
+          SELECT cp.*, pt.pathway_name as template_name, p.name_full as patient_name, p.uhid
           FROM care_plans cp LEFT JOIN pathway_templates pt ON pt.id = cp.cp_template_id LEFT JOIN patients p ON p.id = cp.cp_patient_id
           WHERE cp.hospital_id = ${hospitalId} AND cp.care_plan_status = ${input.status}
           ORDER BY cp.activated_at DESC LIMIT 50
         ` || [];
       } else {
         return await getSql()`
-          SELECT cp.*, pt.pathway_name as template_name, p.first_name || ' ' || p.last_name as patient_name, p.uhid
+          SELECT cp.*, pt.pathway_name as template_name, p.name_full as patient_name, p.uhid
           FROM care_plans cp LEFT JOIN pathway_templates pt ON pt.id = cp.cp_template_id LEFT JOIN patients p ON p.id = cp.cp_patient_id
           WHERE cp.hospital_id = ${hospitalId}
           ORDER BY cp.activated_at DESC LIMIT 50
@@ -461,14 +461,14 @@ export const carePathwaysRouter = router({
 
       if (input?.care_plan_id) {
         return await getSql()`
-          SELECT v.*, m.ms_name as milestone_name, p.first_name || ' ' || p.last_name as patient_name, u.name as documented_by_name
+          SELECT v.*, m.ms_name as milestone_name, p.name_full as patient_name, u.full_name as documented_by_name
           FROM variance_log v LEFT JOIN care_plan_milestones m ON m.id = v.vl_milestone_id LEFT JOIN patients p ON p.id = v.vl_patient_id LEFT JOIN users u ON u.id = v.documented_by
           WHERE v.hospital_id = ${hospitalId} AND v.vl_care_plan_id = ${input.care_plan_id}
           ORDER BY v.vl_created_at DESC LIMIT 100
         ` || [];
       } else {
         return await getSql()`
-          SELECT v.*, m.ms_name as milestone_name, p.first_name || ' ' || p.last_name as patient_name, u.name as documented_by_name
+          SELECT v.*, m.ms_name as milestone_name, p.name_full as patient_name, u.full_name as documented_by_name
           FROM variance_log v LEFT JOIN care_plan_milestones m ON m.id = v.vl_milestone_id LEFT JOIN patients p ON p.id = v.vl_patient_id LEFT JOIN users u ON u.id = v.documented_by
           WHERE v.hospital_id = ${hospitalId}
           ORDER BY v.vl_created_at DESC LIMIT 100
@@ -546,7 +546,7 @@ export const carePathwaysRouter = router({
     .query(async ({ ctx }) => {
       const hospitalId = ctx.user.hospital_id;
       return await getSql()`
-        SELECT m.*, p.first_name || ' ' || p.last_name as patient_name, p.uhid,
+        SELECT m.*, p.name_full as patient_name, p.uhid,
                pt.pathway_name as template_name,
                EXTRACT(EPOCH FROM (now() - m.due_datetime)) / 3600 as hours_overdue
         FROM care_plan_milestones m

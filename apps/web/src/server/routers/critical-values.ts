@@ -659,7 +659,7 @@ export const criticalValuesRouter = router({
           lo.lo_urgency as urgency,
           lo.lo_panel_name as panel_name,
           p.uhid,
-          p.first_name || ' ' || p.last_name as patient_name
+          p.name_full as patient_name
         FROM lab_results lr
         JOIN lab_orders lo ON lo.id = lr.lr_order_id
         JOIN patients p ON p.id = lo.lo_patient_id

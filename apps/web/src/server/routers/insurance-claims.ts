@@ -256,7 +256,7 @@ export const insuranceClaimsRouter = router({
             ic.ic_assigned_to as assigned_to, ic.ic_priority as priority,
             ic.ic_notes as notes, ic.ic_created_by as created_by,
             ic.ic_created_at as created_at, ic.ic_updated_at as updated_at,
-            p.patient_name, u.user_full_name as assigned_user_name
+            p.name_full, u.full_name as assigned_user_name
           FROM insurance_claims ic
           JOIN patients p ON ic.ic_patient_id = p.id
           LEFT JOIN users u ON ic.ic_assigned_to = u.id
@@ -306,7 +306,7 @@ export const insuranceClaimsRouter = router({
             ic.total_bill_amount, ic.ic_pre_auth_amount as pre_auth_amount,
             ic.ic_approved_amount as approved_amount, ic.settled_amount,
             ic.ic_created_at as created_at, ic.ic_updated_at as updated_at,
-            p.patient_name, u.user_full_name as assigned_user_name
+            p.name_full, u.full_name as assigned_user_name
           FROM insurance_claims ic
           JOIN patients p ON ic.ic_patient_id = p.id
           LEFT JOIN users u ON ic.ic_assigned_to = u.id
@@ -1387,7 +1387,7 @@ export const insuranceClaimsRouter = router({
             ce.ce_from_status as from_status, ce.ce_to_status as to_status,
             ce.ce_amount as amount, ce.ce_description as description,
             ce.ce_metadata as metadata, ce.ce_performed_by as performed_by,
-            ce.ce_performed_at as performed_at, u.user_full_name as performer_name
+            ce.ce_performed_at as performed_at, u.full_name as performer_name
           FROM claim_events ce
           LEFT JOIN users u ON ce.ce_performed_by = u.id
           WHERE ce.ce_claim_id = ${input.claim_id} AND ce.hospital_id = ${hospitalId}
@@ -1508,7 +1508,7 @@ export const insuranceClaimsRouter = router({
             ic.total_bill_amount, ic.ic_pre_auth_amount as pre_auth_amount,
             ic.ic_approved_amount as approved_amount, ic.settled_amount,
             ic.ic_created_at as created_at, ic.ic_updated_at as updated_at,
-            p.patient_name, u.user_full_name as assigned_user_name
+            p.name_full, u.full_name as assigned_user_name
           FROM insurance_claims ic
           JOIN patients p ON ic.ic_patient_id = p.id
           LEFT JOIN users u ON ic.ic_assigned_to = u.id

@@ -33,11 +33,11 @@ export const otManagementRouter = router({
       is_active: z.boolean().optional(),
       limit: z.number().int().max(500).default(50),
       offset: z.number().int().default(0),
-    }).optional().default({}))
+    }))
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await getSql()`
+      let query = `
         SELECT
           id,
           room_name,
@@ -51,13 +51,31 @@ export const otManagementRouter = router({
           otr_created_at,
           otr_updated_at
         FROM ot_rooms
-        WHERE hospital_id = ${hospitalId}
-          ${input?.status ? `AND otr_status = ${input.status}` : ''}
-          ${input?.room_type ? `AND ot_room_type = ${input.room_type}` : ''}
-          ${input?.is_active !== undefined ? `AND otr_is_active = ${input.is_active}` : ''}
-        ORDER BY room_number ASC
-        LIMIT ${input?.limit || 50} OFFSET ${input?.offset || 0}
+        WHERE hospital_id = $1
       `;
+      const params: any[] = [hospitalId];
+      let pIdx = 2;
+
+      if (input?.status) {
+        query += ` AND otr_status = $${pIdx}`;
+        params.push(input.status);
+        pIdx++;
+      }
+      if (input?.room_type) {
+        query += ` AND ot_room_type = $${pIdx}`;
+        params.push(input.room_type);
+        pIdx++;
+      }
+      if (input?.is_active !== undefined) {
+        query += ` AND otr_is_active = $${pIdx}`;
+        params.push(input.is_active);
+        pIdx++;
+      }
+
+      query += ` ORDER BY room_number ASC LIMIT $${pIdx} OFFSET $${pIdx + 1}`;
+      params.push(input?.limit || 50, input?.offset || 0);
+
+      const result = await getSql()(query, params);
 
       const rows = (result as any);
       return {
@@ -215,27 +233,40 @@ export const otManagementRouter = router({
     .input(z.object({
       date_from: z.string().optional(),
       date_to: z.string().optional(),
-    }).optional().default({}))
+    }))
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await getSql()`
+      let query = `
         SELECT
           r.id,
           r.room_name,
           r.room_number,
           COUNT(s.id)::int as cases_count,
           ROUND(AVG(EXTRACT(EPOCH FROM (t.cleaning_end - t.cleaning_start))/60)::numeric, 1)::float as avg_turnover_minutes,
-          ROUND((COUNT(s.id)::numeric / (SELECT COUNT(*) FROM ot_schedule os WHERE os.hospital_id = ${hospitalId}) * 100)::numeric, 1)::float as utilization_percent
+          ROUND((COUNT(s.id)::numeric / (SELECT COUNT(*) FROM ot_schedule os WHERE os.hospital_id = $1) * 100)::numeric, 1)::float as utilization_percent
         FROM ot_rooms r
-        LEFT JOIN ot_schedule s ON r.id = s.ots_room_id AND s.hospital_id = ${hospitalId}
-        LEFT JOIN ot_turnover_log t ON r.id = t.otl_room_id AND t.hospital_id = ${hospitalId}
-        WHERE r.hospital_id = ${hospitalId}
-          ${input?.date_from ? `AND DATE(s.scheduled_date) >= ${input.date_from}::date` : ''}
-          ${input?.date_to ? `AND DATE(s.scheduled_date) <= ${input.date_to}::date` : ''}
-        GROUP BY r.id, r.room_name, r.room_number
-        ORDER BY cases_count DESC
+        LEFT JOIN ot_schedule s ON r.id = s.ots_room_id AND s.hospital_id = $1
+        LEFT JOIN ot_turnover_log t ON r.id = t.otl_room_id AND t.hospital_id = $1
+        WHERE r.hospital_id = $1
       `;
+      const params: any[] = [hospitalId];
+      let pIdx = 2;
+
+      if (input?.date_from) {
+        query += ` AND DATE(s.scheduled_date) >= $${pIdx}::date`;
+        params.push(input.date_from);
+        pIdx++;
+      }
+      if (input?.date_to) {
+        query += ` AND DATE(s.scheduled_date) <= $${pIdx}::date`;
+        params.push(input.date_to);
+        pIdx++;
+      }
+
+      query += ` GROUP BY r.id, r.room_name, r.room_number ORDER BY cases_count DESC`;
+
+      const result = await getSql()(query, params);
 
       const rows = (result as any);
       return { utilization: rows || [] };
@@ -255,11 +286,11 @@ export const otManagementRouter = router({
       priority: otPriorityEnum.optional(),
       limit: z.number().int().max(500).default(50),
       offset: z.number().int().default(0),
-    }).optional().default({}))
+    }))
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await getSql()`
+      let query = `
         SELECT
           s.id,
           s.schedule_number,
@@ -280,21 +311,51 @@ export const otManagementRouter = router({
           p.name_full as patient_name,
           p.uhid,
           r.room_name,
-          ps.name_full as surgeon_name
+          ps.full_name as surgeon_name
         FROM ot_schedule s
         LEFT JOIN patients p ON s.ots_patient_id = p.id
         LEFT JOIN ot_rooms r ON s.ots_room_id = r.id
         LEFT JOIN users ps ON s.primary_surgeon = ps.id
-        WHERE s.hospital_id = ${hospitalId}
-          ${input?.date_from ? `AND DATE(s.scheduled_date) >= ${input.date_from}::date` : ''}
-          ${input?.date_to ? `AND DATE(s.scheduled_date) <= ${input.date_to}::date` : ''}
-          ${input?.room_id ? `AND s.ots_room_id = ${input.room_id}::uuid` : ''}
-          ${input?.surgeon_id ? `AND s.primary_surgeon = ${input.surgeon_id}::uuid` : ''}
-          ${input?.status ? `AND s.ots_status = ${input.status}` : ''}
-          ${input?.priority ? `AND s.ots_priority = ${input.priority}` : ''}
-        ORDER BY s.scheduled_date DESC, s.scheduled_start ASC
-        LIMIT ${input?.limit || 50} OFFSET ${input?.offset || 0}
+        WHERE s.hospital_id = $1
       `;
+      const params: any[] = [hospitalId];
+      let pIdx = 2;
+
+      if (input?.date_from) {
+        query += ` AND DATE(s.scheduled_date) >= $${pIdx}::date`;
+        params.push(input.date_from);
+        pIdx++;
+      }
+      if (input?.date_to) {
+        query += ` AND DATE(s.scheduled_date) <= $${pIdx}::date`;
+        params.push(input.date_to);
+        pIdx++;
+      }
+      if (input?.room_id) {
+        query += ` AND s.ots_room_id = $${pIdx}::uuid`;
+        params.push(input.room_id);
+        pIdx++;
+      }
+      if (input?.surgeon_id) {
+        query += ` AND s.primary_surgeon = $${pIdx}::uuid`;
+        params.push(input.surgeon_id);
+        pIdx++;
+      }
+      if (input?.status) {
+        query += ` AND s.ots_status = $${pIdx}`;
+        params.push(input.status);
+        pIdx++;
+      }
+      if (input?.priority) {
+        query += ` AND s.ots_priority = $${pIdx}`;
+        params.push(input.priority);
+        pIdx++;
+      }
+
+      query += ` ORDER BY s.scheduled_date DESC, s.scheduled_start ASC LIMIT $${pIdx} OFFSET $${pIdx + 1}`;
+      params.push(input?.limit || 50, input?.offset || 0);
+
+      const result = await getSql()(query, params);
 
       const rows = (result as any);
       return { schedule: rows || [], count: rows?.length || 0 };
@@ -305,7 +366,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await getSql()`
+      const query = `
         SELECT
           s.id,
           s.schedule_number,
@@ -343,11 +404,11 @@ export const otManagementRouter = router({
           p.name_full as patient_name,
           p.uhid,
           r.room_name,
-          ps.name_full as surgeon_name,
-          us.name_full as assistant_name,
-          ua.name_full as anesthetist_name,
-          usn.name_full as scrub_nurse_name,
-          ucn.name_full as circulating_nurse_name
+          ps.full_name as surgeon_name,
+          us.full_name as assistant_name,
+          ua.full_name as anesthetist_name,
+          usn.full_name as scrub_nurse_name,
+          ucn.full_name as circulating_nurse_name
         FROM ot_schedule s
         LEFT JOIN patients p ON s.ots_patient_id = p.id
         LEFT JOIN ot_rooms r ON s.ots_room_id = r.id
@@ -356,10 +417,11 @@ export const otManagementRouter = router({
         LEFT JOIN users ua ON s.ots_anesthetist = ua.id
         LEFT JOIN users usn ON s.scrub_nurse = usn.id
         LEFT JOIN users ucn ON s.circulating_nurse = ucn.id
-        WHERE s.id = ${input.schedule_id}::uuid
-          AND s.hospital_id = ${hospitalId}
+        WHERE s.id = $1::uuid
+          AND s.hospital_id = $2
         LIMIT 1
       `;
+      const result = await getSql()(query, [input.schedule_id, hospitalId]);
 
       const rows = (result as any);
       if (!rows || rows.length === 0) {
@@ -684,7 +746,7 @@ export const otManagementRouter = router({
               'actual_end', s.ots_actual_end,
               'status', s.ots_status,
               'priority', s.ots_priority,
-              'surgeon_name', ps.name_full
+              'surgeon_name', ps.full_name
             ) ORDER BY s.scheduled_start ASC
           ) as cases
         FROM ot_rooms r
@@ -707,33 +769,59 @@ export const otManagementRouter = router({
     .input(z.object({
       date_from: z.string().optional(),
       date_to: z.string().optional(),
-    }).optional().default({}))
+    }))
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const statusResult = await getSql()`
+      let statusQuery = `
         SELECT
           ots_status,
           COUNT(*)::int as count
         FROM ot_schedule
-        WHERE hospital_id = ${hospitalId}
-          ${input?.date_from ? `AND DATE(scheduled_date) >= ${input.date_from}::date` : ''}
-          ${input?.date_to ? `AND DATE(scheduled_date) <= ${input.date_to}::date` : ''}
-        GROUP BY ots_status
+        WHERE hospital_id = $1
       `;
+      const statusParams: any[] = [hospitalId];
+      let pIdx = 2;
+
+      if (input?.date_from) {
+        statusQuery += ` AND DATE(scheduled_date) >= $${pIdx}::date`;
+        statusParams.push(input.date_from);
+        pIdx++;
+      }
+      if (input?.date_to) {
+        statusQuery += ` AND DATE(scheduled_date) <= $${pIdx}::date`;
+        statusParams.push(input.date_to);
+        pIdx++;
+      }
+
+      statusQuery += ` GROUP BY ots_status`;
+      const statusResult = await getSql()(statusQuery, statusParams);
       const statusRows = (statusResult as any);
 
-      const timingResult = await getSql()`
+      let timingQuery = `
         SELECT
           ROUND(AVG(actual_duration_min)::numeric, 1)::float as avg_duration_min,
           ROUND((SUM(CASE WHEN ots_actual_start <= scheduled_start THEN 1 ELSE 0 END)::numeric / COUNT(*)::numeric * 100)::numeric, 1)::float as on_time_start_percent,
           ROUND((SUM(CASE WHEN ots_status = 'cancelled' THEN 1 ELSE 0 END)::numeric / COUNT(*)::numeric * 100)::numeric, 1)::float as cancellation_rate
         FROM ot_schedule
-        WHERE hospital_id = ${hospitalId}
+        WHERE hospital_id = $1
           AND ots_status IN ('completed', 'cancelled')
-          ${input?.date_from ? `AND DATE(scheduled_date) >= ${input.date_from}::date` : ''}
-          ${input?.date_to ? `AND DATE(scheduled_date) <= ${input.date_to}::date` : ''}
       `;
+      const timingParams: any[] = [hospitalId];
+      let timingPIdx = 2;
+
+      if (input?.date_from) {
+        timingQuery += ` AND DATE(scheduled_date) >= $${timingPIdx}::date`;
+        timingParams.push(input.date_from);
+        timingPIdx++;
+      }
+      if (input?.date_to) {
+        timingQuery += ` AND DATE(scheduled_date) <= $${timingPIdx}::date`;
+        timingParams.push(input.date_to);
+        timingPIdx++;
+      }
+
+      const timingResult = await getSql()(timingQuery, timingParams);
       const timingRows = (timingResult as any);
 
       return {
@@ -978,11 +1066,11 @@ export const otManagementRouter = router({
       date_from: z.string().optional(),
       date_to: z.string().optional(),
       phase: otChecklistPhaseEnum.optional(),
-    }).optional().default({}))
+    }))
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await getSql()`
+      let query = `
         SELECT
           otc_phase,
           COUNT(*)::int as total,
@@ -990,12 +1078,30 @@ export const otManagementRouter = router({
           ROUND((SUM(CASE WHEN otc_completed_at IS NOT NULL THEN 1 ELSE 0 END)::numeric / COUNT(*)::numeric * 100)::numeric, 1)::float as compliance_percent
         FROM ot_checklists c
         JOIN ot_schedule s ON c.otc_schedule_id = s.id
-        WHERE c.hospital_id = ${hospitalId}
-          ${input?.date_from ? `AND DATE(s.scheduled_date) >= ${input.date_from}::date` : ''}
-          ${input?.date_to ? `AND DATE(s.scheduled_date) <= ${input.date_to}::date` : ''}
-          ${input?.phase ? `AND c.otc_phase = ${input.phase}` : ''}
-        GROUP BY c.otc_phase
+        WHERE c.hospital_id = $1
       `;
+      const params: any[] = [hospitalId];
+      let pIdx = 2;
+
+      if (input?.date_from) {
+        query += ` AND DATE(s.scheduled_date) >= $${pIdx}::date`;
+        params.push(input.date_from);
+        pIdx++;
+      }
+      if (input?.date_to) {
+        query += ` AND DATE(s.scheduled_date) <= $${pIdx}::date`;
+        params.push(input.date_to);
+        pIdx++;
+      }
+      if (input?.phase) {
+        query += ` AND c.otc_phase = $${pIdx}`;
+        params.push(input.phase);
+        pIdx++;
+      }
+
+      query += ` GROUP BY c.otc_phase`;
+
+      const result = await getSql()(query, params);
 
       const rows = (result as any);
       return { compliance: rows || [] };
@@ -1283,44 +1389,83 @@ export const otManagementRouter = router({
     .input(z.object({
       date_from: z.string().optional(),
       date_to: z.string().optional(),
-    }).optional().default({}))
+    }))
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const asaResult = await getSql()`
+      let asaQuery = `
         SELECT
           ar_asa_class,
           COUNT(*)::int as count
         FROM anesthesia_records
-        WHERE hospital_id = ${hospitalId}
-          ${input?.date_from ? `AND ar_created_at >= ${input.date_from}::timestamptz` : ''}
-          ${input?.date_to ? `AND ar_created_at <= ${input.date_to}::timestamptz` : ''}
-        GROUP BY ar_asa_class
+        WHERE hospital_id = $1
       `;
+      const asaParams: any[] = [hospitalId];
+      let asaPIdx = 2;
+
+      if (input?.date_from) {
+        asaQuery += ` AND ar_created_at >= $${asaPIdx}::timestamptz`;
+        asaParams.push(input.date_from);
+        asaPIdx++;
+      }
+      if (input?.date_to) {
+        asaQuery += ` AND ar_created_at <= $${asaPIdx}::timestamptz`;
+        asaParams.push(input.date_to);
+        asaPIdx++;
+      }
+
+      asaQuery += ` GROUP BY ar_asa_class`;
+      const asaResult = await getSql()(asaQuery, asaParams);
       const asaRows = (asaResult as any);
 
-      const typeResult = await getSql()`
+      let typeQuery = `
         SELECT
           ar_anesthesia_type,
           COUNT(*)::int as count
         FROM anesthesia_records
-        WHERE hospital_id = ${hospitalId}
-          ${input?.date_from ? `AND ar_created_at >= ${input.date_from}::timestamptz` : ''}
-          ${input?.date_to ? `AND ar_created_at <= ${input.date_to}::timestamptz` : ''}
-        GROUP BY ar_anesthesia_type
+        WHERE hospital_id = $1
       `;
+      const typeParams: any[] = [hospitalId];
+      let typePIdx = 2;
+
+      if (input?.date_from) {
+        typeQuery += ` AND ar_created_at >= $${typePIdx}::timestamptz`;
+        typeParams.push(input.date_from);
+        typePIdx++;
+      }
+      if (input?.date_to) {
+        typeQuery += ` AND ar_created_at <= $${typePIdx}::timestamptz`;
+        typeParams.push(input.date_to);
+        typePIdx++;
+      }
+
+      typeQuery += ` GROUP BY ar_anesthesia_type`;
+      const typeResult = await getSql()(typeQuery, typeParams);
       const typeRows = (typeResult as any);
 
-      const complicationResult = await getSql()`
+      let complicationQuery = `
         SELECT
           ROUND((SUM(CASE WHEN ar_complications IS NOT NULL THEN 1 ELSE 0 END)::numeric / COUNT(*)::numeric * 100)::numeric, 1)::float as complication_rate,
           ROUND((SUM(CASE WHEN difficult_airway THEN 1 ELSE 0 END)::numeric / COUNT(*)::numeric * 100)::numeric, 1)::float as difficult_airway_rate,
           ROUND((SUM(CASE WHEN anaphylaxis THEN 1 ELSE 0 END)::numeric / COUNT(*)::numeric * 100)::numeric, 1)::float as anaphylaxis_rate
         FROM anesthesia_records
-        WHERE hospital_id = ${hospitalId}
-          ${input?.date_from ? `AND ar_created_at >= ${input.date_from}::timestamptz` : ''}
-          ${input?.date_to ? `AND ar_created_at <= ${input.date_to}::timestamptz` : ''}
+        WHERE hospital_id = $1
       `;
+      const complicationParams: any[] = [hospitalId];
+      let complicationPIdx = 2;
+
+      if (input?.date_from) {
+        complicationQuery += ` AND ar_created_at >= $${complicationPIdx}::timestamptz`;
+        complicationParams.push(input.date_from);
+        complicationPIdx++;
+      }
+      if (input?.date_to) {
+        complicationQuery += ` AND ar_created_at <= $${complicationPIdx}::timestamptz`;
+        complicationParams.push(input.date_to);
+        complicationPIdx++;
+      }
+
+      const complicationResult = await getSql()(complicationQuery, complicationParams);
       const complicationRows = (complicationResult as any);
 
       return {
@@ -1384,11 +1529,11 @@ export const otManagementRouter = router({
       date_to: z.string().optional(),
       limit: z.number().int().max(500).default(50),
       offset: z.number().int().default(0),
-    }).optional().default({}))
+    }))
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await getSql()`
+      let query = `
         SELECT
           id,
           oel_schedule_id,
@@ -1401,14 +1546,36 @@ export const otManagementRouter = router({
           oel_logged_at,
           oel_notes
         FROM ot_equipment_log
-        WHERE hospital_id = ${hospitalId}
-          ${input?.room_id ? `AND oel_room_id = ${input.room_id}::uuid` : ''}
-          ${input?.schedule_id ? `AND oel_schedule_id = ${input.schedule_id}::uuid` : ''}
-          ${input?.date_from ? `AND DATE(oel_logged_at) >= ${input.date_from}::date` : ''}
-          ${input?.date_to ? `AND DATE(oel_logged_at) <= ${input.date_to}::date` : ''}
-        ORDER BY oel_logged_at DESC
-        LIMIT ${input?.limit || 50} OFFSET ${input?.offset || 0}
+        WHERE hospital_id = $1
       `;
+      const params: any[] = [hospitalId];
+      let pIdx = 2;
+
+      if (input?.room_id) {
+        query += ` AND oel_room_id = $${pIdx}::uuid`;
+        params.push(input.room_id);
+        pIdx++;
+      }
+      if (input?.schedule_id) {
+        query += ` AND oel_schedule_id = $${pIdx}::uuid`;
+        params.push(input.schedule_id);
+        pIdx++;
+      }
+      if (input?.date_from) {
+        query += ` AND DATE(oel_logged_at) >= $${pIdx}::date`;
+        params.push(input.date_from);
+        pIdx++;
+      }
+      if (input?.date_to) {
+        query += ` AND DATE(oel_logged_at) <= $${pIdx}::date`;
+        params.push(input.date_to);
+        pIdx++;
+      }
+
+      query += ` ORDER BY oel_logged_at DESC LIMIT $${pIdx} OFFSET $${pIdx + 1}`;
+      params.push(input?.limit || 50, input?.offset || 0);
+
+      const result = await getSql()(query, params);
 
       const rows = (result as any);
       return { equipment_log: rows || [], count: rows?.length || 0 };
@@ -1494,11 +1661,11 @@ export const otManagementRouter = router({
       date_to: z.string().optional(),
       limit: z.number().int().max(500).default(50),
       offset: z.number().int().default(0),
-    }).optional().default({}))
+    }))
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await getSql()`
+      let query = `
         SELECT
           id,
           otl_room_id,
@@ -1513,13 +1680,31 @@ export const otManagementRouter = router({
           otl_notes,
           otl_created_at
         FROM ot_turnover_log
-        WHERE hospital_id = ${hospitalId}
-          ${input?.room_id ? `AND otl_room_id = ${input.room_id}::uuid` : ''}
-          ${input?.date_from ? `AND DATE(cleaning_start) >= ${input.date_from}::date` : ''}
-          ${input?.date_to ? `AND DATE(cleaning_start) <= ${input.date_to}::date` : ''}
-        ORDER BY cleaning_start DESC
-        LIMIT ${input?.limit || 50} OFFSET ${input?.offset || 0}
+        WHERE hospital_id = $1
       `;
+      const params: any[] = [hospitalId];
+      let pIdx = 2;
+
+      if (input?.room_id) {
+        query += ` AND otl_room_id = $${pIdx}::uuid`;
+        params.push(input.room_id);
+        pIdx++;
+      }
+      if (input?.date_from) {
+        query += ` AND DATE(cleaning_start) >= $${pIdx}::date`;
+        params.push(input.date_from);
+        pIdx++;
+      }
+      if (input?.date_to) {
+        query += ` AND DATE(cleaning_start) <= $${pIdx}::date`;
+        params.push(input.date_to);
+        pIdx++;
+      }
+
+      query += ` ORDER BY cleaning_start DESC LIMIT $${pIdx} OFFSET $${pIdx + 1}`;
+      params.push(input?.limit || 50, input?.offset || 0);
+
+      const result = await getSql()(query, params);
 
       const rows = (result as any);
       return { turnovers: rows || [], count: rows?.length || 0 };
@@ -1529,11 +1714,11 @@ export const otManagementRouter = router({
     .input(z.object({
       date_from: z.string().optional(),
       date_to: z.string().optional(),
-    }).optional().default({}))
+    }))
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const byRoomResult = await getSql()`
+      let byRoomQuery = `
         SELECT
           r.id as room_id,
           r.room_name,
@@ -1544,27 +1729,50 @@ export const otManagementRouter = router({
           MAX(t.turnover_minutes) as max_turnover
         FROM ot_rooms r
         LEFT JOIN ot_turnover_log t ON r.id = t.otl_room_id
-          AND t.hospital_id = ${hospitalId}
-          ${input?.date_from ? `AND DATE(t.cleaning_start) >= ${input.date_from}::date` : ''}
-          ${input?.date_to ? `AND DATE(t.cleaning_start) <= ${input.date_to}::date` : ''}
-        WHERE r.hospital_id = ${hospitalId}
-        GROUP BY r.id, r.room_name, r.room_number
-        ORDER BY avg_turnover_minutes DESC
+          AND t.hospital_id = $1
       `;
+      const byRoomParams: any[] = [hospitalId];
+      let byRoomPIdx = 2;
+
+      if (input?.date_from) {
+        byRoomQuery += ` AND DATE(t.cleaning_start) >= $${byRoomPIdx}::date`;
+        byRoomParams.push(input.date_from);
+        byRoomPIdx++;
+      }
+      if (input?.date_to) {
+        byRoomQuery += ` AND DATE(t.cleaning_start) <= $${byRoomPIdx}::date`;
+        byRoomParams.push(input.date_to);
+        byRoomPIdx++;
+      }
+
+      byRoomQuery += ` WHERE r.hospital_id = $1 GROUP BY r.id, r.room_name, r.room_number ORDER BY avg_turnover_minutes DESC`;
+      const byRoomResult = await getSql()(byRoomQuery, byRoomParams);
       const byRoomRows = (byRoomResult as any);
 
-      const trendResult = await getSql()`
+      let trendQuery = `
         SELECT
           DATE_TRUNC('day', cleaning_start)::date as date,
           ROUND(AVG(turnover_minutes)::numeric, 1)::float as avg_turnover_minutes,
           COUNT(*)::int as count
         FROM ot_turnover_log
-        WHERE hospital_id = ${hospitalId}
-          ${input?.date_from ? `AND DATE(cleaning_start) >= ${input.date_from}::date` : ''}
-          ${input?.date_to ? `AND DATE(cleaning_start) <= ${input.date_to}::date` : ''}
-        GROUP BY DATE_TRUNC('day', cleaning_start)
-        ORDER BY date DESC
+        WHERE hospital_id = $1
       `;
+      const trendParams: any[] = [hospitalId];
+      let trendPIdx = 2;
+
+      if (input?.date_from) {
+        trendQuery += ` AND DATE(cleaning_start) >= $${trendPIdx}::date`;
+        trendParams.push(input.date_from);
+        trendPIdx++;
+      }
+      if (input?.date_to) {
+        trendQuery += ` AND DATE(cleaning_start) <= $${trendPIdx}::date`;
+        trendParams.push(input.date_to);
+        trendPIdx++;
+      }
+
+      trendQuery += ` GROUP BY DATE_TRUNC('day', cleaning_start) ORDER BY date DESC`;
+      const trendResult = await getSql()(trendQuery, trendParams);
       const trendRows = (trendResult as any);
 
       return {

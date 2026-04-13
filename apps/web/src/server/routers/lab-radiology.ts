@@ -409,7 +409,7 @@ export const labRadiologyRouter = router({
       const query = `
         SELECT lo.id, lo.lo_order_number, lo.lo_patient_id, lo.lo_status, lo.lo_urgency,
                lo.lo_panel_name, lo.lo_ordered_at, lo.lo_is_critical,
-               p.patient_name
+               p.name_full
         FROM lab_orders lo
         JOIN patients p ON lo.lo_patient_id = p.id
         WHERE lo.hospital_id = $1
@@ -428,7 +428,7 @@ export const labRadiologyRouter = router({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const orderQuery = `
-        SELECT lo.*, p.patient_name
+        SELECT lo.*, p.name_full
         FROM lab_orders lo
         JOIN patients p ON lo.lo_patient_id = p.id
         WHERE lo.id = $1 AND lo.hospital_id = $2
@@ -666,7 +666,7 @@ export const labRadiologyRouter = router({
     .query(async ({ ctx, input }) => {
       const query = `
         SELECT sp.id, sp.sp_barcode, sp.sp_order_id, sp.sp_status, sp.sp_collected_at, sp.sp_received_at,
-               sp.sp_rejection_reason, p.patient_name
+               sp.sp_rejection_reason, p.name_full
         FROM specimens sp
         JOIN lab_orders lo ON sp.sp_order_id = lo.id
         JOIN patients p ON sp.sp_patient_id = p.id
@@ -736,7 +736,7 @@ export const labRadiologyRouter = router({
       const query = `
         SELECT ro.id, ro.ro_order_number, ro.ro_patient_id, ro.ro_modality, ro.study_description,
                ro.ro_status, ro.ro_urgency, ro.scheduled_at, ro.ro_ordered_at,
-               p.patient_name
+               p.name_full
         FROM radiology_orders ro
         JOIN patients p ON ro.ro_patient_id = p.id
         WHERE ro.hospital_id = $1
@@ -756,7 +756,7 @@ export const labRadiologyRouter = router({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const orderQuery = `
-        SELECT ro.*, p.patient_name
+        SELECT ro.*, p.name_full
         FROM radiology_orders ro
         JOIN patients p ON ro.ro_patient_id = p.id
         WHERE ro.id = $1 AND ro.hospital_id = $2
@@ -933,7 +933,7 @@ export const labRadiologyRouter = router({
       const query = `
         SELECT
           lr.id, lr.lr_test_name, lr.value_numeric, lr.lr_flag, lr.lr_resulted_at,
-          lo.lo_order_number, p.patient_name
+          lo.lo_order_number, p.name_full
         FROM lab_results lr
         JOIN lab_orders lo ON lr.lr_order_id = lo.id
         JOIN patients p ON lo.lo_patient_id = p.id
@@ -1033,7 +1033,7 @@ export const labRadiologyRouter = router({
           sp.sp_collected_at, sp.sp_received_at,
           lo.id as order_id, lo.lo_order_number, lo.lo_status, lo.lo_urgency,
           lo.lo_panel_name, lo.lo_clinical_notes, lo.lo_ordered_at, lo.lo_is_critical,
-          p.id as patient_id, p.uhid, p.first_name, p.last_name, p.date_of_birth, p.gender,
+          p.id as patient_id, p.uhid, p.name_full as patient_name, p.dob as date_of_birth, p.gender,
           u.full_name as ordered_by_name
         FROM specimens sp
         JOIN lab_orders lo ON sp.sp_order_id = lo.id

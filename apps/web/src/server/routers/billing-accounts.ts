@@ -143,7 +143,7 @@ export const billingAccountsRouter = router({
             ba.estimated_total, ba.patient_liability_estimate,
             ba.ba_is_active as is_active, ba.ba_created_at as created_at,
             ba.ba_updated_at as updated_at,
-            p.patient_name,
+            p.name_full,
             e.encounter_type, e.admission_date, e.discharge_date
           FROM billing_accounts ba
           JOIN patients p ON ba.ba_patient_id = p.id
@@ -187,7 +187,7 @@ export const billingAccountsRouter = router({
             ba.id, ba.ba_patient_id as patient_id, ba.ba_encounter_id as encounter_id,
             ba.account_type, ba.insurer_name, ba.total_charges, ba.total_deposits,
             ba.total_payments, ba.ba_balance_due as balance_due, ba.ba_is_active as is_active,
-            ba.ba_created_at as created_at, p.patient_name
+            ba.ba_created_at as created_at, p.name_full
           FROM billing_accounts ba
           JOIN patients p ON ba.ba_patient_id = p.id
           WHERE ba.hospital_id = ${hospitalId}
@@ -574,7 +574,7 @@ export const billingAccountsRouter = router({
           SELECT
             d.id, d.dep_amount as amount, d.dep_status as status,
             d.dep_payment_method as payment_method, d.dep_reference_number as reference_number,
-            d.collected_at, u.user_full_name as collector_name, d.dep_notes as notes
+            d.collected_at, u.full_name as collector_name, d.dep_notes as notes
           FROM deposits d
           LEFT JOIN users u ON d.collected_by = u.id
           WHERE d.hospital_id = ${hospitalId}
@@ -989,7 +989,7 @@ export const billingAccountsRouter = router({
           SELECT
             pa.id, pa.package_name, pa.package_code, pa.pa_status as status,
             pa.package_price, pa.actual_cost, pa.variance_amount,
-            pa.applied_at, p.patient_name
+            pa.applied_at, p.name_full
           FROM package_applications pa
           JOIN patients p ON pa.pa_patient_id = p.id
           WHERE pa.hospital_id = ${hospitalId}

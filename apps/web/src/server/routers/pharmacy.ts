@@ -283,7 +283,7 @@ export const pharmacyRouter = router({
     )
     .query(async ({ ctx, input }) => {
       try {
-        let whereClause = 'hospital_id = $1';
+        let whereClause = 'pi.hospital_id = $1';
         const params: any[] = [ctx.user.hospital_id];
         let paramIdx = 2;
 
@@ -745,30 +745,30 @@ export const pharmacyRouter = router({
     )
     .query(async ({ ctx, input }) => {
       try {
-        let whereClause = 'hospital_id = $1';
+        let whereClause = 'dr.hospital_id = $1';
         const params: any[] = [ctx.user.hospital_id];
         let paramIdx = 2;
 
         if (input.dr_patient_id) {
-          whereClause += ` AND dr_patient_id = $${paramIdx}`;
+          whereClause += ` AND dr.dr_patient_id = $${paramIdx}`;
           params.push(input.dr_patient_id);
           paramIdx++;
         }
 
         if (input.dr_encounter_id) {
-          whereClause += ` AND dr_encounter_id = $${paramIdx}`;
+          whereClause += ` AND dr.dr_encounter_id = $${paramIdx}`;
           params.push(input.dr_encounter_id);
           paramIdx++;
         }
 
         if (input.dr_status) {
-          whereClause += ` AND dr_status = $${paramIdx}`;
+          whereClause += ` AND dr.dr_status = $${paramIdx}`;
           params.push(input.dr_status);
           paramIdx++;
         }
 
         const records = await getSql()(
-          `SELECT dr.*, p.patient_name, u.user_full_name as dispensed_by_name
+          `SELECT dr.*, p.name_full, u.full_name as dispensed_by_name
           FROM dispensing_records dr
           LEFT JOIN patients p ON dr.dr_patient_id = p.id
           LEFT JOIN users u ON dr.dispensed_by = u.id
@@ -792,7 +792,7 @@ export const pharmacyRouter = router({
     .query(async ({ ctx, input }) => {
       try {
         const record = await getSql()(
-          `SELECT dr.*, p.patient_name, u.user_full_name as dispensed_by_name, dm.drug_name
+          `SELECT dr.*, p.name_full, u.full_name as dispensed_by_name, dm.drug_name
           FROM dispensing_records dr
           LEFT JOIN patients p ON dr.dr_patient_id = p.id
           LEFT JOIN users u ON dr.dispensed_by = u.id
@@ -838,7 +838,7 @@ export const pharmacyRouter = router({
         }
 
         const pending = await getSql()(
-          `SELECT mo.*, p.patient_name, dm.drug_name, dm.dm_strength
+          `SELECT mo.*, p.name_full, dm.drug_name, dm.dm_strength
           FROM medication_orders mo
           LEFT JOIN patients p ON mo.mo_patient_id = p.id
           LEFT JOIN drug_master dm ON mo.mo_drug_id = dm.id
@@ -945,7 +945,7 @@ export const pharmacyRouter = router({
     .query(async ({ ctx, input }) => {
       try {
         const records = await getSql()(
-          `SELECT nr.*, u.user_full_name as performed_by_name, uw.user_full_name as witnessed_by_name
+          `SELECT nr.*, u.full_name as performed_by_name, uw.full_name as witnessed_by_name
           FROM narcotics_register nr
           LEFT JOIN users u ON nr.nr_performed_by = u.id
           LEFT JOIN users uw ON nr.nr_witnessed_by = uw.id
@@ -1368,7 +1368,7 @@ export const pharmacyRouter = router({
         }
 
         const orders = await getSql()(
-          `SELECT po.*, v.vendor_name, u.user_full_name as created_by_name
+          `SELECT po.*, v.vendor_name, u.full_name as created_by_name
           FROM purchase_orders po
           LEFT JOIN vendors v ON po.po_vendor_id = v.id
           LEFT JOIN users u ON po.po_created_by = u.id
