@@ -20,3 +20,4 @@ export * from './19-critical-values';
 export * from './20-test-catalog';
 export * from './21-lab-reports';
 export * from './22-culture-histopath';
+export * from './23-blood-bank';

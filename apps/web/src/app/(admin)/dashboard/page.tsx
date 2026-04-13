@@ -317,6 +317,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-amber-600">C&amp;S, antibiograms, pathology</p>
                 </div>
               </a>
+              <a href="/admin/blood-bank" className="flex items-center gap-3 p-4 bg-red-50 rounded-lg border border-red-200 hover:bg-red-100 hover:border-red-300 transition-colors">
+                <span className="text-2xl">&#129656;</span>
+                <div>
+                  <p className="text-sm font-semibold text-red-800">Blood Bank</p>
+                  <p className="text-xs text-red-600">Inventory, crossmatch, reactions</p>
+                </div>
+              </a>
               <a href="/admin/ot-management" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
                 <span className="text-2xl">&#129657;</span>
                 <div>
@@ -417,7 +424,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint L.5 — Culture &amp; Sensitivity + Histopathology. 153 tables, ~473 routes.</p>
+              <p className="text-sm text-gray-600">Sprint L.6 — Blood Bank (inventory, crossmatch, reactions). 156 tables, ~486 routes.</p>
             </div>
           </div>
         </div>

@@ -40,6 +40,7 @@ import { criticalValuesRouter } from './critical-values';
 import { testCatalogRouter } from './test-catalog';
 import { labReportsRouter } from './lab-reports';
 import { cultureHistopathRouter } from './culture-histopath';
+import { bloodBankRouter } from './blood-bank';
 import { drizzleTestRouter } from './drizzle-test';
 
 export const appRouter = router({
@@ -84,6 +85,7 @@ export const appRouter = router({
   testCatalog: testCatalogRouter,
   labReports: labReportsRouter,
   cultureHistopath: cultureHistopathRouter,
+  bloodBank: bloodBankRouter,
   drizzleTest: drizzleTestRouter,
 });
 
