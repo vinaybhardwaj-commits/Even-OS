@@ -156,6 +156,11 @@ export default function PharmacyClient({ user }: { user: User }) {
   const [activeTab, setActiveTab] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  // ─── AI Pharmacy Intelligence ────────────────────────
+  const [aiPharmacyAlerts, setAiPharmacyAlerts] = useState<any>(null);
+  const [aiPharmacyLoading, setAiPharmacyLoading] = useState(false);
+  const [aiPharmacyError, setAiPharmacyError] = useState('');
+
   // ─── Tab 1: Inventory ─────────────────────────────────
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
@@ -439,6 +444,7 @@ export default function PharmacyClient({ user }: { user: User }) {
             'Purchase Orders',
             'Vendors',
             'Alerts &amp; Analytics',
+            '🤖 AI Pharmacy',
           ].map((tab, i) => (
             <button
               key={i}
@@ -1817,6 +1823,90 @@ export default function PharmacyClient({ user }: { user: User }) {
                 <div style={{ color: '#6b7280' }}>No data available</div>
               )}
             </div>
+          </div>
+        )}
+        {/* Tab 6: AI Pharmacy Intelligence */}
+        {activeTab === 6 && (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#7C3AED' }}>🤖 AI Pharmacy Intelligence</h2>
+              <button
+                onClick={async () => {
+                  setAiPharmacyLoading(true); setAiPharmacyError('');
+                  try {
+                    const res = await fetch('/api/trpc/evenAI.runPharmacyAlerts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ json: {} }) });
+                    const json = await res.json();
+                    if (json.error) throw new Error(json.error.message);
+                    setAiPharmacyAlerts(json.result?.data?.json);
+                  } catch (e: any) { setAiPharmacyError(e.message); }
+                  finally { setAiPharmacyLoading(false); }
+                }}
+                disabled={aiPharmacyLoading}
+                style={{ padding: '8px 16px', backgroundColor: '#7C3AED', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', opacity: aiPharmacyLoading ? 0.5 : 1 }}
+              >
+                {aiPharmacyLoading ? 'Running Checks...' : 'Run AI Checks'}
+              </button>
+            </div>
+
+            {aiPharmacyError && (
+              <div style={{ padding: '12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#dc2626', fontSize: '13px', marginBottom: '16px' }}>{aiPharmacyError}</div>
+            )}
+
+            {aiPharmacyLoading && <p style={{ color: '#7C3AED', fontSize: '13px' }}>Running pharmacy AI checks...</p>}
+
+            {aiPharmacyAlerts && (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+                  <div style={{ padding: '16px', background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px' }}>Checks Run</div>
+                    <div style={{ fontSize: '24px', fontWeight: '700', color: '#7C3AED' }}>{aiPharmacyAlerts.checks_run || 0}</div>
+                  </div>
+                  <div style={{ padding: '16px', background: aiPharmacyAlerts.total_alerts > 0 ? '#fef2f2' : '#f0fdf4', border: `1px solid ${aiPharmacyAlerts.total_alerts > 0 ? '#fecaca' : '#bbf7d0'}`, borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px' }}>Total Alerts</div>
+                    <div style={{ fontSize: '24px', fontWeight: '700', color: aiPharmacyAlerts.total_alerts > 0 ? '#dc2626' : '#16a34a' }}>{aiPharmacyAlerts.total_alerts || 0}</div>
+                  </div>
+                  <div style={{ padding: '16px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px' }}>Errors</div>
+                    <div style={{ fontSize: '24px', fontWeight: '700', color: '#6b7280' }}>{aiPharmacyAlerts.errors?.length || 0}</div>
+                  </div>
+                </div>
+
+                {aiPharmacyAlerts.alerts && aiPharmacyAlerts.alerts.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {aiPharmacyAlerts.alerts.map((alert: any, idx: number) => (
+                      <div key={idx} style={{
+                        padding: '12px 16px',
+                        background: '#fff',
+                        border: `1px solid ${alert.severity === 'critical' ? '#fecaca' : alert.severity === 'high' ? '#fed7aa' : alert.severity === 'medium' ? '#fde68a' : '#e5e7eb'}`,
+                        borderRadius: '8px',
+                        borderLeft: `4px solid ${alert.severity === 'critical' ? '#dc2626' : alert.severity === 'high' ? '#ea580c' : alert.severity === 'medium' ? '#d97706' : '#6b7280'}`,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                          <span style={{
+                            fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' as const,
+                            padding: '2px 6px', borderRadius: '4px',
+                            backgroundColor: alert.severity === 'critical' ? '#dc2626' : alert.severity === 'high' ? '#ea580c' : alert.severity === 'medium' ? '#d97706' : '#6b7280',
+                            color: '#fff',
+                          }}>{alert.severity}</span>
+                          <span style={{ fontSize: '13px', fontWeight: '600', color: '#1f2937' }}>{alert.title}</span>
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#6b7280' }}>{alert.body}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {aiPharmacyAlerts.alerts && aiPharmacyAlerts.alerts.length === 0 && (
+                  <div style={{ padding: '20px', textAlign: 'center', background: '#f0fdf4', borderRadius: '8px', color: '#16a34a', fontSize: '14px' }}>
+                    ✅ All clear — no pharmacy alerts detected
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!aiPharmacyLoading && !aiPharmacyAlerts && !aiPharmacyError && (
+              <p style={{ color: '#6b7280', fontSize: '13px' }}>Click &quot;Run AI Checks&quot; to detect stock-out risks, expiry alerts, consumption anomalies, and narcotic discrepancies.</p>
+            )}
           </div>
         )}
       </div>

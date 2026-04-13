@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateMorningBriefing } from '@/lib/ai/operations/morning-briefing';
+import { runPharmacyAlerts } from '@/lib/ai/operations/pharmacy-alerts';
 
 let _sql: any = null;
 function getSql() {
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       if (err.message?.includes('does not exist')) {
         const duration_ms = Date.now() - startTime;
         return NextResponse.json({
-          job: 'morning-briefing',
+          job: 'pharmacy-alerts',
           status: 'skipped',
           cards_generated: 0,
           errors: 0,
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     if (!hospitalId) {
       const duration_ms = Date.now() - startTime;
       return NextResponse.json({
-        job: 'morning-briefing',
+        job: 'pharmacy-alerts',
         status: 'skipped',
         cards_generated: 0,
         errors: 0,
@@ -51,26 +51,25 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const briefing = await generateMorningBriefing(hospitalId);
+    const result = await runPharmacyAlerts(hospitalId);
     const duration_ms = Date.now() - startTime;
 
     return NextResponse.json({
-      job: 'morning-briefing',
-      status: 'completed',
-      cards_generated: 1,
-      errors: 0,
+      job: 'pharmacy-alerts',
+      status: result.errors.length === 0 ? 'completed' : 'partial',
+      cards_generated: result.total_alerts,
+      checks_run: result.checks_run,
+      errors: result.errors.length,
       duration_ms,
-      details: `Morning briefing generated (${briefing.source}), ${briefing.critical_items.length} critical items`,
-      sections: Object.keys(briefing.sections),
-      critical_items: briefing.critical_items,
+      details: `${result.checks_run} checks run, ${result.total_alerts} alerts generated`,
     });
   } catch (error) {
     const duration_ms = Date.now() - startTime;
-    console.error('Morning briefing job failed:', error);
+    console.error('Pharmacy alerts job failed:', error);
 
     return NextResponse.json(
       {
-        job: 'morning-briefing',
+        job: 'pharmacy-alerts',
         status: 'skipped',
         cards_generated: 0,
         errors: 1,

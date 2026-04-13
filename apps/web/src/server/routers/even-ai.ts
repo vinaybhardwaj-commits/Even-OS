@@ -23,6 +23,10 @@ import { suggestPathways, analyzePathwayVariance } from '@/lib/ai/clinical/care-
 import { runNabhAudit, getNabhScore } from '@/lib/ai/quality/nabh-auditor';
 import { runActiveMonitoring } from '@/lib/ai/quality/active-monitor';
 import { generateIncidentTrendReport, generateInfectionReport, generateComplianceReport, generateQualityDashboardSummary } from '@/lib/ai/quality/quality-reports';
+import { predictBedDischarges, getOccupancyForecast, getBedPredictions } from '@/lib/ai/operations/bed-intelligence';
+import { analyzeOTSchedule, getOTTurnoverAnalysis, getOTEfficiencyReport } from '@/lib/ai/operations/ot-optimizer';
+import { runPharmacyAlerts } from '@/lib/ai/operations/pharmacy-alerts';
+import { generateMorningBriefing, getLatestBriefing } from '@/lib/ai/operations/morning-briefing';
 
 // ────────────────────────────────────────────────────────────────────────
 // Lazy SQL Client
@@ -267,6 +271,19 @@ const generateIncidentReportInput = z.object({ days: z.number().int().min(1).max
 const generateInfectionReportInput = z.object({ days: z.number().int().min(1).max(365).default(30) });
 const generateComplianceReportInput = z.object({ days: z.number().int().min(1).max(365).default(30) });
 const generateQualitySummaryInput = z.object({});
+
+// ════════════════════════════════════════════════════════════════════════
+// AI.5: OPERATIONS INTELLIGENCE INPUT SCHEMAS
+// ════════════════════════════════════════════════════════════════════════
+
+const runBedPredictionsInput = z.object({});
+const getOccupancyForecastInput = z.object({ days: z.number().int().min(1).max(30).default(7) });
+const analyzeOTScheduleInput = z.object({});
+const getOTTurnoverInput = z.object({ days: z.number().int().min(1).max(90).default(30) });
+const getOTEfficiencyInput = z.object({});
+const runPharmacyAlertsInput = z.object({});
+const generateMorningBriefingInput = z.object({});
+const getLatestBriefingInput = z.object({});
 
 // ════════════════════════════════════════════════════════════════════════
 // ROUTER
@@ -1496,6 +1513,191 @@ export const evenAIRouter = router({
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: `Quality summary failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  // ──────────────────────────────────────────────────────────────────
+  // AI.5: OPERATIONS INTELLIGENCE (9 endpoints: 34-42)
+  // ──────────────────────────────────────────────────────────────────
+
+  /**
+   * 34. runBedPredictions — Run discharge predictions for all occupied beds
+   */
+  runBedPredictions: adminProcedure
+    .input(runBedPredictionsInput)
+    .mutation(async () => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const result = await predictBedDischarges(hospitalId);
+        return {
+          success: true,
+          predictions_updated: result.predictions_updated,
+          cards_generated: result.cards_generated,
+          alert_count: result.alerts.length,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Bed predictions failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 35. getOccupancyForecast — Get bed occupancy forecast for next N days
+   */
+  getOccupancyForecast: protectedProcedure
+    .input(getOccupancyForecastInput)
+    .query(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const forecast = await getOccupancyForecast(hospitalId, input.days);
+        return { success: true, forecast };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Occupancy forecast failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 36. analyzeOTSchedule — Analyze today's OT schedule for gaps, overlaps, utilization
+   */
+  analyzeOTSchedule: protectedProcedure
+    .input(analyzeOTScheduleInput)
+    .mutation(async () => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const result = await analyzeOTSchedule(hospitalId);
+        return {
+          success: true,
+          total_procedures: result.total_procedures,
+          utilization_pct: result.utilization_pct,
+          gaps_found: result.gaps_found,
+          overlaps_found: result.overlaps_found,
+          card_count: result.cards.length,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `OT schedule analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 38. getOTTurnover — Get OT turnover time analysis
+   */
+  getOTTurnover: protectedProcedure
+    .input(getOTTurnoverInput)
+    .query(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const analysis = await getOTTurnoverAnalysis(hospitalId, input.days);
+        return { success: true, analysis };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `OT turnover analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 39. getOTEfficiency — Get LLM-enhanced OT efficiency report
+   */
+  getOTEfficiency: protectedProcedure
+    .input(getOTEfficiencyInput)
+    .mutation(async () => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const report = await getOTEfficiencyReport(hospitalId);
+        return {
+          success: true,
+          narrative: report.narrative,
+          metrics: report.metrics,
+          source: report.source,
+          card_id: report.card.id,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `OT efficiency report failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 40. runPharmacyAlerts — Run all pharmacy alert checks
+   */
+  runPharmacyAlerts: adminProcedure
+    .input(runPharmacyAlertsInput)
+    .mutation(async () => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const result = await runPharmacyAlerts(hospitalId);
+        return {
+          success: true,
+          checks_run: result.checks_run,
+          total_alerts: result.total_alerts,
+          alerts: result.alerts.map((a: any) => ({
+            id: a.id,
+            severity: a.severity,
+            title: a.title,
+            body: a.body,
+          })),
+          errors: result.errors,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Pharmacy alerts failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 41. generateMorningBriefing — Generate comprehensive morning operations briefing
+   */
+  generateMorningBriefing: adminProcedure
+    .input(generateMorningBriefingInput)
+    .mutation(async () => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const briefing = await generateMorningBriefing(hospitalId);
+        return {
+          success: true,
+          date: briefing.date,
+          sections: briefing.sections,
+          narrative: briefing.narrative,
+          source: briefing.source,
+          critical_items: briefing.critical_items,
+          card_id: briefing.card.id,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Morning briefing failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 42. getLatestBriefing — Get the most recent morning briefing
+   */
+  getLatestBriefing: protectedProcedure
+    .input(getLatestBriefingInput)
+    .query(async () => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const card = await getLatestBriefing(hospitalId);
+        return { success: true, briefing: card };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Latest briefing query failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
         });
       }
     }),

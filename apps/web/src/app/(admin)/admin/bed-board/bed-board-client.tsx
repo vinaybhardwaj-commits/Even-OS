@@ -104,6 +104,13 @@ export function BedBoardClient() {
   const [actionLoading, setActionLoading] = useState(false);
   const pollInterval = useRef<NodeJS.Timeout>();
 
+  // AI Bed Intelligence State
+  const [showAI, setShowAI] = useState(false);
+  const [aiPredictions, setAiPredictions] = useState<any[]>([]);
+  const [aiForecast, setAiForecast] = useState<any>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
+
   const fetchData = useCallback(async () => {
     try {
       setError('');
@@ -160,6 +167,41 @@ export function BedBoardClient() {
       setError(err.message);
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const loadAIData = async () => {
+    setAiLoading(true);
+    setAiError('');
+    try {
+      const [preds, forecast] = await Promise.all([
+        trpcQuery('evenAI.getBedPredictions', {}),
+        trpcQuery('evenAI.getOccupancyForecast', { days: 7 }),
+      ]);
+      setAiPredictions(preds?.predictions || []);
+      setAiForecast(forecast?.forecast || null);
+    } catch (err: any) {
+      setAiError(err.message || 'Failed to load AI predictions');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const runPredictions = async () => {
+    setAiLoading(true);
+    setAiError('');
+    try {
+      const res = await fetch('/api/trpc/evenAI.runBedPredictions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: {} }),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error.message);
+      await loadAIData();
+    } catch (err: any) {
+      setAiError(err.message || 'Failed to run predictions');
+      setAiLoading(false);
     }
   };
 
@@ -256,6 +298,99 @@ export function BedBoardClient() {
             {success}
           </div>
         )}
+
+        {/* AI Bed Intelligence Toggle */}
+        <div className="mb-6">
+          <button
+            onClick={() => { setShowAI(!showAI); if (!showAI && aiPredictions.length === 0) loadAIData(); }}
+            className="px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium hover:bg-violet-700 flex items-center gap-2"
+          >
+            🤖 {showAI ? 'Hide' : 'Show'} AI Bed Intelligence
+          </button>
+
+          {showAI && (
+            <div className="mt-4 bg-violet-50 border border-violet-200 rounded-lg p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-violet-900">🤖 AI Bed Intelligence</h2>
+                <button
+                  onClick={runPredictions}
+                  disabled={aiLoading}
+                  className="px-3 py-1 bg-violet-600 text-white rounded text-xs font-medium hover:bg-violet-700 disabled:opacity-50"
+                >
+                  {aiLoading ? 'Running...' : 'Run Predictions'}
+                </button>
+              </div>
+
+              {aiError && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{aiError}</div>
+              )}
+
+              {aiLoading && <p className="text-violet-700 text-sm">Loading AI predictions...</p>}
+
+              {/* Occupancy Forecast */}
+              {aiForecast && (
+                <div className="mb-4">
+                  <h3 className="text-sm font-semibold text-violet-800 mb-2">Occupancy Forecast (7 days)</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="bg-white rounded p-3 border border-violet-100">
+                      <p className="text-xs text-gray-500">Current Occupancy</p>
+                      <p className="text-xl font-bold text-violet-900">{aiForecast.current?.occupancy_pct?.toFixed(0) || 0}%</p>
+                    </div>
+                    <div className="bg-white rounded p-3 border border-violet-100">
+                      <p className="text-xs text-gray-500">Occupied / Total</p>
+                      <p className="text-xl font-bold text-violet-900">{aiForecast.current?.occupied || 0} / {aiForecast.current?.total_beds || 0}</p>
+                    </div>
+                    <div className="bg-white rounded p-3 border border-violet-100">
+                      <p className="text-xs text-gray-500">Predicted Discharges Today</p>
+                      <p className="text-xl font-bold text-green-700">{aiForecast.predicted_discharges?.[0]?.count || 0}</p>
+                    </div>
+                    <div className="bg-white rounded p-3 border border-violet-100">
+                      <p className="text-xs text-gray-500">Predicted Discharges (7d)</p>
+                      <p className="text-xl font-bold text-green-700">{aiForecast.predicted_discharges?.reduce((s: number, d: any) => s + (d.count || 0), 0) || 0}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Discharge Predictions Table */}
+              {aiPredictions.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-violet-800 mb-2">Discharge Predictions ({aiPredictions.length})</h3>
+                  <div className="bg-white rounded border border-violet-100 overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-violet-100 text-violet-900">
+                          <th className="text-left p-2">Bed</th>
+                          <th className="text-left p-2">Patient</th>
+                          <th className="text-left p-2">Predicted Discharge</th>
+                          <th className="text-left p-2">Confidence</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {aiPredictions.slice(0, 20).map((pred: any, idx: number) => (
+                          <tr key={idx} className="border-t border-violet-50">
+                            <td className="p-2 font-medium">{pred.bed_number || pred.bed_id?.slice(0, 8)}</td>
+                            <td className="p-2">{pred.patient_name || 'N/A'}</td>
+                            <td className="p-2">{pred.predicted_discharge_at ? new Date(pred.predicted_discharge_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'N/A'}</td>
+                            <td className="p-2">
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${(pred.confidence || 0) >= 0.8 ? 'bg-green-100 text-green-800' : (pred.confidence || 0) >= 0.5 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                                {((pred.confidence || 0) * 100).toFixed(0)}%
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {!aiLoading && aiPredictions.length === 0 && !aiError && (
+                <p className="text-violet-700 text-sm">No predictions yet. Click &quot;Run Predictions&quot; to generate discharge forecasts.</p>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Ward Sections */}
         {filteredWards.map(ward => (

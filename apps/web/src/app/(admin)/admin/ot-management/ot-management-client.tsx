@@ -137,7 +137,7 @@ interface OTAnalytics {
   anesthesia_types: Record<string, number>;
 }
 
-type TabType = 'board' | 'schedule' | 'rooms' | 'checklist' | 'anesthesia' | 'analytics';
+type TabType = 'board' | 'schedule' | 'rooms' | 'checklist' | 'anesthesia' | 'analytics' | 'ai-ot';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // FORMATTING HELPERS
@@ -1355,6 +1355,13 @@ function AnalyticsTab({ analytics }: { analytics: OTAnalytics | null }) {
 
 export function OTManagementClient() {
   const [activeTab, setActiveTab] = useState<TabType>('board');
+
+  // AI OT Intelligence State
+  const [aiOTAnalysis, setAiOTAnalysis] = useState<any>(null);
+  const [aiOTTurnover, setAiOTTurnover] = useState<any>(null);
+  const [aiOTReport, setAiOTReport] = useState<any>(null);
+  const [aiOTLoading, setAiOTLoading] = useState(false);
+  const [aiOTError, setAiOTError] = useState('');
   const [schedules, setSchedules] = useState<OTSchedule[]>([]);
   const [rooms, setRooms] = useState<OTRoom[]>([]);
   const [anesthesiaRecords, setAnesthesiaRecords] = useState<AnesthesiaRecord[]>([]);
@@ -1397,6 +1404,7 @@ export function OTManagementClient() {
     { id: 'checklist', label: 'Checklist', icon: '&#x2713;' },
     { id: 'anesthesia', label: 'Anesthesia', icon: '&#x1F489;' },
     { id: 'analytics', label: 'Analytics', icon: '&#x1F4CA;' },
+    { id: 'ai-ot', label: 'AI OT', icon: '🤖' },
   ];
 
   return (
@@ -1465,6 +1473,139 @@ export function OTManagementClient() {
           <ChecklistTab schedules={schedules} />
         ) : activeTab === 'anesthesia' ? (
           <AnesthesiaTab records={anesthesiaRecords} />
+        ) : activeTab === 'ai-ot' ? (
+          <div style={{ padding: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#7C3AED' }}>🤖 AI OT Intelligence</h2>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={async () => {
+                    setAiOTLoading(true); setAiOTError('');
+                    try {
+                      const res = await fetch('/api/trpc/evenAI.analyzeOTSchedule', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ json: {} }) });
+                      const json = await res.json();
+                      if (json.error) throw new Error(json.error.message);
+                      setAiOTAnalysis(json.result?.data?.json);
+                    } catch (e: any) { setAiOTError(e.message); }
+                    finally { setAiOTLoading(false); }
+                  }}
+                  disabled={aiOTLoading}
+                  style={{ padding: '6px 12px', backgroundColor: '#7C3AED', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', opacity: aiOTLoading ? 0.5 : 1 }}
+                >
+                  Analyze Schedule
+                </button>
+                <button
+                  onClick={async () => {
+                    setAiOTLoading(true); setAiOTError('');
+                    try {
+                      const params = `?input=${encodeURIComponent(JSON.stringify({ days: 30 }))}`;
+                      const res = await fetch(`/api/trpc/evenAI.getOTTurnover${params}`);
+                      const json = await res.json();
+                      if (json.error) throw new Error(json.error.message);
+                      setAiOTTurnover(json.result?.data?.json?.analysis);
+                    } catch (e: any) { setAiOTError(e.message); }
+                    finally { setAiOTLoading(false); }
+                  }}
+                  disabled={aiOTLoading}
+                  style={{ padding: '6px 12px', backgroundColor: '#5B21B6', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', opacity: aiOTLoading ? 0.5 : 1 }}
+                >
+                  Turnover Analysis
+                </button>
+                <button
+                  onClick={async () => {
+                    setAiOTLoading(true); setAiOTError('');
+                    try {
+                      const res = await fetch('/api/trpc/evenAI.getOTEfficiency', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ json: {} }) });
+                      const json = await res.json();
+                      if (json.error) throw new Error(json.error.message);
+                      setAiOTReport(json.result?.data?.json);
+                    } catch (e: any) { setAiOTError(e.message); }
+                    finally { setAiOTLoading(false); }
+                  }}
+                  disabled={aiOTLoading}
+                  style={{ padding: '6px 12px', backgroundColor: '#4C1D95', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', opacity: aiOTLoading ? 0.5 : 1 }}
+                >
+                  Efficiency Report
+                </button>
+              </div>
+            </div>
+
+            {aiOTError && (
+              <div style={{ padding: '12px', backgroundColor: '#4a1a1a', color: '#ff5555', borderRadius: '6px', marginBottom: '12px', fontSize: '13px' }}>{aiOTError}</div>
+            )}
+
+            {aiOTLoading && <p style={{ color: '#7C3AED', fontSize: '13px' }}>Loading AI analysis...</p>}
+
+            {aiOTAnalysis && (
+              <div style={{ backgroundColor: '#1a1235', border: '1px solid #7C3AED33', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#a78bfa', marginBottom: '12px' }}>Schedule Analysis</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '12px' }}>
+                  <div style={{ backgroundColor: '#0f1419', padding: '12px', borderRadius: '6px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '11px', color: '#888' }}>Procedures</div>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: '#55ccff' }}>{aiOTAnalysis.total_procedures || 0}</div>
+                  </div>
+                  <div style={{ backgroundColor: '#0f1419', padding: '12px', borderRadius: '6px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '11px', color: '#888' }}>Utilization</div>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: '#55ccff' }}>{aiOTAnalysis.utilization_pct?.toFixed(0) || 0}%</div>
+                  </div>
+                  <div style={{ backgroundColor: '#0f1419', padding: '12px', borderRadius: '6px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '11px', color: '#888' }}>Gaps Found</div>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: aiOTAnalysis.gaps_found > 0 ? '#f59e0b' : '#10b981' }}>{aiOTAnalysis.gaps_found || 0}</div>
+                  </div>
+                  <div style={{ backgroundColor: '#0f1419', padding: '12px', borderRadius: '6px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '11px', color: '#888' }}>Overlaps</div>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: aiOTAnalysis.overlaps_found > 0 ? '#ef4444' : '#10b981' }}>{aiOTAnalysis.overlaps_found || 0}</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: '12px', color: '#888' }}>AI Cards Generated: {aiOTAnalysis.card_count || 0}</div>
+              </div>
+            )}
+
+            {aiOTTurnover && (
+              <div style={{ backgroundColor: '#1a1235', border: '1px solid #7C3AED33', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#a78bfa', marginBottom: '12px' }}>Turnover Analysis (30 days)</h3>
+                <div style={{ fontSize: '13px', color: '#a78bfa', marginBottom: '8px' }}>Overall Avg Turnover: <strong>{aiOTTurnover.overall_avg_turnover_min?.toFixed(0) || 'N/A'} min</strong></div>
+                {aiOTTurnover.rooms && aiOTTurnover.rooms.length > 0 && (
+                  <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid #333' }}>
+                        <th style={{ textAlign: 'left', padding: '8px', color: '#888' }}>Room</th>
+                        <th style={{ textAlign: 'right', padding: '8px', color: '#888' }}>Avg Turnover</th>
+                        <th style={{ textAlign: 'right', padding: '8px', color: '#888' }}>Procedures</th>
+                        <th style={{ textAlign: 'right', padding: '8px', color: '#888' }}>Utilization</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {aiOTTurnover.rooms.map((room: any, idx: number) => (
+                        <tr key={idx} style={{ borderBottom: '1px solid #222' }}>
+                          <td style={{ padding: '8px', color: '#e0e0e0' }}>{room.room_name || room.room_id?.slice(0, 8)}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', color: '#e0e0e0' }}>{room.avg_turnover_min?.toFixed(0) || 'N/A'} min</td>
+                          <td style={{ padding: '8px', textAlign: 'right', color: '#e0e0e0' }}>{room.procedure_count || 0}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', color: '#e0e0e0' }}>{room.utilization_pct?.toFixed(0) || 0}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+
+            {aiOTReport && (
+              <div style={{ backgroundColor: '#1a1235', border: '1px solid #7C3AED33', borderRadius: '8px', padding: '16px' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#a78bfa', marginBottom: '12px' }}>
+                  Efficiency Report
+                  <span style={{ marginLeft: '8px', fontSize: '10px', padding: '2px 6px', backgroundColor: aiOTReport.source === 'llm' ? '#7C3AED' : '#374151', color: '#fff', borderRadius: '4px' }}>
+                    {aiOTReport.source === 'llm' ? 'AI Generated' : 'Template'}
+                  </span>
+                </h3>
+                <div style={{ fontSize: '13px', color: '#d1d5db', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{aiOTReport.narrative}</div>
+              </div>
+            )}
+
+            {!aiOTLoading && !aiOTAnalysis && !aiOTTurnover && !aiOTReport && !aiOTError && (
+              <p style={{ color: '#888', fontSize: '13px' }}>Click one of the analysis buttons above to generate AI insights for OT operations.</p>
+            )}
+          </div>
         ) : (
           <AnalyticsTab analytics={analytics} />
         )}
