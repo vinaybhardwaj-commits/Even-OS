@@ -161,8 +161,8 @@ export const lsqIntegrationSyncLog = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     sync_batch_id: text('sync_batch_id'),
     sync_type: text('sync_type').notNull(), // opd_inquiry, admission, pre_auth, follow_up, generic_update
-    patient_id: uuid('patient_id').notNull(),
-    patient_uhid: text('patient_uhid').notNull(),
+    patient_id: uuid('patient_id'),
+    patient_uhid: text('patient_uhid'),
     win_capture_id: uuid('win_capture_id'),
     encounter_id: uuid('encounter_id'),
     lsq_lead_id: text('lsq_lead_id'),

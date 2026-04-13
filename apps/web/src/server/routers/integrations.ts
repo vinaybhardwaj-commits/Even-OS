@@ -484,6 +484,34 @@ export const integrationsRouter = router({
     .query(async ({ input }) => {
       const sql = getSql();
       const f = input;
+
+      // Self-healing: ensure table exists (idempotent)
+      await sql(`
+        CREATE TABLE IF NOT EXISTS lsq_integration_sync_log (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          sync_batch_id TEXT,
+          sync_type TEXT NOT NULL DEFAULT 'generic_update',
+          patient_id UUID,
+          patient_uhid TEXT,
+          win_capture_id UUID,
+          encounter_id UUID,
+          lsq_lead_id TEXT,
+          lsq_contact_id TEXT,
+          event_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+          dedup_checked BOOLEAN DEFAULT true,
+          dedup_match_uhid TEXT,
+          dedup_action TEXT,
+          sync_status TEXT NOT NULL DEFAULT 'success',
+          http_status_code TEXT,
+          error_message TEXT,
+          retry_count TEXT DEFAULT '0',
+          next_retry_at TIMESTAMPTZ,
+          lsq_response JSONB,
+          created_at TIMESTAMPTZ DEFAULT now(),
+          updated_at TIMESTAMPTZ DEFAULT now()
+        )
+      `);
+
       let query = `SELECT * FROM lsq_integration_sync_log WHERE 1=1`;
       const params: any[] = [];
       let idx = 1;
@@ -494,7 +522,7 @@ export const integrationsRouter = router({
 
       const rows = await sql(query, params);
 
-      // Summary
+      // Summary (24h window)
       const summaryRes = await sql(`
         SELECT
           COUNT(*) as total,
