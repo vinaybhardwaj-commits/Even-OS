@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { router, protectedProcedure, adminProcedure } from '../trpc';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 // ─── ENUMS AND VALIDATION SCHEMAS ─────────────────────────────────────────
 
@@ -231,7 +235,7 @@ async function createAuditRecord(
   newValue: string | null,
   userId: string,
 ): Promise<void> {
-  await sql`
+  await getSql()`
     INSERT INTO adverse_events_audit (
       hospital_id, adverse_event_id, aea_operation, field_name,
       old_value, new_value, aea_user_id, aea_changed_at
@@ -259,7 +263,7 @@ export const incidentReportingRouter = router({
           ? 'catastrophic'
           : (input.ae_severity || 'moderate');
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO adverse_events (
             hospital_id, incident_type, ae_severity, incident_description,
             incident_date, incident_location_text, incident_location_id,
@@ -313,7 +317,7 @@ export const incidentReportingRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Fetch current incident
-        const current = await sql`
+        const current = await getSql()`
           SELECT * FROM adverse_events
           WHERE id = ${input.incident_id} AND hospital_id = ${hospitalId};
         `;
@@ -455,7 +459,7 @@ export const incidentReportingRouter = router({
         updates.ae_updated_at = new Date();
 
         // Build UPDATE with explicit column updates (no sql.raw)
-        const updateResult = await sql`
+        const updateResult = await getSql()`
           UPDATE adverse_events SET
             ae_severity = COALESCE(${(updates.ae_severity as any) ?? null}::incident_severity, ae_severity),
             incident_description = COALESCE(${(updates.incident_description as any) ?? null}, incident_description),
@@ -491,7 +495,7 @@ export const incidentReportingRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Fetch current incident
-        const current = await sql`
+        const current = await getSql()`
           SELECT ae_status FROM adverse_events
           WHERE id = ${input.incident_id} AND hospital_id = ${hospitalId};
         `;
@@ -503,7 +507,7 @@ export const incidentReportingRouter = router({
 
         const oldStatus = currentRows[0].ae_status;
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE adverse_events
           SET ae_status = ${input.ae_status}, ae_updated_at = NOW()
           WHERE id = ${input.incident_id} AND hospital_id = ${hospitalId}
@@ -548,7 +552,7 @@ export const incidentReportingRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Use parameterized WHERE with IS NULL OR pattern (no sql.raw)
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             ae.*,
             p.name_full as patient_name
@@ -568,7 +572,7 @@ export const incidentReportingRouter = router({
         const rows = (result as any);
 
         // Get total count
-        const countResult = await sql`
+        const countResult = await getSql()`
           SELECT COUNT(*) as count FROM adverse_events ae
           WHERE ae.hospital_id = ${hospitalId}
             AND (${input.incident_type ?? null}::incident_type IS NULL OR ae.incident_type = ${input.incident_type ?? null}::incident_type)
@@ -602,7 +606,7 @@ export const incidentReportingRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             ae.*,
             p.name_full as patient_name,
@@ -621,7 +625,7 @@ export const incidentReportingRouter = router({
         const incident = rows[0];
 
         // Fetch audit trail
-        const auditResult = await sql`
+        const auditResult = await getSql()`
           SELECT * FROM adverse_events_audit
           WHERE adverse_event_id = ${input.incident_id}
           ORDER BY aea_changed_at DESC
@@ -648,7 +652,7 @@ export const incidentReportingRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // By type
-        const typeResult = await sql`
+        const typeResult = await getSql()`
           SELECT incident_type, COUNT(*) as count
           FROM adverse_events
           WHERE hospital_id = ${hospitalId}
@@ -658,7 +662,7 @@ export const incidentReportingRouter = router({
         const typeRows = (typeResult as any);
 
         // By severity
-        const severityResult = await sql`
+        const severityResult = await getSql()`
           SELECT ae_severity, COUNT(*) as count
           FROM adverse_events
           WHERE hospital_id = ${hospitalId}
@@ -668,7 +672,7 @@ export const incidentReportingRouter = router({
         const severityRows = (severityResult as any);
 
         // By department (via incident_location_id)
-        const deptResult = await sql`
+        const deptResult = await getSql()`
           SELECT COALESCE(l.location_name, 'Unknown') as dept, COUNT(*) as count
           FROM adverse_events ae
           LEFT JOIN locations l ON ae.incident_location_id = l.id
@@ -679,7 +683,7 @@ export const incidentReportingRouter = router({
         const deptRows = (deptResult as any);
 
         // Trend by month
-        const trendResult = await sql`
+        const trendResult = await getSql()`
           SELECT
             DATE_TRUNC('month', incident_date) as month,
             COUNT(*) as count
@@ -693,7 +697,7 @@ export const incidentReportingRouter = router({
         const trendRows = (trendResult as any);
 
         // Avg time-to-close (for closed incidents)
-        const timeResult = await sql`
+        const timeResult = await getSql()`
           SELECT
             AVG(EXTRACT(DAY FROM (ae_updated_at - incident_date))) as avg_days_to_close
           FROM adverse_events
@@ -728,7 +732,7 @@ export const incidentReportingRouter = router({
         const severity = input.ae_severity || 'moderate';
 
         // Insert adverse event first
-        const aeResult = await sql`
+        const aeResult = await getSql()`
           INSERT INTO adverse_events (
             hospital_id, incident_type, ae_severity, incident_description,
             incident_date, incident_location_text, involved_staff_ids,
@@ -754,7 +758,7 @@ export const incidentReportingRouter = router({
         const adverseEvent = aeRows[0];
 
         // Insert medication error record
-        const meResult = await sql`
+        const meResult = await getSql()`
           INSERT INTO medication_errors (
             hospital_id, me_adverse_event_id, error_types, me_severity,
             prescribed_medication, dispensed_medication, me_created_at
@@ -797,7 +801,7 @@ export const incidentReportingRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             ae.*,
             me.error_types,
@@ -820,7 +824,7 @@ export const incidentReportingRouter = router({
 
         const rows = (result as any);
 
-        const countResult = await sql`
+        const countResult = await getSql()`
           SELECT COUNT(*) as count FROM adverse_events ae
           JOIN medication_errors me ON ae.id = me.me_adverse_event_id
           WHERE ae.hospital_id = ${hospitalId}
@@ -854,7 +858,7 @@ export const incidentReportingRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Error type distribution
-        const typeResult = await sql`
+        const typeResult = await getSql()`
           SELECT
             UNNEST(STRING_TO_ARRAY(error_types, ',')) as error_type,
             COUNT(*) as count
@@ -867,7 +871,7 @@ export const incidentReportingRouter = router({
         const typeRows = (typeResult as any);
 
         // Severity distribution
-        const severityResult = await sql`
+        const severityResult = await getSql()`
           SELECT me_severity, COUNT(*) as count
           FROM medication_errors
           WHERE hospital_id = ${hospitalId}
@@ -877,7 +881,7 @@ export const incidentReportingRouter = router({
         const severityRows = (severityResult as any);
 
         // Trend by month
-        const trendResult = await sql`
+        const trendResult = await getSql()`
           SELECT
             DATE_TRUNC('month', ae.incident_date) as month,
             COUNT(*) as count
@@ -930,7 +934,7 @@ export const incidentReportingRouter = router({
           riskCategory = 'high_risk';
         }
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO fall_assessments (
             hospital_id, fa_patient_id, fa_encounter_id,
             history_of_falls, secondary_diagnosis, ambulatory_aid,
@@ -968,7 +972,7 @@ export const incidentReportingRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             fa.*,
             p.name_full as patient_name
@@ -984,7 +988,7 @@ export const incidentReportingRouter = router({
 
         const rows = (result as any);
 
-        const countResult = await sql`
+        const countResult = await getSql()`
           SELECT COUNT(*) as count FROM fall_assessments fa
           WHERE fa.hospital_id = ${hospitalId}
             AND (${input.fa_patient_id ?? null}::uuid IS NULL OR fa.fa_patient_id = ${input.fa_patient_id ?? null}::uuid)
@@ -1015,7 +1019,7 @@ export const incidentReportingRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             fa.*,
             p.name_full as patient_name
@@ -1047,7 +1051,7 @@ export const incidentReportingRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Risk distribution
-        const riskResult = await sql`
+        const riskResult = await getSql()`
           SELECT risk_category, COUNT(*) as count
           FROM fall_assessments
           WHERE hospital_id = ${hospitalId}
@@ -1057,7 +1061,7 @@ export const incidentReportingRouter = router({
         const riskRows = (riskResult as any);
 
         // Avg score by ward/department
-        const deptResult = await sql`
+        const deptResult = await getSql()`
           SELECT
             COALESCE(l.location_name, 'Unknown') as dept,
             AVG(morse_score) as avg_morse_score,
@@ -1072,7 +1076,7 @@ export const incidentReportingRouter = router({
         const deptRows = (deptResult as any);
 
         // High-risk patient count
-        const highRiskResult = await sql`
+        const highRiskResult = await getSql()`
           SELECT COUNT(DISTINCT fa_patient_id) as high_risk_count
           FROM fall_assessments
           WHERE hospital_id = ${hospitalId}
@@ -1107,7 +1111,7 @@ export const incidentReportingRouter = router({
         const severity = input.ae_severity || 'major';
 
         // Insert adverse event
-        const aeResult = await sql`
+        const aeResult = await getSql()`
           INSERT INTO adverse_events (
             hospital_id, incident_type, ae_severity, incident_description,
             incident_date, incident_location_text, involved_staff_ids,
@@ -1133,7 +1137,7 @@ export const incidentReportingRouter = router({
         const adverseEvent = aeRows[0];
 
         // Insert fall event record
-        const feResult = await sql`
+        const feResult = await getSql()`
           INSERT INTO fall_events (
             hospital_id, fe_adverse_event_id, fe_patient_id, fe_encounter_id,
             fall_date, witnessed, fall_location, fall_cause, injury_severity,
@@ -1180,7 +1184,7 @@ export const incidentReportingRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             ae.*,
             fe.fall_date,
@@ -1206,7 +1210,7 @@ export const incidentReportingRouter = router({
 
         const rows = (result as any);
 
-        const countResult = await sql`
+        const countResult = await getSql()`
           SELECT COUNT(*) as count FROM adverse_events ae
           JOIN fall_events fe ON ae.id = fe.fe_adverse_event_id
           WHERE ae.hospital_id = ${hospitalId}
@@ -1240,7 +1244,7 @@ export const incidentReportingRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // By severity
-        const severityResult = await sql`
+        const severityResult = await getSql()`
           SELECT injury_severity, COUNT(*) as count
           FROM fall_events
           WHERE hospital_id = ${hospitalId}
@@ -1250,7 +1254,7 @@ export const incidentReportingRouter = router({
         const severityRows = (severityResult as any);
 
         // By location
-        const locationResult = await sql`
+        const locationResult = await getSql()`
           SELECT fall_location, COUNT(*) as count
           FROM fall_events
           WHERE hospital_id = ${hospitalId} AND fall_location IS NOT NULL
@@ -1262,7 +1266,7 @@ export const incidentReportingRouter = router({
         const locationRows = (locationResult as any);
 
         // Correlation with Morse score
-        const morseResult = await sql`
+        const morseResult = await getSql()`
           SELECT
             CASE
               WHEN fe.morse_score_at_fall IS NULL THEN 'unknown'
@@ -1302,7 +1306,7 @@ export const incidentReportingRouter = router({
         // Calculate value = numerator / denominator
         const value = Number(input.numerator) / Number(input.denominator);
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO quality_indicator_values (
             hospital_id, qiv_indicator_id, period_start, period_end,
             numerator, denominator, qiv_value, qiv_source,
@@ -1338,7 +1342,7 @@ export const incidentReportingRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE quality_indicator_values
           SET
             approval_status = 'approved',
@@ -1368,7 +1372,7 @@ export const incidentReportingRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE quality_indicator_values
           SET
             approval_status = 'rejected',
@@ -1399,7 +1403,7 @@ export const incidentReportingRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT *
           FROM quality_indicator_values
           WHERE hospital_id = ${hospitalId}
@@ -1414,7 +1418,7 @@ export const incidentReportingRouter = router({
 
         const rows = (result as any);
 
-        const countResult = await sql`
+        const countResult = await getSql()`
           SELECT COUNT(*) as count FROM quality_indicator_values
           WHERE hospital_id = ${hospitalId}
             AND (${input.qiv_indicator_id ?? null}::uuid IS NULL OR qiv_indicator_id = ${input.qiv_indicator_id ?? null}::uuid)
@@ -1447,7 +1451,7 @@ export const incidentReportingRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             qiv_indicator_id,
             period_start,
@@ -1487,13 +1491,13 @@ export const incidentReportingRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Open incidents
-        const openResult = await sql`
+        const openResult = await getSql()`
           SELECT COUNT(*) as count FROM adverse_events
           WHERE hospital_id = ${hospitalId} AND ae_status = 'open';
         `;
 
         // High-risk falls (last 30 days)
-        const highRiskResult = await sql`
+        const highRiskResult = await getSql()`
           SELECT COUNT(DISTINCT fe_patient_id) as count
           FROM fall_events
           WHERE hospital_id = ${hospitalId}
@@ -1502,13 +1506,13 @@ export const incidentReportingRouter = router({
         `;
 
         // Pending indicator approvals
-        const pendingIndicatorsResult = await sql`
+        const pendingIndicatorsResult = await getSql()`
           SELECT COUNT(*) as count FROM quality_indicator_values
           WHERE hospital_id = ${hospitalId} AND approval_status = 'draft';
         `;
 
         // Incidents by type (this month)
-        const incidentsByTypeResult = await sql`
+        const incidentsByTypeResult = await getSql()`
           SELECT incident_type, COUNT(*) as count
           FROM adverse_events
           WHERE hospital_id = ${hospitalId}
@@ -1540,7 +1544,7 @@ export const incidentReportingRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             ae.id,
             ae.incident_type,

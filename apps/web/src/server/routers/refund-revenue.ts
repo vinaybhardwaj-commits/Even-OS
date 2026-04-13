@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 // SCHEMAS
 const RefundReasonEnum = z.enum([
@@ -102,7 +106,7 @@ export const refundRevenueRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       // Fetch billing config to compute approval tier
-      const configRows = await sql`
+      const configRows = await getSql()`
         SELECT config_key, config_value
         FROM billing_config
         WHERE hospital_id = ${ctx.user.hospital_id}
@@ -115,7 +119,7 @@ export const refundRevenueRouter = router({
       const approvalTier = computeApprovalTier(input.amount, config);
       const refundNumber = generateRefundNumber();
 
-      const rows = await sql`
+      const rows = await getSql()`
         INSERT INTO refund_requests (
           hospital_id, rr_patient_id, rr_encounter_id, rr_account_id, rr_claim_id,
           refund_number, rr_status, rr_reason, rr_reason_detail, rr_amount,
@@ -137,7 +141,7 @@ export const refundRevenueRouter = router({
   getRefund: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const rows = await sql`
+      const rows = await getSql()`
         SELECT
           r.id, r.refund_number, r.rr_patient_id, r.rr_encounter_id, r.rr_account_id,
           r.rr_claim_id, r.rr_status, r.rr_reason, r.rr_reason_detail, r.rr_amount,
@@ -174,7 +178,7 @@ export const refundRevenueRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const rows = await sql`
+      const rows = await getSql()`
         SELECT
           r.id, r.refund_number, r.rr_patient_id, r.rr_status, r.rr_reason, r.rr_amount,
           r.rr_approved_amount, r.approval_tier, r.rr_created_at, p.patient_name
@@ -199,7 +203,7 @@ export const refundRevenueRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const rows = await sql`
+      const rows = await getSql()`
         UPDATE refund_requests
         SET rr_status = 'approved', rr_approved_amount = ${input.approved_amount},
             rr_approved_by = ${ctx.user.sub}, rr_approved_at = NOW(), rr_updated_at = NOW()
@@ -225,7 +229,7 @@ export const refundRevenueRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const rows = await sql`
+      const rows = await getSql()`
         UPDATE refund_requests
         SET rr_status = 'rejected', rr_rejection_reason = ${input.rejection_reason},
             rr_approved_by = ${ctx.user.sub}, rr_approved_at = NOW(), rr_updated_at = NOW()
@@ -252,7 +256,7 @@ export const refundRevenueRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const rows = await sql`
+      const rows = await getSql()`
         UPDATE refund_requests
         SET rr_status = 'processed', rr_payment_method = ${input.payment_method},
             rr_payment_reference = ${input.payment_reference}, rr_processed_at = NOW(),
@@ -274,7 +278,7 @@ export const refundRevenueRouter = router({
   cancelRefund: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const rows = await sql`
+      const rows = await getSql()`
         UPDATE refund_requests
         SET rr_status = 'cancelled', rr_updated_at = NOW()
         WHERE id = ${input.id} AND hospital_id = ${ctx.user.hospital_id}
@@ -292,7 +296,7 @@ export const refundRevenueRouter = router({
     }),
 
   refundStats: protectedProcedure.query(async ({ ctx }) => {
-    const rows = await sql`
+    const rows = await getSql()`
       SELECT
         rr_status,
         rr_reason,
@@ -327,7 +331,7 @@ export const refundRevenueRouter = router({
       const invoiceNumber = generateInvoiceNumber();
       const grandTotal = input.subtotal - input.discount_total + input.gst_total;
 
-      const rows = await sql`
+      const rows = await getSql()`
         INSERT INTO invoices (
           hospital_id, encounter_id, patient_id, invoice_number, inv_type,
           invoice_status, subtotal, discount_total, gst_total, grand_total,
@@ -350,7 +354,7 @@ export const refundRevenueRouter = router({
   getInvoice: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const rows = await sql`
+      const rows = await getSql()`
         SELECT
           i.id, i.invoice_number, i.encounter_id, i.patient_id, i.inv_type,
           i.invoice_status, i.subtotal, i.discount_total, i.gst_total, i.grand_total,
@@ -385,7 +389,7 @@ export const refundRevenueRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const rows = await sql`
+      const rows = await getSql()`
         SELECT
           i.id, i.invoice_number, i.patient_id, i.encounter_id, i.inv_type,
           i.invoice_status, i.grand_total, i.amount_paid, i.balance_due,
@@ -407,7 +411,7 @@ export const refundRevenueRouter = router({
   issueInvoice: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const rows = await sql`
+      const rows = await getSql()`
         UPDATE invoices
         SET invoice_status = 'issued', generated_at = NOW(), updated_at = NOW()
         WHERE id = ${input.id} AND hospital_id = ${ctx.user.hospital_id}
@@ -437,7 +441,7 @@ export const refundRevenueRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       // Get invoice details
-      const invoiceRows = await sql`
+      const invoiceRows = await getSql()`
         SELECT patient_id, encounter_id, inv_account_id, amount_paid, balance_due, grand_total
         FROM invoices
         WHERE id = ${input.invoice_id} AND hospital_id = ${ctx.user.hospital_id}
@@ -459,7 +463,7 @@ export const refundRevenueRouter = router({
       }
 
       // Create payment record
-      const paymentRows = await sql`
+      const paymentRows = await getSql()`
         INSERT INTO payments (
           hospital_id, invoice_id, encounter_id, patient_id, amount,
           payment_method, reference_number, payment_date, notes,
@@ -477,7 +481,7 @@ export const refundRevenueRouter = router({
       `;
 
       // Update invoice
-      await sql`
+      await getSql()`
         UPDATE invoices
         SET amount_paid = ${newAmountPaid}, balance_due = ${Math.max(0, newBalance)},
             invoice_status = ${newStatus}, finalized_at = CASE WHEN ${newStatus} = 'paid' THEN NOW() ELSE finalized_at END,
@@ -498,7 +502,7 @@ export const refundRevenueRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const rows = await sql`
+      const rows = await getSql()`
         SELECT
           p.id, p.invoice_id, p.patient_id, p.amount, p.payment_method,
           p.reference_number, p.payment_date, p.pay_receipt_number, p.pay_status,
@@ -519,7 +523,7 @@ export const refundRevenueRouter = router({
   cancelInvoice: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const rows = await sql`
+      const rows = await getSql()`
         UPDATE invoices
         SET invoice_status = 'cancelled', updated_at = NOW()
         WHERE id = ${input.id} AND hospital_id = ${ctx.user.hospital_id}
@@ -541,7 +545,7 @@ export const refundRevenueRouter = router({
   revenueSummary: protectedProcedure.query(async ({ ctx }) => {
     const today = new Date().toISOString().slice(0, 10);
 
-    const todayRows = await sql`
+    const todayRows = await getSql()`
       SELECT
         SUM(CASE WHEN inv_type = 'standard' THEN grand_total ELSE 0 END) as total_charges,
         SUM(CASE WHEN invoice_status IN ('paid', 'partially_paid') THEN amount_paid ELSE 0 END) as total_collections,
@@ -563,7 +567,7 @@ export const refundRevenueRouter = router({
       .toISOString()
       .slice(0, 10);
 
-    const yesterdayRows = await sql`
+    const yesterdayRows = await getSql()`
       SELECT
         SUM(CASE WHEN inv_type = 'standard' THEN grand_total ELSE 0 END) as total_charges,
         SUM(CASE WHEN invoice_status IN ('paid', 'partially_paid') THEN amount_paid ELSE 0 END) as total_collections
@@ -605,7 +609,7 @@ export const refundRevenueRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const rows = await sql`
+      const rows = await getSql()`
         SELECT
           DATE(created_at) as date,
           SUM(CASE WHEN inv_type = 'standard' THEN grand_total ELSE 0 END) as total_charges,
@@ -622,7 +626,7 @@ export const refundRevenueRouter = router({
     }),
 
   outstandingAnalysis: protectedProcedure.query(async ({ ctx }) => {
-    const rows = await sql`
+    const rows = await getSql()`
       SELECT
         'insurance' as payer_type,
         SUM(balance_due) as outstanding,
@@ -645,7 +649,7 @@ export const refundRevenueRouter = router({
     `;
 
     // Compute aging buckets
-    const agingRows = await sql`
+    const agingRows = await getSql()`
       SELECT
         CASE
           WHEN DATE(NOW()) - DATE(created_at) <= 30 THEN '0-30'
@@ -667,7 +671,7 @@ export const refundRevenueRouter = router({
   }),
 
   collectionEfficiency: protectedProcedure.query(async ({ ctx }) => {
-    const rows = await sql`
+    const rows = await getSql()`
       SELECT
         DATE(created_at) as date,
         SUM(CASE WHEN inv_type = 'standard' THEN grand_total ELSE 0 END) as total_charges,
@@ -688,7 +692,7 @@ export const refundRevenueRouter = router({
   }),
 
   tpaSettlementAnalysis: protectedProcedure.query(async ({ ctx }) => {
-    const rows = await sql`
+    const rows = await getSql()`
       SELECT
         ic.ic_tpa,
         COUNT(DISTINCT ic.id) as claim_count,
@@ -708,7 +712,7 @@ export const refundRevenueRouter = router({
 
   departmentRevenue: protectedProcedure.query(async ({ ctx }) => {
     // Note: assumes invoice_line_items table with ili_category
-    const rows = await sql`
+    const rows = await getSql()`
       SELECT
         COALESCE(ili.ili_category, 'uncategorized') as category,
         COUNT(DISTINCT ili.id) as item_count,
@@ -726,7 +730,7 @@ export const refundRevenueRouter = router({
   }),
 
   insurerPerformance: protectedProcedure.query(async ({ ctx }) => {
-    const rows = await sql`
+    const rows = await getSql()`
       SELECT
         ic.ic_tpa as insurer,
         COUNT(DISTINCT ic.id) as claim_count,
@@ -747,7 +751,7 @@ export const refundRevenueRouter = router({
   }),
 
   refundAnalysis: protectedProcedure.query(async ({ ctx }) => {
-    const rows = await sql`
+    const rows = await getSql()`
       SELECT
         rr_reason,
         COUNT(*) as refund_count,
@@ -774,7 +778,7 @@ export const refundRevenueRouter = router({
     const today = new Date().toISOString().slice(0, 10);
 
     // Compute all metrics
-    const metricsRows = await sql`
+    const metricsRows = await getSql()`
       SELECT
         SUM(CASE WHEN inv_type = 'standard' THEN grand_total ELSE 0 END)::numeric as total_charges,
         SUM(CASE WHEN invoice_status IN ('paid', 'partially_paid') THEN amount_paid ELSE 0 END)::numeric as total_collections,
@@ -807,7 +811,7 @@ export const refundRevenueRouter = router({
         ? metrics.total_charges / metrics.encounters_today
         : 0;
 
-    const rows = await sql`
+    const rows = await getSql()`
       INSERT INTO revenue_snapshots (
         hospital_id, snapshot_date, rs_total_charges, rs_total_collections,
         rs_total_deposits, rs_total_refunds, net_revenue, claims_submitted,
@@ -831,7 +835,7 @@ export const refundRevenueRouter = router({
   }),
 
   payerMix: protectedProcedure.query(async ({ ctx }) => {
-    const rows = await sql`
+    const rows = await getSql()`
       SELECT
         ba.ba_patient_id,
         COUNT(DISTINCT i.id) as invoice_count,

@@ -1,10 +1,14 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeEvent } from '@/lib/event-log';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 const frequencyCodeEnum = z.enum([
   'OD', 'BD', 'TDS', 'QID', 'Q4H', 'Q6H', 'Q8H', 'STAT', 'HS'
@@ -55,7 +59,7 @@ export const medicationOrdersRouter = router({
         const cdsAlerts: any[] = [];
 
         // CDS Check (a): Check allergy intolerances
-        const allergyCheckResult = await sql`
+        const allergyCheckResult = await getSql()`
           SELECT id, substance, severity, criticality
           FROM allergy_intolerances
           WHERE patient_id = ${input.patient_id}::uuid
@@ -71,7 +75,7 @@ export const medicationOrdersRouter = router({
         if (allergyRows && allergyRows.length > 0) {
           allergyMatched = true;
           // Log CDS alert - allergy
-          const alertResult = await sql`
+          const alertResult = await getSql()`
             INSERT INTO cds_alerts (
               patient_id, encounter_id, hospital_id,
               alert_type, severity, title, description,
@@ -98,7 +102,7 @@ export const medicationOrdersRouter = router({
         }
 
         // CDS Check (b): Check for duplicate active medication orders
-        const duplicateCheckResult = await sql`
+        const duplicateCheckResult = await getSql()`
           SELECT id
           FROM medication_requests
           WHERE patient_id = ${input.patient_id}::uuid
@@ -112,7 +116,7 @@ export const medicationOrdersRouter = router({
         const dupRows = (duplicateCheckResult as any);
         if (dupRows && dupRows.length > 0) {
           // Log CDS alert - duplicate_order
-          const alertResult = await sql`
+          const alertResult = await getSql()`
             INSERT INTO cds_alerts (
               patient_id, encounter_id, hospital_id,
               alert_type, severity, title, description,
@@ -140,7 +144,7 @@ export const medicationOrdersRouter = router({
 
         // CDS Check (c): Log high alert if applicable
         if (input.is_high_alert) {
-          const alertResult = await sql`
+          const alertResult = await getSql()`
             INSERT INTO cds_alerts (
               patient_id, encounter_id, hospital_id,
               alert_type, severity, title, description,
@@ -167,7 +171,7 @@ export const medicationOrdersRouter = router({
         }
 
         // Create medication request
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO medication_requests (
             patient_id, encounter_id, hospital_id,
             drug_name, generic_name, drug_code,
@@ -221,7 +225,7 @@ export const medicationOrdersRouter = router({
         }
 
         // Audit log
-        await sql`
+        await getSql()`
           INSERT INTO audit_logs (
             hospital_id, user_id, action, table_name, row_id,
             new_values, ip_address, created_at
@@ -306,7 +310,7 @@ export const medicationOrdersRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Fetch current order to check status and enable event sourcing
-        const fetchResult = await sql`
+        const fetchResult = await getSql()`
           SELECT * FROM medication_requests
           WHERE id = ${input.id}::uuid
             AND hospital_id = ${hospitalId}
@@ -330,7 +334,7 @@ export const medicationOrdersRouter = router({
         }
 
         // Create new version (event sourcing)
-        const updateResult = await sql`
+        const updateResult = await getSql()`
           INSERT INTO medication_requests (
             patient_id, encounter_id, hospital_id,
             drug_name, generic_name, drug_code,
@@ -386,7 +390,7 @@ export const medicationOrdersRouter = router({
         }
 
         // Audit
-        await sql`
+        await getSql()`
           INSERT INTO audit_logs (
             hospital_id, user_id, action, table_name, row_id,
             new_values, ip_address, created_at
@@ -425,16 +429,16 @@ export const medicationOrdersRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         const encounterFilter = input.encounter_id
-          ? sql`AND mr.encounter_id = ${input.encounter_id}::uuid`
-          : sql``;
+          ? getSql()`AND mr.encounter_id = ${input.encounter_id}::uuid`
+          : getSql()``;
 
         const statusFilter = input.status
-          ? sql`AND mr.status = ${input.status}`
+          ? getSql()`AND mr.status = ${input.status}`
           : input.include_completed
-            ? sql``
-            : sql`AND mr.status NOT IN ('completed', 'cancelled')`;
+            ? getSql()``
+            : getSql()`AND mr.status NOT IN ('completed', 'cancelled')`;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             mr.id, mr.patient_id, mr.encounter_id,
             mr.drug_name, mr.generic_name, mr.drug_code,
@@ -472,7 +476,7 @@ export const medicationOrdersRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             mr.id, mr.patient_id, mr.encounter_id,
             mr.drug_name, mr.generic_name, mr.drug_code,
@@ -500,7 +504,7 @@ export const medicationOrdersRouter = router({
         const order = rows[0];
 
         // Fetch linked CDS alerts
-        const alertsResult = await sql`
+        const alertsResult = await getSql()`
           SELECT id, alert_type, severity, title, description
           FROM cds_alerts
           WHERE patient_id = ${order.patient_id}
@@ -530,7 +534,7 @@ export const medicationOrdersRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, medication_request_id, patient_id,
             scheduled_datetime, administered_datetime,
@@ -580,7 +584,7 @@ export const medicationOrdersRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Get patient_id and encounter_id from medication_request
-        const mrResult = await sql`
+        const mrResult = await getSql()`
           SELECT patient_id, encounter_id
           FROM medication_requests
           WHERE id = ${input.medication_request_id}::uuid
@@ -601,7 +605,7 @@ export const medicationOrdersRouter = router({
         else if (input.hold_reason) status = 'held';
         else if (input.administered_datetime) status = 'completed';
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO medication_administrations (
             medication_request_id, patient_id, encounter_id, hospital_id,
             scheduled_datetime, administered_datetime,
@@ -647,7 +651,7 @@ export const medicationOrdersRouter = router({
         }
 
         // Audit
-        await sql`
+        await getSql()`
           INSERT INTO audit_logs (
             hospital_id, user_id, action, table_name, row_id,
             new_values, ip_address, created_at
@@ -681,7 +685,7 @@ export const medicationOrdersRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Get medication request details
-        const mrResult = await sql`
+        const mrResult = await getSql()`
           SELECT
             patient_id, encounter_id,
             frequency_code, start_date, duration_days, is_prn
@@ -780,7 +784,7 @@ export const medicationOrdersRouter = router({
         let count = 0;
         for (const slot of slots) {
           try {
-            await sql`
+            await getSql()`
               INSERT INTO medication_administrations (
                 medication_request_id, patient_id, encounter_id, hospital_id,
                 scheduled_datetime, status,
@@ -823,14 +827,14 @@ export const medicationOrdersRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         const patientFilter = input.patient_id
-          ? sql`AND mr.patient_id = ${input.patient_id}::uuid`
-          : sql``;
+          ? getSql()`AND mr.patient_id = ${input.patient_id}::uuid`
+          : getSql()``;
         const encounterFilter = input.encounter_id
-          ? sql`AND mr.encounter_id = ${input.encounter_id}::uuid`
-          : sql``;
+          ? getSql()`AND mr.encounter_id = ${input.encounter_id}::uuid`
+          : getSql()``;
 
         // Count active medications
-        const activeResult = await sql`
+        const activeResult = await getSql()`
           SELECT COUNT(*) as count
           FROM medication_requests mr
           WHERE mr.hospital_id = ${hospitalId}
@@ -844,7 +848,7 @@ export const medicationOrdersRouter = router({
         const totalActive = parseInt(activeRows[0]?.count || 0, 10);
 
         // Count pending administrations
-        const pendingResult = await sql`
+        const pendingResult = await getSql()`
           SELECT COUNT(*) as count
           FROM medication_administrations ma
           JOIN medication_requests mr ON ma.medication_request_id = mr.id
@@ -858,7 +862,7 @@ export const medicationOrdersRouter = router({
         const totalPendingAdmin = parseInt(pendingRows[0]?.count || 0, 10);
 
         // Count overdue
-        const overdueResult = await sql`
+        const overdueResult = await getSql()`
           SELECT COUNT(*) as count
           FROM medication_administrations ma
           JOIN medication_requests mr ON ma.medication_request_id = mr.id
@@ -873,7 +877,7 @@ export const medicationOrdersRouter = router({
         const overdueCount = parseInt(overdueRows[0]?.count || 0, 10);
 
         // Count high alert
-        const highAlertResult = await sql`
+        const highAlertResult = await getSql()`
           SELECT COUNT(*) as count
           FROM medication_requests mr
           WHERE mr.hospital_id = ${hospitalId}
@@ -888,7 +892,7 @@ export const medicationOrdersRouter = router({
         const highAlertCount = parseInt(highAlertRows[0]?.count || 0, 10);
 
         // Count narcotics
-        const narcoticsResult = await sql`
+        const narcoticsResult = await getSql()`
           SELECT COUNT(*) as count
           FROM medication_requests mr
           WHERE mr.hospital_id = ${hospitalId}
@@ -944,7 +948,7 @@ export const medicationOrdersRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO service_requests (
             patient_id, encounter_id, hospital_id,
             request_type, order_name, order_code,
@@ -992,7 +996,7 @@ export const medicationOrdersRouter = router({
         }
 
         // Audit
-        await sql`
+        await getSql()`
           INSERT INTO audit_logs (
             hospital_id, user_id, action, table_name, row_id,
             new_values, ip_address, created_at
@@ -1031,18 +1035,18 @@ export const medicationOrdersRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         const encounterFilter = input.encounter_id
-          ? sql`AND sr.encounter_id = ${input.encounter_id}::uuid`
-          : sql``;
+          ? getSql()`AND sr.encounter_id = ${input.encounter_id}::uuid`
+          : getSql()``;
 
         const typeFilter = input.request_type
-          ? sql`AND sr.request_type = ${input.request_type}`
-          : sql``;
+          ? getSql()`AND sr.request_type = ${input.request_type}`
+          : getSql()``;
 
         const statusFilter = input.status
-          ? sql`AND sr.status = ${input.status}`
-          : sql``;
+          ? getSql()`AND sr.status = ${input.status}`
+          : getSql()``;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             sr.id, sr.patient_id, sr.encounter_id,
             sr.request_type, sr.order_name, sr.order_code,
@@ -1083,7 +1087,7 @@ export const medicationOrdersRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Update service request with results
-        const result = await sql`
+        const result = await getSql()`
           UPDATE service_requests
           SET
             result_value = ${input.result_value || null},
@@ -1107,7 +1111,7 @@ export const medicationOrdersRouter = router({
 
         // If critical, create clinical alert
         if (input.is_critical) {
-          await sql`
+          await getSql()`
             INSERT INTO clinical_alert_logs (
               patient_id, encounter_id, hospital_id,
               alert_type, severity, title, description,
@@ -1128,7 +1132,7 @@ export const medicationOrdersRouter = router({
         }
 
         // Audit
-        await sql`
+        await getSql()`
           INSERT INTO audit_logs (
             hospital_id, user_id, action, table_name, row_id,
             new_values, ip_address, created_at
@@ -1171,7 +1175,7 @@ export const medicationOrdersRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO diet_orders (
             patient_id, encounter_id, hospital_id,
             diet_type, custom_description, restrictions,
@@ -1204,7 +1208,7 @@ export const medicationOrdersRouter = router({
         }
 
         // Audit
-        await sql`
+        await getSql()`
           INSERT INTO audit_logs (
             hospital_id, user_id, action, table_name, row_id,
             new_values, ip_address, created_at
@@ -1242,14 +1246,14 @@ export const medicationOrdersRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         const encounterFilter = input.encounter_id
-          ? sql`AND do.encounter_id = ${input.encounter_id}::uuid`
-          : sql``;
+          ? getSql()`AND do.encounter_id = ${input.encounter_id}::uuid`
+          : getSql()``;
 
         const statusFilter = input.status
-          ? sql`AND do.status = ${input.status}`
-          : sql``;
+          ? getSql()`AND do.status = ${input.status}`
+          : getSql()``;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, patient_id, encounter_id,
             diet_type, custom_description, restrictions,
@@ -1287,7 +1291,7 @@ export const medicationOrdersRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO nursing_orders (
             patient_id, encounter_id, hospital_id,
             task_type, description, frequency_code,
@@ -1318,7 +1322,7 @@ export const medicationOrdersRouter = router({
         }
 
         // Audit
-        await sql`
+        await getSql()`
           INSERT INTO audit_logs (
             hospital_id, user_id, action, table_name, row_id,
             new_values, ip_address, created_at
@@ -1355,7 +1359,7 @@ export const medicationOrdersRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Fetch current order to get completion_log
-        const fetchResult = await sql`
+        const fetchResult = await getSql()`
           SELECT completion_log, completion_count
           FROM nursing_orders
           WHERE id = ${input.id}::uuid
@@ -1377,7 +1381,7 @@ export const medicationOrdersRouter = router({
         });
 
         // Update nursing order
-        const result = await sql`
+        const result = await getSql()`
           UPDATE nursing_orders
           SET
             last_completed_at = NOW(),
@@ -1395,7 +1399,7 @@ export const medicationOrdersRouter = router({
         }
 
         // Audit
-        await sql`
+        await getSql()`
           INSERT INTO audit_logs (
             hospital_id, user_id, action, table_name, row_id,
             new_values, ip_address, created_at
@@ -1433,14 +1437,14 @@ export const medicationOrdersRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         const encounterFilter = input.encounter_id
-          ? sql`AND no.encounter_id = ${input.encounter_id}::uuid`
-          : sql``;
+          ? getSql()`AND no.encounter_id = ${input.encounter_id}::uuid`
+          : getSql()``;
 
         const statusFilter = input.status
-          ? sql`AND no.status = ${input.status}`
-          : sql``;
+          ? getSql()`AND no.status = ${input.status}`
+          : getSql()``;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, patient_id, encounter_id,
             task_type, description, frequency_code,
@@ -1485,7 +1489,7 @@ export const medicationOrdersRouter = router({
         };
 
         // Get active medication requests for this encounter
-        const requestsResult = await sql`
+        const requestsResult = await getSql()`
           SELECT
             mr.id, mr.drug_name, mr.dose_quantity, mr.dose_unit,
             mr.route, mr.frequency_code, mr.start_date, mr.end_date
@@ -1531,7 +1535,7 @@ export const medicationOrdersRouter = router({
             const scheduledDateTime = input.date + 'T' + timeSlot + ':00Z';
 
             // Check for existing administration record
-            const adminResult = await sql`
+            const adminResult = await getSql()`
               SELECT id, status, administered_datetime, dose_given, route
               FROM medication_administrations
               WHERE medication_request_id = ${req.id}::uuid
@@ -1600,7 +1604,7 @@ export const medicationOrdersRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Insert medication administration record
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO medication_administrations (
             medication_request_id, patient_id, encounter_id, hospital_id,
             scheduled_datetime, administered_datetime,
@@ -1638,7 +1642,7 @@ export const medicationOrdersRouter = router({
         }
 
         // Audit log
-        await sql`
+        await getSql()`
           INSERT INTO audit_logs (
             hospital_id, user_id, action, table_name, row_id,
             new_values, ip_address, created_at
@@ -1678,7 +1682,7 @@ export const medicationOrdersRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Check if record exists, update or create
-        const existingResult = await sql`
+        const existingResult = await getSql()`
           SELECT id FROM medication_administrations
           WHERE medication_request_id = ${input.medication_request_id}::uuid
             AND hospital_id = ${hospitalId}
@@ -1689,14 +1693,14 @@ export const medicationOrdersRouter = router({
         const existing = (existingResult as any)?.[0];
 
         if (existing) {
-          await sql`
+          await getSql()`
             UPDATE medication_administrations
             SET status = 'held', hold_reason = ${input.hold_reason},
                 updated_at = NOW()
             WHERE id = ${existing.id}::uuid;
           `;
         } else {
-          await sql`
+          await getSql()`
             INSERT INTO medication_administrations (
               medication_request_id, patient_id, encounter_id, hospital_id,
               scheduled_datetime, hold_reason, status,
@@ -1717,7 +1721,7 @@ export const medicationOrdersRouter = router({
         }
 
         // Audit
-        await sql`
+        await getSql()`
           INSERT INTO audit_logs (
             hospital_id, user_id, action, table_name, row_id,
             new_values, ip_address, created_at
@@ -1757,7 +1761,7 @@ export const medicationOrdersRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Check if record exists, update or create
-        const existingResult = await sql`
+        const existingResult = await getSql()`
           SELECT id FROM medication_administrations
           WHERE medication_request_id = ${input.medication_request_id}::uuid
             AND hospital_id = ${hospitalId}
@@ -1768,14 +1772,14 @@ export const medicationOrdersRouter = router({
         const existing = (existingResult as any)?.[0];
 
         if (existing) {
-          await sql`
+          await getSql()`
             UPDATE medication_administrations
             SET status = 'not_done', not_done_reason = ${input.not_done_reason},
                 updated_at = NOW()
             WHERE id = ${existing.id}::uuid;
           `;
         } else {
-          await sql`
+          await getSql()`
             INSERT INTO medication_administrations (
               medication_request_id, patient_id, encounter_id, hospital_id,
               scheduled_datetime, not_done_reason, status,
@@ -1796,7 +1800,7 @@ export const medicationOrdersRouter = router({
         }
 
         // Audit
-        await sql`
+        await getSql()`
           INSERT INTO audit_logs (
             hospital_id, user_id, action, table_name, row_id,
             new_values, ip_address, created_at
@@ -1833,15 +1837,15 @@ export const medicationOrdersRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         const dateFromFilter = input.date_from
-          ? sql`AND ma.administered_datetime >= ${input.date_from}::timestamp`
-          : sql`AND DATE(ma.administered_datetime) = CURRENT_DATE`;
+          ? getSql()`AND ma.administered_datetime >= ${input.date_from}::timestamp`
+          : getSql()`AND DATE(ma.administered_datetime) = CURRENT_DATE`;
 
         const dateToFilter = input.date_to
-          ? sql`AND ma.administered_datetime <= ${input.date_to}::timestamp`
-          : sql``;
+          ? getSql()`AND ma.administered_datetime <= ${input.date_to}::timestamp`
+          : getSql()``;
 
         // Total administrations
-        const totalResult = await sql`
+        const totalResult = await getSql()`
           SELECT COUNT(*) as count
           FROM medication_administrations ma
           WHERE ma.hospital_id = ${hospitalId}
@@ -1853,7 +1857,7 @@ export const medicationOrdersRouter = router({
         const totalAdministrations = (totalResult as any)?.[0]?.count || 0;
 
         // On-time rate (within 30 minutes of scheduled time)
-        const onTimeResult = await sql`
+        const onTimeResult = await getSql()`
           SELECT
             COUNT(*) as total,
             SUM(CASE WHEN ABS(EXTRACT(EPOCH FROM (ma.administered_datetime - ma.scheduled_datetime))/60) <= 30 THEN 1 ELSE 0 END) as on_time
@@ -1870,7 +1874,7 @@ export const medicationOrdersRouter = router({
           : 0;
 
         // Barcode scan rate
-        const barcodeResult = await sql`
+        const barcodeResult = await getSql()`
           SELECT
             SUM(CASE WHEN patient_barcode_scanned = true THEN 1 ELSE 0 END) as patient_scans,
             SUM(CASE WHEN medication_barcode_scanned = true THEN 1 ELSE 0 END) as med_scans,
@@ -1888,7 +1892,7 @@ export const medicationOrdersRouter = router({
           : 0;
 
         // Top held medications
-        const heldResult = await sql`
+        const heldResult = await getSql()`
           SELECT
             mr.drug_name,
             COUNT(*) as hold_count
@@ -1906,7 +1910,7 @@ export const medicationOrdersRouter = router({
         const topHeldMedications = (heldResult as any) || [];
 
         // Refusal count
-        const refusalResult = await sql`
+        const refusalResult = await getSql()`
           SELECT COUNT(*) as count
           FROM medication_administrations ma
           WHERE ma.hospital_id = ${hospitalId}

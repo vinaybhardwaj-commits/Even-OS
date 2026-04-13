@@ -1,11 +1,15 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { writeEvent } from '@/lib/event-log';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 // ============================================================
 // TYPE DEFINITIONS & VALIDATORS
@@ -45,7 +49,7 @@ export const proceduresRouter = router({
         const userId = ctx.user.sub;
 
         // 1. Verify patient exists
-        const patientCheck = await sql`
+        const patientCheck = await getSql()`
           SELECT id FROM patients
           WHERE id = ${input.patient_id}::uuid
           AND hospital_id = ${hospitalId}
@@ -57,7 +61,7 @@ export const proceduresRouter = router({
         }
 
         // 2. Verify encounter exists
-        const encounterCheck = await sql`
+        const encounterCheck = await getSql()`
           SELECT id FROM encounters
           WHERE id = ${input.encounter_id}::uuid
           AND hospital_id = ${hospitalId}
@@ -69,7 +73,7 @@ export const proceduresRouter = router({
         }
 
         // 3. Insert procedure
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO procedures (
             hospital_id, patient_id, encounter_id,
             procedure_code, procedure_name, status,
@@ -156,7 +160,7 @@ export const proceduresRouter = router({
         const userId = ctx.user.sub;
 
         // 1. Fetch current procedure
-        const currentResult = await sql`
+        const currentResult = await getSql()`
           SELECT id, status, version FROM procedures
           WHERE id = ${input.procedure_id}::uuid
           AND hospital_id = ${hospitalId}
@@ -171,14 +175,14 @@ export const proceduresRouter = router({
         const currentVersion = current.version || 1;
 
         // 2. Create version (event sourcing)
-        await sql`
+        await getSql()`
           UPDATE procedures
           SET previous_version_id = id, version = version + 1
           WHERE id = ${input.procedure_id}::uuid
         `;
 
         // 3. Update status
-        const updateResult = await sql`
+        const updateResult = await getSql()`
           UPDATE procedures
           SET status = ${input.status}, updated_at = NOW()
           WHERE id = ${input.procedure_id}::uuid
@@ -200,7 +204,7 @@ export const proceduresRouter = router({
 
         // 5. Log event (fire-and-forget)
         try {
-          const procDetail = await sql`
+          const procDetail = await getSql()`
             SELECT id, patient_id, encounter_id, procedure_code, procedure_name,
                    performer_id, performer_role, performed_datetime
             FROM procedures
@@ -289,7 +293,7 @@ export const proceduresRouter = router({
 
         query += ` ORDER BY created_at DESC`;
 
-        const result = await sql(query, params);
+        const result = await getSql()(query, params);
         const procedures = (result as any) || [];
 
         return procedures.map((p: any) => ({
@@ -327,7 +331,7 @@ export const proceduresRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Join with clinical_impressions if linked
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             p.id, p.patient_id, p.encounter_id,
             p.procedure_code, p.procedure_name, p.status,
@@ -393,7 +397,7 @@ export const proceduresRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             status,
             COUNT(*) as count
@@ -448,7 +452,7 @@ export const proceduresRouter = router({
         const userId = ctx.user.sub;
 
         // 1. Verify patient exists
-        const patientCheck = await sql`
+        const patientCheck = await getSql()`
           SELECT id FROM patients
           WHERE id = ${input.patient_id}::uuid
           AND hospital_id = ${hospitalId}
@@ -460,7 +464,7 @@ export const proceduresRouter = router({
         }
 
         // 2. Insert MLC form
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO mlc_forms (
             hospital_id, patient_id, encounter_id,
             injury_description, injury_type, injury_datetime, injury_location_on_body,
@@ -530,7 +534,7 @@ export const proceduresRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // 1. Verify MLC exists and is in draft status
-        const mlcCheck = await sql`
+        const mlcCheck = await getSql()`
           SELECT id, status FROM mlc_forms
           WHERE id = ${input.mlc_id}::uuid
           AND hospital_id = ${hospitalId}
@@ -614,7 +618,7 @@ export const proceduresRouter = router({
           RETURNING id, status, updated_at
         `;
 
-        const result = await sql(updateQuery, values);
+        const result = await getSql()(updateQuery, values);
         const updateRows = (result as any);
         if (!updateRows || updateRows.length === 0) {
           throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to update MLC form' });
@@ -661,7 +665,7 @@ export const proceduresRouter = router({
         const userId = ctx.user.sub;
 
         // 1. Verify MLC exists and is in draft status
-        const mlcCheck = await sql`
+        const mlcCheck = await getSql()`
           SELECT id, status FROM mlc_forms
           WHERE id = ${input.mlc_id}::uuid
           AND hospital_id = ${hospitalId}
@@ -681,7 +685,7 @@ export const proceduresRouter = router({
         }
 
         // 2. Sign the form
-        const result = await sql`
+        const result = await getSql()`
           UPDATE mlc_forms
           SET status = 'signed',
               signed_by_user_id = ${userId}::uuid,
@@ -732,7 +736,7 @@ export const proceduresRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // 1. Verify MLC exists and is in signed status
-        const mlcCheck = await sql`
+        const mlcCheck = await getSql()`
           SELECT id, status FROM mlc_forms
           WHERE id = ${input.mlc_id}::uuid
           AND hospital_id = ${hospitalId}
@@ -752,7 +756,7 @@ export const proceduresRouter = router({
         }
 
         // 2. Lock the form
-        const result = await sql`
+        const result = await getSql()`
           UPDATE mlc_forms
           SET status = 'locked', locked_at = NOW(), updated_at = NOW()
           WHERE id = ${input.mlc_id}::uuid
@@ -824,7 +828,7 @@ export const proceduresRouter = router({
 
         query += ` ORDER BY created_at DESC`;
 
-        const result = await sql(query, params);
+        const result = await getSql()(query, params);
         const forms = (result as any) || [];
 
         return forms.map((f: any) => ({

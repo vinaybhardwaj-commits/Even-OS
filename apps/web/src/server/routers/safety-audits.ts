@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { router, protectedProcedure, adminProcedure } from '../trpc';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 // ─── ENUMS ───────────────────────────────────────────────────────
 const safetyRoundStatusEnum = z.enum(['scheduled', 'in_progress', 'completed', 'cancelled']);
@@ -50,7 +54,7 @@ const createDefinition = adminProcedure
       const hospitalId = ctx.user.hospital_id;
       const userId = ctx.user.sub;
 
-      const result = await sql`
+      const result = await getSql()`
         INSERT INTO quality_indicator_definitions (
           hospital_id, qid_indicator_id, indicator_name,
           qid_nabh_chapter, qid_department,
@@ -101,7 +105,7 @@ const getDefinition = adminProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           id, hospital_id, qid_indicator_id, indicator_name,
           qid_nabh_chapter, qid_department,
@@ -148,7 +152,7 @@ const listDefinitions = adminProcedure
       const offset = (input.page - 1) * input.pageSize;
 
       // Count total
-      const countResult = await sql`
+      const countResult = await getSql()`
         SELECT COUNT(*) as total
         FROM quality_indicator_definitions
         WHERE hospital_id = ${hospitalId}
@@ -161,7 +165,7 @@ const listDefinitions = adminProcedure
       const total = countRows && countRows.length > 0 ? parseInt(countRows[0].total) : 0;
 
       // Fetch records
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           id, qid_indicator_id, indicator_name,
           qid_nabh_chapter, qid_department,
@@ -204,7 +208,7 @@ const updateDefinition = adminProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         UPDATE quality_indicator_definitions
         SET
           indicator_name = COALESCE(${input.indicator_name ?? null}::varchar, indicator_name),
@@ -246,7 +250,7 @@ const confirmDefinition = adminProcedure
       const hospitalId = ctx.user.hospital_id;
       const userId = ctx.user.sub;
 
-      const result = await sql`
+      const result = await getSql()`
         UPDATE quality_indicator_definitions
         SET
           definition_status = 'confirmed',
@@ -295,7 +299,7 @@ const scheduleRound = protectedProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         INSERT INTO safety_rounds (
           hospital_id, sr_department, scheduled_date, template_name,
           sr_assigned_to_user_id, sr_status, sr_created_at
@@ -347,7 +351,7 @@ const listRounds = protectedProcedure
       const offset = (input.page - 1) * input.pageSize;
 
       // Count total
-      const countResult = await sql`
+      const countResult = await getSql()`
         SELECT COUNT(*) as total
         FROM safety_rounds
         WHERE hospital_id = ${hospitalId}
@@ -361,7 +365,7 @@ const listRounds = protectedProcedure
       const total = countRows && countRows.length > 0 ? parseInt(countRows[0].total) : 0;
 
       // Fetch records with findings count
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           sr.id, sr.sr_department, sr.scheduled_date, sr.template_name,
           sr.sr_status, sr.sr_completed_at, sr.sr_notes, sr.sr_created_at,
@@ -405,7 +409,7 @@ const getRound = protectedProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           sr.id, sr.hospital_id, sr.sr_department, sr.scheduled_date, sr.template_name,
           sr.sr_assigned_to_user_id, sr.sr_status, sr.sr_completed_at,
@@ -443,7 +447,7 @@ const startRound = protectedProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         UPDATE safety_rounds
         SET sr_status = 'in_progress'
         WHERE id = ${input.id}::uuid AND hospital_id = ${hospitalId}
@@ -482,7 +486,7 @@ const completeRound = protectedProcedure
       const hospitalId = ctx.user.hospital_id;
       const userId = ctx.user.sub;
 
-      const result = await sql`
+      const result = await getSql()`
         UPDATE safety_rounds
         SET
           sr_status = 'completed',
@@ -522,7 +526,7 @@ const cancelRound = protectedProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         UPDATE safety_rounds
         SET sr_status = 'cancelled'
         WHERE id = ${input.id}::uuid AND hospital_id = ${hospitalId}
@@ -569,7 +573,7 @@ const addFinding = protectedProcedure
       const hospitalId = ctx.user.hospital_id;
       const userId = ctx.user.sub;
 
-      const result = await sql`
+      const result = await getSql()`
         INSERT INTO safety_round_findings (
           hospital_id, srf_safety_round_id, checklist_item,
           finding_description, srf_severity, photo_attachment_url,
@@ -620,7 +624,7 @@ const updateFinding = protectedProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         UPDATE safety_round_findings
         SET
           srf_severity = COALESCE(${input.srf_severity ?? null}::text, srf_severity),
@@ -665,7 +669,7 @@ const closeFinding = protectedProcedure
       const hospitalId = ctx.user.hospital_id;
       const userId = ctx.user.sub;
 
-      const result = await sql`
+      const result = await getSql()`
         UPDATE safety_round_findings
         SET
           srf_status = 'closed',
@@ -715,7 +719,7 @@ const listFindings = protectedProcedure
       const offset = (input.page - 1) * input.pageSize;
 
       // Count total
-      const countResult = await sql`
+      const countResult = await getSql()`
         SELECT COUNT(*) as total
         FROM safety_round_findings
         WHERE hospital_id = ${hospitalId}
@@ -728,7 +732,7 @@ const listFindings = protectedProcedure
       const total = countRows && countRows.length > 0 ? parseInt(countRows[0].total) : 0;
 
       // Fetch records
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           id, checklist_item, finding_description, srf_severity,
           photo_attachment_url, target_closure_date, srf_status,
@@ -777,7 +781,7 @@ const createTemplate = adminProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         INSERT INTO safety_round_templates (
           hospital_id, srt_template_name, srt_description,
           checklist_items, srt_is_active, srt_created_at
@@ -818,7 +822,7 @@ const listTemplates = protectedProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           id, srt_template_name, srt_description,
           checklist_items, srt_is_active, srt_created_at
@@ -845,7 +849,7 @@ const deactivateTemplate = adminProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         UPDATE safety_round_templates
         SET srt_is_active = false
         WHERE id = ${input.id}::uuid AND hospital_id = ${hospitalId}
@@ -890,7 +894,7 @@ const scheduleAudit = protectedProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         INSERT INTO clinical_audits (
           hospital_id, ca_nabh_chapter, audit_type,
           ca_scheduled_date, sample_size, auditor_user_id,
@@ -944,7 +948,7 @@ const listAudits = protectedProcedure
       const offset = (input.page - 1) * input.pageSize;
 
       // Count total
-      const countResult = await sql`
+      const countResult = await getSql()`
         SELECT COUNT(*) as total
         FROM clinical_audits
         WHERE hospital_id = ${hospitalId}
@@ -958,7 +962,7 @@ const listAudits = protectedProcedure
       const total = countRows && countRows.length > 0 ? parseInt(countRows[0].total) : 0;
 
       // Fetch records with findings count
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           ca.id, ca.ca_nabh_chapter, ca.audit_type,
           ca.ca_scheduled_date, ca.sample_size, ca.ca_status,
@@ -1003,7 +1007,7 @@ const getAudit = protectedProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           ca.id, ca.ca_nabh_chapter, ca.audit_type,
           ca.ca_scheduled_date, ca.sample_size, ca.auditor_user_id,
@@ -1046,7 +1050,7 @@ const completeAudit = protectedProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         UPDATE clinical_audits
         SET
           ca_status = 'completed',
@@ -1094,7 +1098,7 @@ const addAuditFinding = protectedProcedure
       const hospitalId = ctx.user.hospital_id;
       const userId = ctx.user.sub;
 
-      const result = await sql`
+      const result = await getSql()`
         INSERT INTO clinical_audit_findings (
           hospital_id, caf_clinical_audit_id, caf_checklist_item,
           caf_finding_description, caf_severity, caf_assigned_at,
@@ -1146,7 +1150,7 @@ const closeAuditFinding = protectedProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         UPDATE clinical_audit_findings
         SET
           caf_status = 'closed',
@@ -1192,7 +1196,7 @@ const listAuditFindings = protectedProcedure
       const offset = (input.page - 1) * input.pageSize;
 
       // Count total
-      const countResult = await sql`
+      const countResult = await getSql()`
         SELECT COUNT(*) as total
         FROM clinical_audit_findings
         WHERE hospital_id = ${hospitalId}
@@ -1204,7 +1208,7 @@ const listAuditFindings = protectedProcedure
       const total = countRows && countRows.length > 0 ? parseInt(countRows[0].total) : 0;
 
       // Fetch records
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           id, caf_checklist_item, caf_finding_description, caf_severity,
           caf_target_closure_date, caf_status,
@@ -1260,7 +1264,7 @@ const submitComplaint = protectedProcedure
 
       // Generate complaint_id (e.g., COMP-2026-4-12-001)
       const dateStr = new Date().toISOString().split('T')[0].replaceAll('-', '-');
-      const countResult = await sql`
+      const countResult = await getSql()`
         SELECT COUNT(*)::int as count
         FROM sewa_complaints
         WHERE hospital_id = ${hospitalId}
@@ -1276,7 +1280,7 @@ const submitComplaint = protectedProcedure
       const acknowledgmentDue = new Date(nowDate.getTime() + 24 * 60 * 60 * 1000);
       const resolutionDue = new Date(nowDate.getTime() + 72 * 60 * 60 * 1000);
 
-      const result = await sql`
+      const result = await getSql()`
         INSERT INTO sewa_complaints (
           hospital_id, sc_patient_id, complaint_id, complaint_category,
           complaint_description, department_involved, staff_member_involved_name,
@@ -1337,7 +1341,7 @@ const listComplaints = protectedProcedure
       const offset = (input.page - 1) * input.pageSize;
 
       // Count total
-      const countResult = await sql`
+      const countResult = await getSql()`
         SELECT COUNT(*) as total
         FROM sewa_complaints
         WHERE hospital_id = ${hospitalId}
@@ -1352,7 +1356,7 @@ const listComplaints = protectedProcedure
       const total = countRows && countRows.length > 0 ? parseInt(countRows[0].total) : 0;
 
       // Fetch records
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           id, complaint_id, complaint_category, complaint_description,
           department_involved, staff_member_involved_name,
@@ -1402,7 +1406,7 @@ const acknowledgeComplaint = protectedProcedure
       const hospitalId = ctx.user.hospital_id;
       const userId = ctx.user.sub;
 
-      const result = await sql`
+      const result = await getSql()`
         UPDATE sewa_complaints
         SET
           sc_status = 'acknowledged',
@@ -1447,7 +1451,7 @@ const resolveComplaint = protectedProcedure
       const hospitalId = ctx.user.hospital_id;
       const userId = ctx.user.sub;
 
-      const result = await sql`
+      const result = await getSql()`
         UPDATE sewa_complaints
         SET
           sc_status = 'resolved',
@@ -1491,7 +1495,7 @@ const escalateComplaint = protectedProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         UPDATE sewa_complaints
         SET
           sc_status = 'escalated',
@@ -1531,7 +1535,7 @@ const getComplaint = protectedProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           id, hospital_id, sc_patient_id, complaint_id, complaint_category,
           complaint_description, department_involved, staff_member_involved_name,
@@ -1574,7 +1578,7 @@ const qualityDashboard = protectedProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         WITH indicator_stats AS (
           SELECT
             COUNT(*)::int as total_definitions,
@@ -1663,7 +1667,7 @@ const complaintsDashboard = protectedProcedure
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         WITH status_counts AS (
           SELECT
             COUNT(*) FILTER (WHERE sc_status = 'open')::int as open_count,

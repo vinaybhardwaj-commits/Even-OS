@@ -1,10 +1,14 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeEvent } from '@/lib/event-log';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 const clinicalStatusValues = ['active', 'inactive', 'resolved', 'remission'] as const;
 const verificationStatusValues = ['unconfirmed', 'provisional', 'differential', 'confirmed'] as const;
@@ -31,7 +35,7 @@ export const conditionsRouter = router({
         const userId = ctx.user.sub;
 
         // Verify patient exists in this hospital
-        const patientCheck = await sql`
+        const patientCheck = await getSql()`
           SELECT id FROM patients
           WHERE id = ${input.patient_id}
           AND hospital_id = ${hospitalId}
@@ -47,7 +51,7 @@ export const conditionsRouter = router({
 
         // Verify encounter if provided
         if (input.encounter_id) {
-          const encounterCheck = await sql`
+          const encounterCheck = await getSql()`
             SELECT id FROM encounters
             WHERE id = ${input.encounter_id}
             AND hospital_id = ${hospitalId}
@@ -64,7 +68,7 @@ export const conditionsRouter = router({
         }
 
         // Insert condition
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO conditions (
             hospital_id,
             patient_id,
@@ -169,7 +173,7 @@ export const conditionsRouter = router({
         const userId = ctx.user.sub;
 
         // Get current condition
-        const currentCondition = await sql`
+        const currentCondition = await getSql()`
           SELECT
             id, hospital_id, patient_id, encounter_id, icd10_code,
             condition_name, clinical_status, verification_status, severity,
@@ -191,7 +195,7 @@ export const conditionsRouter = router({
         const condition = currentCondition[0];
 
         // Create new version (event sourcing)
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO conditions (
             hospital_id,
             patient_id,
@@ -300,7 +304,7 @@ export const conditionsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Verify condition exists and get full snapshot
-        const conditionCheck = await sql`
+        const conditionCheck = await getSql()`
           SELECT
             id, hospital_id, patient_id, encounter_id, icd10_code,
             condition_name, clinical_status, verification_status, severity,
@@ -322,7 +326,7 @@ export const conditionsRouter = router({
         const conditionData = conditionCheck[0];
 
         // Soft delete
-        const result = await sql`
+        const result = await getSql()`
           UPDATE conditions
           SET is_deleted = true, updated_at = NOW()
           WHERE id = ${input.condition_id}
@@ -398,7 +402,7 @@ export const conditionsRouter = router({
 
         query += ` ORDER BY created_at DESC`;
 
-        const result = await sql(query, params);
+        const result = await getSql()(query, params);
         const rows = (result as any);
 
         return {
@@ -423,7 +427,7 @@ export const conditionsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Get the current condition
-        const condition = await sql`
+        const condition = await getSql()`
           SELECT
             id, patient_id, encounter_id, icd10_code, condition_name,
             clinical_status, verification_status, severity,
@@ -445,7 +449,7 @@ export const conditionsRouter = router({
         const current = condition[0];
 
         // Get version history by following the chain
-        const history = await sql`
+        const history = await getSql()`
           WITH RECURSIVE version_chain AS (
             SELECT
               id, version, clinical_status, verification_status, severity,
@@ -509,7 +513,7 @@ export const conditionsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Verify condition exists
-        const conditionCheck = await sql`
+        const conditionCheck = await getSql()`
           SELECT id FROM conditions
           WHERE id = ${input.condition_id}
           AND hospital_id = ${hospitalId}
@@ -524,7 +528,7 @@ export const conditionsRouter = router({
         }
 
         // Get full version history
-        const result = await sql`
+        const result = await getSql()`
           WITH RECURSIVE version_chain AS (
             SELECT
               id, version, clinical_status, verification_status, severity,

@@ -1,10 +1,14 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { router, protectedProcedure, adminProcedure } from '../trpc';
 
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 // ─── ENUMS ───────────────────────────────────────────────────────
 const haiTypeEnum = z.enum(['CLABSI', 'CAUTI', 'VAP', 'SSI', 'MRSA', 'C_diff', 'other']);
@@ -46,7 +50,7 @@ export const infectionSurveillanceRouter = router({
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO infection_surveillance (
             hospital_id, is_patient_id, is_encounter_id,
             infection_type, organism, organism_display_name,
@@ -100,7 +104,7 @@ export const infectionSurveillanceRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, hospital_id, is_patient_id, is_encounter_id,
             infection_type, organism, organism_display_name,
@@ -149,7 +153,7 @@ export const infectionSurveillanceRouter = router({
         const offset = (input.page - 1) * input.pageSize;
 
         // Count total
-        const countResult = await sql`
+        const countResult = await getSql()`
           SELECT COUNT(*) as total
           FROM infection_surveillance
           WHERE hospital_id = ${hospitalId}
@@ -163,7 +167,7 @@ export const infectionSurveillanceRouter = router({
         const total = countRows && countRows.length > 0 ? parseInt(countRows[0].total) : 0;
 
         // Fetch records
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, infection_type, organism, organism_display_name,
             device_involved, onset_date, identified_date,
@@ -213,7 +217,7 @@ export const infectionSurveillanceRouter = router({
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE infection_surveillance
           SET
             treatment_antibiotic = COALESCE(${input.treatment_antibiotic || null}, treatment_antibiotic),
@@ -250,7 +254,7 @@ export const infectionSurveillanceRouter = router({
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
 
-        const result = await sql`
+        const result = await getSql()`
           DELETE FROM infection_surveillance
           WHERE id = ${input.infection_id}::uuid AND hospital_id = ${hospitalId}
           RETURNING id;
@@ -281,7 +285,7 @@ export const infectionSurveillanceRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, infection_type, organism, organism_display_name,
             device_involved, onset_date, identified_date,
@@ -318,7 +322,7 @@ export const infectionSurveillanceRouter = router({
         const userId = ctx.user.sub;
 
         // Get all unique infection types for the period
-        const infectionTypesResult = await sql`
+        const infectionTypesResult = await getSql()`
           SELECT DISTINCT infection_type FROM infection_surveillance
           WHERE hospital_id = ${hospitalId}
             AND DATE(identified_date) >= ${input.period_start}::date
@@ -331,7 +335,7 @@ export const infectionSurveillanceRouter = router({
 
         for (const infType of infectionTypes) {
           // Count infections
-          const countResult = await sql`
+          const countResult = await getSql()`
             SELECT COUNT(*) as numerator FROM infection_surveillance
             WHERE hospital_id = ${hospitalId}
               AND infection_type = ${infType}
@@ -344,7 +348,7 @@ export const infectionSurveillanceRouter = router({
 
           // Estimate denominator (device-days or patient-days)
           // For simplicity, using encounter count as proxy for patient-days
-          const denomResult = await sql`
+          const denomResult = await getSql()`
             SELECT COUNT(DISTINCT is_encounter_id) as denominator FROM infection_surveillance
             WHERE hospital_id = ${hospitalId}
               AND DATE(identified_date) >= ${input.period_start}::date
@@ -357,7 +361,7 @@ export const infectionSurveillanceRouter = router({
           const ratePerThousand = (numerator / denominator) * 1000;
 
           // Upsert into infection_rates
-          await sql`
+          await getSql()`
             INSERT INTO infection_rates (
               hospital_id, period_start, period_end,
               ir_infection_type, ir_numerator, ir_denominator,
@@ -405,7 +409,7 @@ export const infectionSurveillanceRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, period_start, period_end,
             ir_infection_type, ir_numerator, ir_denominator,
@@ -439,7 +443,7 @@ export const infectionSurveillanceRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             period_start, period_end,
             ir_numerator, ir_denominator, rate_per_1000
@@ -499,7 +503,7 @@ export const infectionSurveillanceRouter = router({
           (new Date(input.aul_end_date).getTime() - new Date(input.aul_start_date).getTime()) / (1000 * 60 * 60 * 24)
         ) : null);
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO antibiotic_usage_log (
             hospital_id, aul_patient_id, aul_encounter_id,
             medication_order_id, antibiotic_name, is_restricted,
@@ -555,7 +559,7 @@ export const infectionSurveillanceRouter = router({
         const hospitalId = ctx.user.hospital_id;
         const offset = (input.page - 1) * input.pageSize;
 
-        const countResult = await sql`
+        const countResult = await getSql()`
           SELECT COUNT(*) as total FROM antibiotic_usage_log
           WHERE hospital_id = ${hospitalId}
             AND (${input.aul_patient_id ?? null}::uuid IS NULL OR aul_patient_id = ${input.aul_patient_id ?? null}::uuid)
@@ -568,7 +572,7 @@ export const infectionSurveillanceRouter = router({
         const countRows = (countResult as any);
         const total = countRows && countRows.length > 0 ? parseInt(countRows[0].total) : 0;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, antibiotic_name, is_restricted,
             dose_mg, frequency_per_day, aul_route,
@@ -617,7 +621,7 @@ export const infectionSurveillanceRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Get total DDD count for period
-        const dddResult = await sql`
+        const dddResult = await getSql()`
           SELECT
             COALESCE(SUM(CAST(ddd_count AS NUMERIC)), 0) as total_ddd,
             COUNT(*) as record_count
@@ -632,7 +636,7 @@ export const infectionSurveillanceRouter = router({
         const recordCount = dddRows && dddRows.length > 0 ? parseInt(dddRows[0].record_count || 0) : 0;
 
         // Get distinct patients in period (proxy for patient-days)
-        const patientsResult = await sql`
+        const patientsResult = await getSql()`
           SELECT COUNT(DISTINCT aul_patient_id) as patient_count FROM antibiotic_usage_log
           WHERE hospital_id = ${hospitalId}
             AND aul_start_date >= ${input.period_start}::timestamptz
@@ -646,7 +650,7 @@ export const infectionSurveillanceRouter = router({
         const dddPer1000 = (totalDdd / Math.max(1, patientCount)) * 1000;
 
         // Get restricted antibiotic usage
-        const restrictedResult = await sql`
+        const restrictedResult = await getSql()`
           SELECT
             COUNT(*) as restricted_count,
             COUNT(DISTINCT antibiotic_name) as distinct_restricted
@@ -691,7 +695,7 @@ export const infectionSurveillanceRouter = router({
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE antibiotic_usage_log
           SET
             aul_end_date = COALESCE(${input.aul_end_date || null}::timestamptz, aul_end_date),
@@ -725,7 +729,7 @@ export const infectionSurveillanceRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, antibiotic_name, dose_mg, frequency_per_day,
             aul_route, aul_start_date, aul_end_date, aul_duration_days,
@@ -766,7 +770,7 @@ export const infectionSurveillanceRouter = router({
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO antibiotic_approvals (
             hospital_id, aa_medication_order_id, aa_antibiotic_name,
             justification_reason, aa_justification_text,
@@ -814,7 +818,7 @@ export const infectionSurveillanceRouter = router({
         const hospitalId = ctx.user.hospital_id;
         const offset = (input.page - 1) * input.pageSize;
 
-        const countResult = await sql`
+        const countResult = await getSql()`
           SELECT COUNT(*) as total FROM antibiotic_approvals
           WHERE hospital_id = ${hospitalId}
             AND (${input.aa_status ?? null}::text IS NULL OR aa_status = ${input.aa_status ?? null})
@@ -825,7 +829,7 @@ export const infectionSurveillanceRouter = router({
         const countRows = (countResult as any);
         const total = countRows && countRows.length > 0 ? parseInt(countRows[0].total) : 0;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, aa_antibiotic_name, justification_reason,
             aa_justification_text, aa_culture_status,
@@ -873,7 +877,7 @@ export const infectionSurveillanceRouter = router({
         const userId = ctx.user.sub;
         const validUntil = input.approval_valid_until || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE antibiotic_approvals
           SET
             aa_status = 'approved',
@@ -916,7 +920,7 @@ export const infectionSurveillanceRouter = router({
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE antibiotic_approvals
           SET
             aa_status = 'denied',
@@ -952,7 +956,7 @@ export const infectionSurveillanceRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT COUNT(*) as count FROM antibiotic_approvals
           WHERE hospital_id = ${hospitalId} AND aa_status = 'pending';
         `;
@@ -985,7 +989,7 @@ export const infectionSurveillanceRouter = router({
         const userId = ctx.user.sub;
 
         // Get distinct organisms and antibiotics from usage logs
-        const combosResult = await sql`
+        const combosResult = await getSql()`
           SELECT DISTINCT organism_if_known, antibiotic_name
           FROM antibiotic_usage_log
           WHERE hospital_id = ${hospitalId}
@@ -1003,7 +1007,7 @@ export const infectionSurveillanceRouter = router({
           const antibiotic = combo.antibiotic_name;
 
           // Count susceptibility outcomes
-          const suceptResult = await sql`
+          const suceptResult = await getSql()`
             SELECT
               COUNT(CASE WHEN susceptible_to_antibiotic = true THEN 1 END) as susceptible,
               COUNT(CASE WHEN susceptible_to_antibiotic = false THEN 1 END) as resistant,
@@ -1027,7 +1031,7 @@ export const infectionSurveillanceRouter = router({
           const pctResist = (resistCount / total) * 100;
 
           // Upsert antibiogram
-          await sql`
+          await getSql()`
             INSERT INTO antibiogram_results (
               hospital_id, ag_period_start, ag_period_end,
               ag_organism, ag_antibiotic,
@@ -1074,7 +1078,7 @@ export const infectionSurveillanceRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             ag_organism, ag_antibiotic,
             count_susceptible, count_resistant, count_intermediate,
@@ -1113,7 +1117,7 @@ export const infectionSurveillanceRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT DISTINCT ag_organism
           FROM antibiogram_results
           WHERE hospital_id = ${hospitalId}
@@ -1147,7 +1151,7 @@ export const infectionSurveillanceRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Count by infection type
-        const typeCountResult = await sql`
+        const typeCountResult = await getSql()`
           SELECT infection_type, COUNT(*) as count
           FROM infection_surveillance
           WHERE hospital_id = ${hospitalId}
@@ -1162,7 +1166,7 @@ export const infectionSurveillanceRouter = router({
         }, {});
 
         // Top organisms
-        const orgResult = await sql`
+        const orgResult = await getSql()`
           SELECT organism, COUNT(*) as count
           FROM infection_surveillance
           WHERE hospital_id = ${hospitalId}
@@ -1178,7 +1182,7 @@ export const infectionSurveillanceRouter = router({
         }));
 
         // Device-associated rate
-        const deviceResult = await sql`
+        const deviceResult = await getSql()`
           SELECT
             COUNT(CASE WHEN device_involved IS NOT NULL THEN 1 END) as device_count,
             COUNT(*) as total
@@ -1216,7 +1220,7 @@ export const infectionSurveillanceRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Restricted antibiotic usage %
-        const restrictedResult = await sql`
+        const restrictedResult = await getSql()`
           SELECT
             COUNT(CASE WHEN is_restricted = true THEN 1 END) as restricted_count,
             COUNT(*) as total
@@ -1230,7 +1234,7 @@ export const infectionSurveillanceRouter = router({
         const restrictedPercent = parseInt(restrictedRow.total) > 0 ? (parseInt(restrictedRow.restricted_count) / parseInt(restrictedRow.total)) * 100 : 0;
 
         // Culture-sensitivity match rate
-        const matchResult = await sql`
+        const matchResult = await getSql()`
           SELECT
             COUNT(CASE WHEN culture_status_at_order = 'positive' AND susceptible_to_antibiotic = true THEN 1 END) as match_count,
             COUNT(CASE WHEN culture_status_at_order = 'positive' THEN 1 END) as culture_positive
@@ -1244,7 +1248,7 @@ export const infectionSurveillanceRouter = router({
         const matchPercent = parseInt(matchRow.culture_positive) > 0 ? (parseInt(matchRow.match_count) / parseInt(matchRow.culture_positive)) * 100 : 0;
 
         // DDD trends
-        const dddResult = await sql`
+        const dddResult = await getSql()`
           SELECT
             COALESCE(SUM(CAST(ddd_count AS NUMERIC)), 0) as total_ddd,
             COUNT(DISTINCT aul_patient_id) as patient_count
@@ -1258,7 +1262,7 @@ export const infectionSurveillanceRouter = router({
         const dddPer1000 = (parseFloat(dddRow.total_ddd) / Math.max(1, parseInt(dddRow.patient_count))) * 1000;
 
         // Pending approvals
-        const pendingResult = await sql`
+        const pendingResult = await getSql()`
           SELECT COUNT(*) as count FROM antibiotic_approvals
           WHERE hospital_id = ${hospitalId} AND aa_status = 'pending';
         `;

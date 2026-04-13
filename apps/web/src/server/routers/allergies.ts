@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeEvent } from '@/lib/event-log';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 const severityEnum = z.enum(['mild', 'moderate', 'severe', 'life_threatening']);
 const categoryEnum = z.enum(['medication', 'food', 'environment', 'biologic']);
@@ -49,7 +53,7 @@ export const allergiesRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         // Insert new allergy record
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO allergy_intolerances (
             patient_id,
             encounter_id,
@@ -137,7 +141,7 @@ export const allergiesRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         // Fetch current allergy record to validate ownership and prepare versioning
-        const fetchResult = await sql`
+        const fetchResult = await getSql()`
           SELECT * FROM allergy_intolerances
           WHERE id = ${input.allergy_id}
           AND hospital_id = ${ctx.user.hospital_id}
@@ -152,7 +156,7 @@ export const allergiesRouter = router({
         const currentAllergy = rows[0];
 
         // Create new version row (event sourcing)
-        const updateResult = await sql`
+        const updateResult = await getSql()`
           INSERT INTO allergy_intolerances (
             patient_id,
             encounter_id,
@@ -247,7 +251,7 @@ export const allergiesRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         // Fetch current allergy for event log
-        const currentResult = await sql`
+        const currentResult = await getSql()`
           SELECT * FROM allergy_intolerances
           WHERE id = ${input.allergy_id}
           AND hospital_id = ${ctx.user.hospital_id}
@@ -262,7 +266,7 @@ export const allergiesRouter = router({
         const currentAllergy = currentRows[0];
 
         // Soft delete: set is_deleted = true
-        const result = await sql`
+        const result = await getSql()`
           UPDATE allergy_intolerances
           SET is_deleted = true, updated_at = NOW()
           WHERE id = ${input.allergy_id}
@@ -307,7 +311,7 @@ export const allergiesRouter = router({
     .query(async ({ ctx, input }) => {
       try {
         // Get all non-deleted allergies for patient, ordered by severity (descending) then created_at (descending)
-        const result = await sql`
+        const result = await getSql()`
           SELECT *
           FROM allergy_intolerances
           WHERE patient_id = ${input.patient_id}
@@ -342,7 +346,7 @@ export const allergiesRouter = router({
     .query(async ({ ctx, input }) => {
       try {
         // Check if patient has any allergy where substance matches (case-insensitive)
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id,
             substance,

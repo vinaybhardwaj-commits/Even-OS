@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure, adminProcedure } from '../trpc';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 // ─── ENUMS ──────────────────────────────────────────────────────────
 const otRoomStatusEnum = z.enum(['available', 'occupied', 'cleaning', 'maintenance', 'reserved']);
@@ -33,7 +37,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           id,
           room_name,
@@ -67,7 +71,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           id,
           room_name,
@@ -105,7 +109,7 @@ export const otManagementRouter = router({
     .mutation(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         INSERT INTO ot_rooms (
           hospital_id, room_name, room_number, ot_room_type, ot_floor,
           otr_status, ot_equipment, ot_specialties, otr_is_active,
@@ -149,7 +153,7 @@ export const otManagementRouter = router({
       const hospitalId = ctx.user.hospital_id;
 
       // Verify room exists
-      const checkResult = await sql`
+      const checkResult = await getSql()`
         SELECT id FROM ot_rooms
         WHERE id = ${input.room_id}::uuid AND hospital_id = ${hospitalId}
         LIMIT 1
@@ -193,7 +197,7 @@ export const otManagementRouter = router({
 
       updateParts.push(`otr_updated_at = NOW()`);
 
-      const updateResult = await sql`
+      const updateResult = await getSql()`
         UPDATE ot_rooms
         SET ${updateParts.join(', ')}
         WHERE id = ${input.room_id}::uuid AND hospital_id = ${hospitalId}
@@ -215,7 +219,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           r.id,
           r.room_name,
@@ -255,7 +259,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           s.id,
           s.schedule_number,
@@ -301,7 +305,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           s.id,
           s.schedule_number,
@@ -392,7 +396,7 @@ export const otManagementRouter = router({
 
       // Generate schedule_number: OTS-YYYYMMDD-NNN
       const dateStr = new Date(input.scheduled_date).toISOString().split('T')[0].replace(/-/g, '');
-      const countResult = await sql`
+      const countResult = await getSql()`
         SELECT COUNT(*)::int as cnt
         FROM ot_schedule
         WHERE hospital_id = ${hospitalId}
@@ -402,7 +406,7 @@ export const otManagementRouter = router({
       const seqNum = ((countRows?.[0]?.cnt || 0) + 1).toString().padStart(3, '0');
       const scheduleNumber = `OTS-${dateStr}-${seqNum}`;
 
-      const result = await sql`
+      const result = await getSql()`
         INSERT INTO ot_schedule (
           hospital_id, ots_patient_id, ots_encounter_id, ots_room_id,
           schedule_number, ots_status, ots_procedure_name, ots_procedure_code,
@@ -478,7 +482,7 @@ export const otManagementRouter = router({
       const hospitalId = ctx.user.hospital_id;
 
       // Verify schedule exists
-      const checkResult = await sql`
+      const checkResult = await getSql()`
         SELECT id FROM ot_schedule
         WHERE id = ${input.schedule_id}::uuid AND hospital_id = ${hospitalId}
         LIMIT 1
@@ -570,7 +574,7 @@ export const otManagementRouter = router({
 
       updateParts.push(`ots_updated_at = NOW()`);
 
-      const updateResult = await sql`
+      const updateResult = await getSql()`
         UPDATE ot_schedule
         SET ${updateParts.join(', ')}
         WHERE id = ${input.schedule_id}::uuid AND hospital_id = ${hospitalId}
@@ -596,7 +600,7 @@ export const otManagementRouter = router({
       const hospitalId = ctx.user.hospital_id;
 
       // Verify schedule exists
-      const checkResult = await sql`
+      const checkResult = await getSql()`
         SELECT id, ots_actual_start FROM ot_schedule
         WHERE id = ${input.schedule_id}::uuid AND hospital_id = ${hospitalId}
         LIMIT 1
@@ -643,7 +647,7 @@ export const otManagementRouter = router({
 
       updateParts.push(`ots_updated_at = NOW()`);
 
-      const updateResult = await sql`
+      const updateResult = await getSql()`
         UPDATE ot_schedule
         SET ${updateParts.join(', ')}
         WHERE id = ${input.schedule_id}::uuid AND hospital_id = ${hospitalId}
@@ -661,7 +665,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           r.id as room_id,
           r.room_name,
@@ -707,7 +711,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const statusResult = await sql`
+      const statusResult = await getSql()`
         SELECT
           ots_status,
           COUNT(*)::int as count
@@ -719,7 +723,7 @@ export const otManagementRouter = router({
       `;
       const statusRows = (statusResult as any);
 
-      const timingResult = await sql`
+      const timingResult = await getSql()`
         SELECT
           ROUND(AVG(actual_duration_min)::numeric, 1)::float as avg_duration_min,
           ROUND((SUM(CASE WHEN ots_actual_start <= scheduled_start THEN 1 ELSE 0 END)::numeric / COUNT(*)::numeric * 100)::numeric, 1)::float as on_time_start_percent,
@@ -750,7 +754,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           id,
           otc_schedule_id,
@@ -816,7 +820,7 @@ export const otManagementRouter = router({
       const hospitalId = ctx.user.hospital_id;
 
       // Check if checklist exists
-      const checkResult = await sql`
+      const checkResult = await getSql()`
         SELECT id FROM ot_checklists
         WHERE otc_schedule_id = ${input.schedule_id}::uuid
           AND otc_phase = ${input.phase}
@@ -912,7 +916,7 @@ export const otManagementRouter = router({
           params.push(ctx.user.sub);
           updateParts.push(`otc_completed_at = NOW()`);
 
-          const updateResult = await sql`
+          const updateResult = await getSql()`
             UPDATE ot_checklists
             SET ${updateParts.join(', ')}
             WHERE otc_schedule_id = ${input.schedule_id}::uuid
@@ -924,7 +928,7 @@ export const otManagementRouter = router({
         }
       } else {
         // Insert
-        const insertResult = await sql`
+        const insertResult = await getSql()`
           INSERT INTO ot_checklists (
             hospital_id, otc_schedule_id, otc_phase,
             identity_confirmed, cl_site_marked, consent_signed,
@@ -978,7 +982,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           otc_phase,
           COUNT(*)::int as total,
@@ -1006,7 +1010,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           id,
           ar_schedule_id,
@@ -1080,7 +1084,7 @@ export const otManagementRouter = router({
       const hospitalId = ctx.user.hospital_id;
 
       // Check if record exists
-      const checkResult = await sql`
+      const checkResult = await getSql()`
         SELECT id FROM anesthesia_records
         WHERE ar_schedule_id = ${input.schedule_id}::uuid
           AND hospital_id = ${hospitalId}
@@ -1185,7 +1189,7 @@ export const otManagementRouter = router({
         if (updateParts.length > 0) {
           updateParts.push(`ar_updated_at = NOW()`);
 
-          const updateResult = await sql`
+          const updateResult = await getSql()`
             UPDATE anesthesia_records
             SET ${updateParts.join(', ')}
             WHERE ar_schedule_id = ${input.schedule_id}::uuid
@@ -1196,7 +1200,7 @@ export const otManagementRouter = router({
         }
       } else {
         // Insert
-        const insertResult = await sql`
+        const insertResult = await getSql()`
           INSERT INTO anesthesia_records (
             hospital_id, ar_schedule_id, ar_patient_id,
             ar_asa_class, ar_anesthesia_type, airway_assessment,
@@ -1255,7 +1259,7 @@ export const otManagementRouter = router({
     .mutation(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const updateResult = await sql`
+      const updateResult = await getSql()`
         UPDATE anesthesia_records
         SET
           ar_recovery_status = ${input.recovery_status},
@@ -1283,7 +1287,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const asaResult = await sql`
+      const asaResult = await getSql()`
         SELECT
           ar_asa_class,
           COUNT(*)::int as count
@@ -1295,7 +1299,7 @@ export const otManagementRouter = router({
       `;
       const asaRows = (asaResult as any);
 
-      const typeResult = await sql`
+      const typeResult = await getSql()`
         SELECT
           ar_anesthesia_type,
           COUNT(*)::int as count
@@ -1307,7 +1311,7 @@ export const otManagementRouter = router({
       `;
       const typeRows = (typeResult as any);
 
-      const complicationResult = await sql`
+      const complicationResult = await getSql()`
         SELECT
           ROUND((SUM(CASE WHEN ar_complications IS NOT NULL THEN 1 ELSE 0 END)::numeric / COUNT(*)::numeric * 100)::numeric, 1)::float as complication_rate,
           ROUND((SUM(CASE WHEN difficult_airway THEN 1 ELSE 0 END)::numeric / COUNT(*)::numeric * 100)::numeric, 1)::float as difficult_airway_rate,
@@ -1343,7 +1347,7 @@ export const otManagementRouter = router({
     .mutation(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         INSERT INTO ot_equipment_log (
           hospital_id, oel_schedule_id, oel_room_id,
           equipment_name, equipment_code,
@@ -1384,7 +1388,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           id,
           oel_schedule_id,
@@ -1414,7 +1418,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           equipment_code,
           equipment_name,
@@ -1451,7 +1455,7 @@ export const otManagementRouter = router({
       const endTime = new Date(input.cleaning_end).getTime();
       const turnoverMinutes = Math.round((endTime - startTime) / 60000);
 
-      const result = await sql`
+      const result = await getSql()`
         INSERT INTO ot_turnover_log (
           hospital_id, otl_room_id,
           prev_schedule_id, next_schedule_id,
@@ -1494,7 +1498,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           id,
           otl_room_id,
@@ -1529,7 +1533,7 @@ export const otManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
 
-      const byRoomResult = await sql`
+      const byRoomResult = await getSql()`
         SELECT
           r.id as room_id,
           r.room_name,
@@ -1549,7 +1553,7 @@ export const otManagementRouter = router({
       `;
       const byRoomRows = (byRoomResult as any);
 
-      const trendResult = await sql`
+      const trendResult = await getSql()`
         SELECT
           DATE_TRUNC('day', cleaning_start)::date as date,
           ROUND(AVG(turnover_minutes)::numeric, 1)::float as avg_turnover_minutes,

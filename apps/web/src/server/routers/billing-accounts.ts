@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 const accountTypeEnum = ['self_pay', 'insurance', 'corporate', 'government'] as const;
 const depositStatusEnum = ['collected', 'applied', 'refunded', 'partial_refund'] as const;
@@ -46,7 +50,7 @@ export const billingAccountsRouter = router({
         const userId = ctx.user.sub;
 
         // Verify patient exists in hospital
-        const patientCheck = await sql`
+        const patientCheck = await getSql()`
           SELECT id FROM patients
           WHERE id = ${input.patient_id}
           AND hospital_id = ${hospitalId}
@@ -62,7 +66,7 @@ export const billingAccountsRouter = router({
 
         // Verify encounter if provided
         if (input.encounter_id) {
-          const encounterCheck = await sql`
+          const encounterCheck = await getSql()`
             SELECT id FROM encounters
             WHERE id = ${input.encounter_id}
             AND hospital_id = ${hospitalId}
@@ -79,7 +83,7 @@ export const billingAccountsRouter = router({
         }
 
         // Insert billing account
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO billing_accounts (
             hospital_id, ba_patient_id, ba_encounter_id, account_type,
             insurer_name, ba_tpa_name, ba_policy_number, ba_member_id,
@@ -127,7 +131,7 @@ export const billingAccountsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             ba.id, ba.hospital_id, ba.ba_patient_id as patient_id,
             ba.ba_encounter_id as encounter_id, ba.account_type,
@@ -178,7 +182,7 @@ export const billingAccountsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             ba.id, ba.ba_patient_id as patient_id, ba.ba_encounter_id as encounter_id,
             ba.account_type, ba.insurer_name, ba.total_charges, ba.total_deposits,
@@ -212,7 +216,7 @@ export const billingAccountsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Get account with encounter
-        const accountResult = await sql`
+        const accountResult = await getSql()`
           SELECT ba.id, ba.ba_encounter_id as encounter_id, ba.total_deposits,
                  ba.total_payments, ba.total_approved
           FROM billing_accounts
@@ -231,7 +235,7 @@ export const billingAccountsRouter = router({
         const encounterId = account.encounter_id;
 
         // Get charges by category
-        const chargesResult = await sql`
+        const chargesResult = await getSql()`
           SELECT
             category,
             COUNT(*) as count,
@@ -249,7 +253,7 @@ export const billingAccountsRouter = router({
         }));
 
         // Get total charges
-        const totalChargesResult = await sql`
+        const totalChargesResult = await getSql()`
           SELECT COALESCE(SUM(CAST(net_amount AS NUMERIC)), 0) as total
           FROM encounter_charges
           WHERE encounter_id = ${encounterId} AND hospital_id = ${hospitalId}
@@ -258,7 +262,7 @@ export const billingAccountsRouter = router({
         const totalCharges = parseFloat((totalChargesResult as any)[0]?.total || 0);
 
         // Get room charges
-        const roomChargesResult = await sql`
+        const roomChargesResult = await getSql()`
           SELECT
             SUM(CAST(rcl_total_charge AS NUMERIC)) as total,
             COUNT(*) as days
@@ -269,7 +273,7 @@ export const billingAccountsRouter = router({
         const roomInfo = (roomChargesResult as any)[0] || { total: 0, days: 0 };
 
         // Get package info
-        const packageResult = await sql`
+        const packageResult = await getSql()`
           SELECT
             package_name, package_code, package_price, actual_cost,
             variance_amount, pa_status as status
@@ -323,7 +327,7 @@ export const billingAccountsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Get account with encounter
-        const accountResult = await sql`
+        const accountResult = await getSql()`
           SELECT ba.id, ba.ba_encounter_id as encounter_id
           FROM billing_accounts
           WHERE id = ${input.account_id} AND hospital_id = ${hospitalId}
@@ -341,20 +345,20 @@ export const billingAccountsRouter = router({
         const encounterId = account.encounter_id;
 
         // Calculate totals
-        const chargesResult = await sql`
+        const chargesResult = await getSql()`
           SELECT COALESCE(SUM(CAST(net_amount AS NUMERIC)), 0) as total
           FROM encounter_charges
           WHERE encounter_id = ${encounterId} AND hospital_id = ${hospitalId}
         `;
 
-        const depositsResult = await sql`
+        const depositsResult = await getSql()`
           SELECT COALESCE(SUM(CAST(dep_amount AS NUMERIC)), 0) as total
           FROM deposits
           WHERE dep_account_id = ${input.account_id} AND hospital_id = ${hospitalId}
           AND dep_status IN ('collected', 'applied', 'partial_refund')
         `;
 
-        const paymentsResult = await sql`
+        const paymentsResult = await getSql()`
           SELECT COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as total
           FROM payments
           WHERE account_id = ${input.account_id} AND hospital_id = ${hospitalId}
@@ -366,7 +370,7 @@ export const billingAccountsRouter = router({
         const balance_due = total_charges - total_payments - total_deposits;
 
         // Update account
-        await sql`
+        await getSql()`
           UPDATE billing_accounts
           SET
             total_charges = ${total_charges},
@@ -414,7 +418,7 @@ export const billingAccountsRouter = router({
         const userId = ctx.user.sub;
 
         // Insert deposit
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO deposits (
             hospital_id, dep_patient_id, dep_encounter_id, dep_account_id,
             dep_amount, dep_status, dep_payment_method, dep_reference_number,
@@ -439,7 +443,7 @@ export const billingAccountsRouter = router({
 
         // Update account totals if account_id provided
         if (input.account_id) {
-          await sql`
+          await getSql()`
             UPDATE billing_accounts
             SET ba_updated_at = NOW()
             WHERE id = ${input.account_id}
@@ -471,7 +475,7 @@ export const billingAccountsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Verify deposit exists
-        const depositCheck = await sql`
+        const depositCheck = await getSql()`
           SELECT id FROM deposits
           WHERE id = ${input.deposit_id} AND hospital_id = ${hospitalId}
           LIMIT 1
@@ -485,7 +489,7 @@ export const billingAccountsRouter = router({
         }
 
         // Update deposit
-        await sql`
+        await getSql()`
           UPDATE deposits
           SET
             dep_status = 'applied',
@@ -515,7 +519,7 @@ export const billingAccountsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Get deposit
-        const depositResult = await sql`
+        const depositResult = await getSql()`
           SELECT id, dep_amount, dep_account_id
           FROM deposits
           WHERE id = ${input.deposit_id} AND hospital_id = ${hospitalId}
@@ -535,7 +539,7 @@ export const billingAccountsRouter = router({
         const newStatus = refundAmount >= originalAmount ? 'refunded' : 'partial_refund';
 
         // Update deposit
-        await sql`
+        await getSql()`
           UPDATE deposits
           SET
             dep_status = ${newStatus},
@@ -566,7 +570,7 @@ export const billingAccountsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             d.id, d.dep_amount as amount, d.dep_status as status,
             d.dep_payment_method as payment_method, d.dep_reference_number as reference_number,
@@ -598,7 +602,7 @@ export const billingAccountsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             COALESCE(SUM(CASE WHEN dep_status IN ('collected', 'applied', 'partial_refund') THEN CAST(dep_amount AS NUMERIC) ELSE 0 END), 0) as total_collected,
             COALESCE(SUM(CASE WHEN dep_status = 'applied' THEN CAST(dep_amount AS NUMERIC) ELSE 0 END), 0) as total_applied,
@@ -657,7 +661,7 @@ export const billingAccountsRouter = router({
         const total_charge = baseRate + nursingCharge;
 
         // Insert room charge log
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO room_charge_log (
             hospital_id, rcl_patient_id, rcl_encounter_id, rcl_account_id,
             charge_date, room_charge_type, rcl_bed_id, ward_name, room_category,
@@ -703,7 +707,7 @@ export const billingAccountsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, charge_date, room_charge_type, ward_name, room_category,
             base_rate, nursing_charge, rcl_total_charge as total_charge,
@@ -730,7 +734,7 @@ export const billingAccountsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             COUNT(*) as room_days,
             COALESCE(SUM(CAST(rcl_total_charge AS NUMERIC)), 0) as total_charges,
@@ -789,7 +793,7 @@ export const billingAccountsRouter = router({
         const userId = ctx.user.sub;
 
         // Insert package application
-        const packageResult = await sql`
+        const packageResult = await getSql()`
           INSERT INTO package_applications (
             hospital_id, pa_patient_id, pa_encounter_id, pa_account_id,
             package_name, package_code, pa_status, package_price,
@@ -818,7 +822,7 @@ export const billingAccountsRouter = router({
         // Insert components if provided
         if (input.components && input.components.length > 0) {
           for (const component of input.components) {
-            await sql`
+            await getSql()`
               INSERT INTO package_components (
                 hospital_id, pc_package_app_id, component_name, pc_category,
                 budgeted_amount, pc_is_included, max_quantity, pc_created_at
@@ -849,7 +853,7 @@ export const billingAccountsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Get package encounter
-        const packageResult = await sql`
+        const packageResult = await getSql()`
           SELECT pa_encounter_id, package_price FROM package_applications
           WHERE id = ${input.package_application_id} AND hospital_id = ${hospitalId}
           LIMIT 1
@@ -867,7 +871,7 @@ export const billingAccountsRouter = router({
         const packagePrice = parseFloat(package_data.package_price);
 
         // Get components and calculate actual cost
-        const componentsResult = await sql`
+        const componentsResult = await getSql()`
           SELECT pc.id, pc.pc_category as category, pc.budgeted_amount
           FROM package_components pc
           WHERE pc.pc_package_app_id = ${input.package_application_id}
@@ -877,7 +881,7 @@ export const billingAccountsRouter = router({
         let totalActualCost = 0;
 
         for (const component of components) {
-          const chargesResult = await sql`
+          const chargesResult = await getSql()`
             SELECT COALESCE(SUM(CAST(net_amount AS NUMERIC)), 0) as actual
             FROM encounter_charges
             WHERE encounter_id = ${encounterId} AND category = ${component.category}
@@ -888,7 +892,7 @@ export const billingAccountsRouter = router({
 
           const variance = actual - parseFloat(component.budgeted_amount);
 
-          await sql`
+          await getSql()`
             UPDATE package_components
             SET
               pc_actual_amount = ${actual},
@@ -900,7 +904,7 @@ export const billingAccountsRouter = router({
         const variance_amount = totalActualCost - packagePrice;
         const status = totalActualCost > packagePrice ? 'exceeded' : 'active';
 
-        await sql`
+        await getSql()`
           UPDATE package_applications
           SET
             actual_cost = ${totalActualCost},
@@ -931,7 +935,7 @@ export const billingAccountsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const packageResult = await sql`
+        const packageResult = await getSql()`
           SELECT
             id, package_name, package_code, pa_status as status,
             package_price, actual_cost, variance_amount,
@@ -951,7 +955,7 @@ export const billingAccountsRouter = router({
 
         const package_data = (packageResult as any)[0];
 
-        const componentsResult = await sql`
+        const componentsResult = await getSql()`
           SELECT
             component_name, pc_category as category, budgeted_amount,
             pc_actual_amount as actual_amount, pc_variance as variance,
@@ -981,7 +985,7 @@ export const billingAccountsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             pa.id, pa.package_name, pa.package_code, pa.pa_status as status,
             pa.package_price, pa.actual_cost, pa.variance_amount,
@@ -1013,7 +1017,7 @@ export const billingAccountsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, config_key, config_value, bc_description as description,
             bc_created_at as created_at, bc_updated_at as updated_at
@@ -1044,7 +1048,7 @@ export const billingAccountsRouter = router({
         const userId = ctx.user.sub;
 
         // Check if exists
-        const existsResult = await sql`
+        const existsResult = await getSql()`
           SELECT id FROM billing_config
           WHERE hospital_id = ${hospitalId} AND config_key = ${input.config_key}
           LIMIT 1
@@ -1052,7 +1056,7 @@ export const billingAccountsRouter = router({
 
         if (existsResult && existsResult.length > 0) {
           // Update
-          await sql`
+          await getSql()`
             UPDATE billing_config
             SET
               config_value = ${input.config_value},
@@ -1062,7 +1066,7 @@ export const billingAccountsRouter = router({
           `;
         } else {
           // Insert
-          await sql`
+          await getSql()`
             INSERT INTO billing_config (
               hospital_id, config_key, config_value, bc_updated_by,
               bc_created_at, bc_updated_at
@@ -1091,7 +1095,7 @@ export const billingAccountsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Get invoice's encounter
-        const invoiceResult = await sql`
+        const invoiceResult = await getSql()`
           SELECT encounter_id FROM invoices
           WHERE id = ${input.invoice_id} AND hospital_id = ${hospitalId}
           LIMIT 1
@@ -1107,7 +1111,7 @@ export const billingAccountsRouter = router({
         const encounterId = (invoiceResult as any)[0].encounter_id;
 
         // Get all charges for encounter
-        const chargesResult = await sql`
+        const chargesResult = await getSql()`
           SELECT
             id, charge_code, charge_name, category, quantity,
             unit_price, discount_percent, gst_percent, net_amount
@@ -1129,7 +1133,7 @@ export const billingAccountsRouter = router({
           const gstAmount = (subtotalAfterDiscount * gstPercent) / 100;
           const netAmount = subtotalAfterDiscount + gstAmount;
 
-          await sql`
+          await getSql()`
             INSERT INTO invoice_line_items (
               hospital_id, ili_invoice_id, ili_charge_code, ili_description,
               ili_category, ili_service_date, ili_quantity, ili_unit_price,
@@ -1172,7 +1176,7 @@ export const billingAccountsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Get the charge details
-        const chargeResult = await sql`
+        const chargeResult = await getSql()`
           SELECT
             id, encounter_id, category, CAST(net_amount AS NUMERIC) as net_amount
           FROM encounter_charges
@@ -1193,7 +1197,7 @@ export const billingAccountsRouter = router({
         const chargeAmount = parseFloat(charge.net_amount);
 
         // Get package and encounter details
-        const packageResult = await sql`
+        const packageResult = await getSql()`
           SELECT
             id, pa_encounter_id, package_price, max_los_days,
             includes_room, includes_pharmacy, includes_investigations
@@ -1226,7 +1230,7 @@ export const billingAccountsRouter = router({
         }
 
         // Find matching component for this category
-        const componentResult = await sql`
+        const componentResult = await getSql()`
           SELECT id, budgeted_amount, pc_actual_amount, pc_cap_amount
           FROM package_components
           WHERE pc_package_app_id = ${input.package_application_id}
@@ -1261,7 +1265,7 @@ export const billingAccountsRouter = router({
         }
 
         // Record auto-application in package_components
-        await sql`
+        await getSql()`
           UPDATE package_components
           SET
             pc_actual_amount = ${newActual},
@@ -1296,7 +1300,7 @@ export const billingAccountsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Get package and encounter info
-        const packageResult = await sql`
+        const packageResult = await getSql()`
           SELECT
             id, package_name, package_code, package_price, actual_cost,
             pa_status, max_los_days, applied_at, pa_encounter_id
@@ -1318,7 +1322,7 @@ export const billingAccountsRouter = router({
         const maxLosDays = packageApp.max_los_days || 0;
 
         // Get encounter admission/discharge for LOS
-        const encounterResult = await sql`
+        const encounterResult = await getSql()`
           SELECT admission_date, discharge_date FROM encounters
           WHERE id = ${encounterId}
           LIMIT 1
@@ -1335,7 +1339,7 @@ export const billingAccountsRouter = router({
         }
 
         // Get components with utilization
-        const componentsResult = await sql`
+        const componentsResult = await getSql()`
           SELECT
             id, component_name, pc_category as category, budgeted_amount,
             COALESCE(pc_actual_amount, 0) as actual_amount,
@@ -1411,7 +1415,7 @@ export const billingAccountsRouter = router({
         const proposedAmount = parseFloat(input.proposed_amount);
 
         // Get package
-        const packageResult = await sql`
+        const packageResult = await getSql()`
           SELECT package_price, actual_cost FROM package_applications
           WHERE id = ${input.package_application_id} AND hospital_id = ${hospitalId}
           LIMIT 1
@@ -1434,7 +1438,7 @@ export const billingAccountsRouter = router({
         const packageRemaining = Math.max(0, packagePrice - currentPackageActual);
 
         // Get component details
-        const componentResult = await sql`
+        const componentResult = await getSql()`
           SELECT
             id, pc_actual_amount, pc_cap_amount, budgeted_amount
           FROM package_components
@@ -1502,7 +1506,7 @@ export const billingAccountsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Get package
-        const packageResult = await sql`
+        const packageResult = await getSql()`
           SELECT id, package_price, max_los_days, pa_encounter_id
           FROM package_applications
           WHERE id = ${input.package_application_id} AND hospital_id = ${hospitalId}
@@ -1525,7 +1529,7 @@ export const billingAccountsRouter = router({
         const dailyRate = packagePrice / maxLosDays;
 
         // Get encounter admission and discharge dates
-        const encounterResult = await sql`
+        const encounterResult = await getSql()`
           SELECT admission_date, discharge_date FROM encounters
           WHERE id = ${encounterId}
           LIMIT 1
@@ -1542,7 +1546,7 @@ export const billingAccountsRouter = router({
         }
 
         // Get eligible room charges
-        const roomChargesResult = await sql`
+        const roomChargesResult = await getSql()`
           SELECT
             COALESCE(SUM(CAST(net_amount AS NUMERIC)), 0) as total_room_charges
           FROM encounter_charges
@@ -1592,7 +1596,7 @@ export const billingAccountsRouter = router({
         const userId = ctx.user.sub;
 
         // Get package
-        const packageResult = await sql`
+        const packageResult = await getSql()`
           SELECT
             id, package_price, actual_cost, pa_encounter_id, pa_status
           FROM package_applications
@@ -1621,7 +1625,7 @@ export const billingAccountsRouter = router({
         const finalStatus = actualCost > packagePrice ? 'exceeded' : 'within_budget';
 
         // Close the package
-        await sql`
+        await getSql()`
           UPDATE package_applications
           SET
             pa_status = 'closed',
@@ -1634,7 +1638,7 @@ export const billingAccountsRouter = router({
         `;
 
         // Get final component summary
-        const componentsResult = await sql`
+        const componentsResult = await getSql()`
           SELECT
             component_name, pc_category as category, budgeted_amount,
             pc_actual_amount as actual_amount, pc_variance as variance

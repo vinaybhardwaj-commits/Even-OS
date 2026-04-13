@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure, adminProcedure } from '../trpc';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 // Validation Schemas
 const panelCreateSchema = z.object({
@@ -125,7 +129,7 @@ async function generateOrderNumber(prefix: string, hospital_id: string): Promise
     SELECT COUNT(*) as cnt FROM ${prefix === 'LO' ? 'lab_orders' : 'radiology_orders'}
     WHERE hospital_id = $1 AND ${prefix === 'LO' ? 'lo_order_number' : 'ro_order_number'} LIKE $2
   `;
-  const result = await sql(countQuery, [hospital_id, `${prefix}-${today}-%`]);
+  const result = await getSql()(countQuery, [hospital_id, `${prefix}-${today}-%`]);
   const count = (result[0]?.cnt || 0) as number;
   const sequence = String(count + 1).padStart(4, '0');
   return `${prefix}-${today}-${sequence}`;
@@ -140,7 +144,7 @@ export const labRadiologyRouter = router({
       const id = crypto.randomUUID();
       const now = new Date().toISOString();
 
-      await sql(
+      await getSql()(
         `INSERT INTO lab_panels (
           id, hospital_id, panel_code, panel_name, lp_department, lp_description,
           lp_loinc_code, sample_type, container_type, tat_minutes, lp_price,
@@ -193,7 +197,7 @@ export const labRadiologyRouter = router({
         WHERE id = $1 AND hospital_id = $2
       `;
 
-      await sql(query, values);
+      await getSql()(query, values);
       return { updated: 1 };
     }),
 
@@ -215,7 +219,7 @@ export const labRadiologyRouter = router({
         ORDER BY lp_created_at DESC
       `;
 
-      const panels = await sql(query, [ctx.user.hospital_id]);
+      const panels = await getSql()(query, [ctx.user.hospital_id]);
       return panels;
     }),
 
@@ -238,8 +242,8 @@ export const labRadiologyRouter = router({
         ORDER BY lpc_sort_order ASC
       `;
 
-      const panels = await sql(panelQuery, [input.id, ctx.user.hospital_id]);
-      const components = await sql(componentQuery, [input.id, ctx.user.hospital_id]);
+      const panels = await getSql()(panelQuery, [input.id, ctx.user.hospital_id]);
+      const components = await getSql()(componentQuery, [input.id, ctx.user.hospital_id]);
 
       if (panels.length === 0) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Panel not found' });
@@ -252,7 +256,7 @@ export const labRadiologyRouter = router({
     .input(panelComponentSchema)
     .mutation(async ({ ctx, input }) => {
       // Verify panel exists
-      const panelCheck = await sql(
+      const panelCheck = await getSql()(
         `SELECT id FROM lab_panels WHERE id = $1 AND hospital_id = $2`,
         [input.lpc_panel_id, ctx.user.hospital_id]
       );
@@ -263,7 +267,7 @@ export const labRadiologyRouter = router({
 
       const id = crypto.randomUUID();
 
-      await sql(
+      await getSql()(
         `INSERT INTO lab_panel_components (
           id, hospital_id, lpc_panel_id, test_code, test_name, lpc_loinc_code,
           test_unit, ref_range_low, ref_range_high, ref_range_text,
@@ -316,7 +320,7 @@ export const labRadiologyRouter = router({
         WHERE id = $1 AND hospital_id = $2
       `;
 
-      await sql(query, values);
+      await getSql()(query, values);
       return { updated: 1 };
     }),
 
@@ -326,7 +330,7 @@ export const labRadiologyRouter = router({
     .input(labOrderCreateSchema)
     .mutation(async ({ ctx, input }) => {
       // Get panel details
-      const panelQuery = await sql(
+      const panelQuery = await getSql()(
         `SELECT panel_code, panel_name, sample_type, container_type FROM lab_panels WHERE id = $1 AND hospital_id = $2`,
         [input.lo_panel_id, ctx.user.hospital_id]
       );
@@ -342,7 +346,7 @@ export const labRadiologyRouter = router({
       const now = new Date().toISOString();
 
       // Create lab order
-      await sql(
+      await getSql()(
         `INSERT INTO lab_orders (
           id, hospital_id, lo_patient_id, lo_encounter_id, lo_service_request_id,
           lo_panel_id, lo_order_number, lo_status, lo_urgency, lo_panel_code, lo_panel_name,
@@ -369,7 +373,7 @@ export const labRadiologyRouter = router({
       );
 
       // Create specimen record
-      await sql(
+      await getSql()(
         `INSERT INTO specimens (
           id, hospital_id, sp_order_id, sp_patient_id, sp_sample_type,
           sp_container_type, sp_status, collection_site
@@ -416,7 +420,7 @@ export const labRadiologyRouter = router({
         LIMIT $2 OFFSET $3
       `;
 
-      const orders = await sql(query, [ctx.user.hospital_id, input.limit, input.offset]);
+      const orders = await getSql()(query, [ctx.user.hospital_id, input.limit, input.offset]);
       return orders;
     }),
 
@@ -444,9 +448,9 @@ export const labRadiologyRouter = router({
         WHERE sp_order_id = $1 AND hospital_id = $2
       `;
 
-      const order = await sql(orderQuery, [input.id, ctx.user.hospital_id]);
-      const results = await sql(resultsQuery, [input.id, ctx.user.hospital_id]);
-      const specimen = await sql(specimenQuery, [input.id, ctx.user.hospital_id]);
+      const order = await getSql()(orderQuery, [input.id, ctx.user.hospital_id]);
+      const results = await getSql()(resultsQuery, [input.id, ctx.user.hospital_id]);
+      const specimen = await getSql()(specimenQuery, [input.id, ctx.user.hospital_id]);
 
       if (order.length === 0) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Order not found' });
@@ -465,7 +469,7 @@ export const labRadiologyRouter = router({
       const now = new Date().toISOString();
 
       // Update specimen
-      await sql(
+      await getSql()(
         `UPDATE specimens
          SET sp_status = 'collected', sp_collected_by = $1, sp_collected_at = $2, collection_site = $3
          WHERE sp_order_id = $4 AND hospital_id = $5`,
@@ -473,7 +477,7 @@ export const labRadiologyRouter = router({
       );
 
       // Update lab order status
-      await sql(
+      await getSql()(
         `UPDATE lab_orders SET lo_status = 'collected' WHERE id = $1 AND hospital_id = $2`,
         [input.sp_order_id, ctx.user.hospital_id]
       );
@@ -487,7 +491,7 @@ export const labRadiologyRouter = router({
       const now = new Date().toISOString();
 
       // Update specimen
-      await sql(
+      await getSql()(
         `UPDATE specimens
          SET sp_status = 'received_lab', sp_received_by = $1, sp_received_at = $2
          WHERE sp_order_id = $3 AND hospital_id = $4`,
@@ -495,7 +499,7 @@ export const labRadiologyRouter = router({
       );
 
       // Update lab order status
-      await sql(
+      await getSql()(
         `UPDATE lab_orders SET lo_status = 'received', lo_received_at = $1 WHERE id = $2 AND hospital_id = $3`,
         [now, input.sp_order_id, ctx.user.hospital_id]
       );
@@ -515,7 +519,7 @@ export const labRadiologyRouter = router({
 
       for (const result of input.results) {
         // Get component details to compute flag
-        const componentQuery = await sql(
+        const componentQuery = await getSql()(
           `SELECT critical_low, critical_high, ref_range_low, ref_range_high FROM lab_panel_components WHERE id = $1 AND hospital_id = $2`,
           [result.lr_component_id, ctx.user.hospital_id]
         );
@@ -542,7 +546,7 @@ export const labRadiologyRouter = router({
 
         const resultId = crypto.randomUUID();
 
-        await sql(
+        await getSql()(
           `INSERT INTO lab_results (
             id, hospital_id, lr_order_id, lr_component_id, lr_test_code, lr_test_name,
             value_numeric, value_text, value_coded, lr_unit, lr_ref_range_text, lr_flag,
@@ -573,13 +577,13 @@ export const labRadiologyRouter = router({
 
         // Update order if critical + auto-create critical value alert
         if (is_critical) {
-          await sql(
+          await getSql()(
             `UPDATE lab_orders SET lo_is_critical = true WHERE id = $1`,
             [result.lr_order_id]
           );
 
           // Get patient_id and ordering clinician from order
-          const orderInfo = await sql(
+          const orderInfo = await getSql()(
             `SELECT lo_patient_id, lo_ordered_by FROM lab_orders WHERE id = $1 AND hospital_id = $2`,
             [result.lr_order_id, ctx.user.hospital_id]
           );
@@ -587,7 +591,7 @@ export const labRadiologyRouter = router({
           if (orderInfo.length > 0) {
             const alertId = crypto.randomUUID();
             const comp = componentQuery[0];
-            await sql(
+            await getSql()(
               `INSERT INTO critical_value_alerts (
                 id, hospital_id, cva_lab_order_id, cva_lab_result_id, cva_patient_id,
                 cva_test_code, cva_test_name, cva_value_numeric, cva_unit,
@@ -612,7 +616,7 @@ export const labRadiologyRouter = router({
       // Update order status to resulted
       const orderIds = [...new Set(input.results.map((r) => r.lr_order_id))];
       for (const orderId of orderIds) {
-        await sql(`UPDATE lab_orders SET lo_status = 'resulted', lo_resulted_at = $1 WHERE id = $2`, [now, orderId]);
+        await getSql()(`UPDATE lab_orders SET lo_status = 'resulted', lo_resulted_at = $1 WHERE id = $2`, [now, orderId]);
       }
 
       return { inserted: inserted.length };
@@ -624,7 +628,7 @@ export const labRadiologyRouter = router({
       const now = new Date().toISOString();
 
       // Get order details
-      const orderQuery = await sql(
+      const orderQuery = await getSql()(
         `SELECT lo_ordered_at FROM lab_orders WHERE id = $1 AND hospital_id = $2`,
         [input.id, ctx.user.hospital_id]
       );
@@ -637,7 +641,7 @@ export const labRadiologyRouter = router({
       const verified_at = new Date(now);
       const tat_minutes_actual = Math.round((verified_at.getTime() - ordered_at.getTime()) / 60000);
 
-      await sql(
+      await getSql()(
         `UPDATE lab_orders
          SET lo_status = 'verified', lo_verified_by = $1, lo_verified_at = $2, tat_minutes_actual = $3
          WHERE id = $4 AND hospital_id = $5`,
@@ -672,7 +676,7 @@ export const labRadiologyRouter = router({
         LIMIT $2 OFFSET $3
       `;
 
-      const specimens = await sql(query, [ctx.user.hospital_id, input.limit, input.offset]);
+      const specimens = await getSql()(query, [ctx.user.hospital_id, input.limit, input.offset]);
       return specimens;
     }),
 
@@ -685,7 +689,7 @@ export const labRadiologyRouter = router({
       const id = crypto.randomUUID();
       const now = new Date().toISOString();
 
-      await sql(
+      await getSql()(
         `INSERT INTO radiology_orders (
           id, hospital_id, ro_patient_id, ro_encounter_id, ro_service_request_id,
           ro_order_number, ro_modality, study_description, body_part, laterality,
@@ -744,7 +748,7 @@ export const labRadiologyRouter = router({
         LIMIT $2 OFFSET $3
       `;
 
-      const orders = await sql(query, [ctx.user.hospital_id, input.limit, input.offset]);
+      const orders = await getSql()(query, [ctx.user.hospital_id, input.limit, input.offset]);
       return orders;
     }),
 
@@ -766,8 +770,8 @@ export const labRadiologyRouter = router({
         WHERE rr2_order_id = $1 AND hospital_id = $2
       `;
 
-      const order = await sql(orderQuery, [input.id, ctx.user.hospital_id]);
-      const report = await sql(reportQuery, [input.id, ctx.user.hospital_id]);
+      const order = await getSql()(orderQuery, [input.id, ctx.user.hospital_id]);
+      const report = await getSql()(reportQuery, [input.id, ctx.user.hospital_id]);
 
       if (order.length === 0) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Order not found' });
@@ -782,7 +786,7 @@ export const labRadiologyRouter = router({
   scheduleStudy: protectedProcedure
     .input(radiologyScheduleSchema)
     .mutation(async ({ ctx, input }) => {
-      await sql(
+      await getSql()(
         `UPDATE radiology_orders
          SET ro_status = 'scheduled', scheduled_at = $1, ro_room = $2
          WHERE id = $3 AND hospital_id = $4`,
@@ -797,7 +801,7 @@ export const labRadiologyRouter = router({
     .mutation(async ({ ctx, input }) => {
       const now = new Date().toISOString();
 
-      await sql(
+      await getSql()(
         `UPDATE radiology_orders
          SET ro_status = 'completed', ro_performed_by = $1, ro_performed_at = $2
          WHERE id = $3 AND hospital_id = $4`,
@@ -813,7 +817,7 @@ export const labRadiologyRouter = router({
       const id = crypto.randomUUID();
       const now = new Date().toISOString();
 
-      await sql(
+      await getSql()(
         `INSERT INTO radiology_reports (
           id, hospital_id, rr2_order_id, rr2_findings, rr2_impression, rr2_recommendation,
           birads_category, li_rads_category, lung_rads_category, rr2_is_critical,
@@ -839,7 +843,7 @@ export const labRadiologyRouter = router({
       );
 
       // Update order status
-      await sql(
+      await getSql()(
         `UPDATE radiology_orders SET ro_status = 'reported' WHERE id = $1 AND hospital_id = $2`,
         [input.rr2_order_id, ctx.user.hospital_id]
       );
@@ -852,7 +856,7 @@ export const labRadiologyRouter = router({
     .mutation(async ({ ctx, input }) => {
       const now = new Date().toISOString();
 
-      await sql(
+      await getSql()(
         `UPDATE radiology_reports
          SET rr2_verified_by = $1, rr2_verified_at = $2
          WHERE id = $3 AND hospital_id = $4`,
@@ -860,13 +864,13 @@ export const labRadiologyRouter = router({
       );
 
       // Get order ID and update order status
-      const reportQuery = await sql(
+      const reportQuery = await getSql()(
         `SELECT rr2_order_id FROM radiology_reports WHERE id = $1 AND hospital_id = $2`,
         [input.id, ctx.user.hospital_id]
       );
 
       if (reportQuery.length > 0) {
-        await sql(
+        await getSql()(
           `UPDATE radiology_orders SET ro_status = 'verified' WHERE id = $1`,
           [reportQuery[0].rr2_order_id]
         );
@@ -880,7 +884,7 @@ export const labRadiologyRouter = router({
     .mutation(async ({ ctx, input }) => {
       const now = new Date().toISOString();
 
-      await sql(
+      await getSql()(
         `UPDATE radiology_reports
          SET rr2_addendum = $1, rr2_addendum_by = $2, rr2_addendum_at = $3
          WHERE id = $4 AND hospital_id = $5`,
@@ -915,7 +919,7 @@ export const labRadiologyRouter = router({
         ORDER BY avg_tat DESC
       `;
 
-      const stats = await sql(query, [ctx.user.hospital_id]);
+      const stats = await getSql()(query, [ctx.user.hospital_id]);
       return stats;
     }),
 
@@ -938,7 +942,7 @@ export const labRadiologyRouter = router({
         LIMIT $2
       `;
 
-      const results = await sql(query, [ctx.user.hospital_id, input.limit]);
+      const results = await getSql()(query, [ctx.user.hospital_id, input.limit]);
       return results;
     }),
 
@@ -964,7 +968,7 @@ export const labRadiologyRouter = router({
         ORDER BY order_count DESC
       `;
 
-      const workload = await sql(query, params);
+      const workload = await getSql()(query, params);
       return workload;
     }),
 
@@ -990,7 +994,7 @@ export const labRadiologyRouter = router({
         ORDER BY order_count DESC
       `;
 
-      const workload = await sql(query, params);
+      const workload = await getSql()(query, params);
       return workload;
     }),
 
@@ -1014,7 +1018,7 @@ export const labRadiologyRouter = router({
         ORDER BY rejection_count DESC
       `;
 
-      const stats = await sql(query, [ctx.user.hospital_id]);
+      const stats = await getSql()(query, [ctx.user.hospital_id]);
       return stats;
     }),
 
@@ -1039,7 +1043,7 @@ export const labRadiologyRouter = router({
         LIMIT 1
       `;
 
-      const rows = await sql(query, [input.barcode, ctx.user.hospital_id]);
+      const rows = await getSql()(query, [input.barcode, ctx.user.hospital_id]);
       if (rows.length === 0) {
         throw new TRPCError({ code: 'NOT_FOUND', message: `Specimen with barcode "${input.barcode}" not found` });
       }
@@ -1053,7 +1057,7 @@ export const labRadiologyRouter = router({
         ORDER BY lr_resulted_at ASC
       `;
 
-      const results = await sql(resultQuery, [rows[0].order_id, ctx.user.hospital_id]);
+      const results = await getSql()(resultQuery, [rows[0].order_id, ctx.user.hospital_id]);
 
       return { ...rows[0], results };
     }),
@@ -1076,7 +1080,7 @@ export const labRadiologyRouter = router({
         WHERE hospital_id = $1 AND DATE(lo_ordered_at) = CURRENT_DATE
       `;
 
-      const rows = await sql(statsQuery, [ctx.user.hospital_id]);
+      const rows = await getSql()(statsQuery, [ctx.user.hospital_id]);
       return rows[0] || {
         pending_orders: 0, collected: 0, received: 0, processing: 0,
         awaiting_verification: 0, verified_today: 0, critical_pending: 0, stat_pending: 0,
@@ -1090,7 +1094,7 @@ export const labRadiologyRouter = router({
       radiology_order_id: z.string().uuid(),
     }))
     .query(async ({ ctx, input }) => {
-      const order = await sql(
+      const order = await getSql()(
         `SELECT id, dicom_study_uid, ro_modality, ro_ordered_at
          FROM radiology_orders
          WHERE id = $1 AND hospital_id = $2`,
@@ -1139,7 +1143,7 @@ export const labRadiologyRouter = router({
     .mutation(async ({ ctx, input }) => {
       const now = new Date().toISOString();
 
-      const result = await sql(
+      const result = await getSql()(
         `UPDATE radiology_orders
          SET dicom_study_uid = $1, accession_number_dicom = $2, updated_at = $3
          WHERE id = $4 AND hospital_id = $5

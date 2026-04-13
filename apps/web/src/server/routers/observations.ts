@@ -1,10 +1,14 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeEvent } from '@/lib/event-log';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 // ============================================================
 // TYPE DEFINITIONS & VALIDATORS
@@ -216,7 +220,7 @@ export const observationsRouter = router({
 
         // Insert each vital
         for (const [key, vital] of Object.entries(vitalsMap)) {
-          const result = await sql`
+          const result = await getSql()`
             INSERT INTO observations (
               hospital_id,
               patient_id,
@@ -253,7 +257,7 @@ export const observationsRouter = router({
         // 2. Auto-calculate BMI if both weight and height provided
         if (input.weight !== undefined && input.height !== undefined && input.height > 0) {
           bmiValue = input.weight / ((input.height / 100) ** 2);
-          const bmiResult = await sql`
+          const bmiResult = await getSql()`
             INSERT INTO observations (
               hospital_id,
               patient_id,
@@ -306,7 +310,7 @@ export const observationsRouter = router({
         const pulseObs = insertedObs.find(o => o.observation_type === 'vital_pulse');
         const rrObs = insertedObs.find(o => o.observation_type === 'vital_rr');
 
-        const newsResult = await sql`
+        const newsResult = await getSql()`
           INSERT INTO news2_scores (
             hospital_id,
             patient_id,
@@ -381,7 +385,7 @@ export const observationsRouter = router({
           const severity = alert.observation_type === 'news2_high' ? 'critical' : (alert.direction === 'above' ? 'warning' : 'critical');
           const message = `${alert.observation_type} ${alert.direction} threshold: ${alert.value} ${alert.unit} (threshold: ${alert.threshold})`;
 
-          await sql`
+          await getSql()`
             INSERT INTO clinical_alert_logs (
               hospital_id,
               patient_id,
@@ -472,7 +476,7 @@ export const observationsRouter = router({
     .query(async ({ ctx, input }) => {
       try {
         const hospitalId = ctx.user.hospital_id;
-        const query = sql`
+        const query = getSql()`
           SELECT
             id,
             observation_type,
@@ -485,9 +489,9 @@ export const observationsRouter = router({
           WHERE hospital_id = ${hospitalId}
             AND patient_id = ${input.patient_id}
             AND observation_type LIKE 'vital_%'
-            ${input.encounter_id ? sql`AND encounter_id = ${input.encounter_id}` : sql``}
-            ${input.start_date ? sql`AND effective_datetime >= ${input.start_date}` : sql``}
-            ${input.end_date ? sql`AND effective_datetime <= ${input.end_date}` : sql``}
+            ${input.encounter_id ? getSql()`AND encounter_id = ${input.encounter_id}` : getSql()``}
+            ${input.start_date ? getSql()`AND effective_datetime >= ${input.start_date}` : getSql()``}
+            ${input.end_date ? getSql()`AND effective_datetime <= ${input.end_date}` : getSql()``}
           ORDER BY effective_datetime DESC
           LIMIT ${input.limit}
           OFFSET ${input.offset};
@@ -523,7 +527,7 @@ export const observationsRouter = router({
         const daysAgo = new Date();
         daysAgo.setDate(daysAgo.getDate() - input.days);
 
-        const rows = (await sql`
+        const rows = (await getSql()`
           SELECT
             effective_datetime,
             value_quantity,
@@ -564,7 +568,7 @@ export const observationsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Fetch latest observation for each vital type
-        const query = sql`
+        const query = getSql()`
           WITH ranked_vitals AS (
             SELECT
               observation_type,
@@ -576,7 +580,7 @@ export const observationsRouter = router({
             WHERE hospital_id = ${hospitalId}
               AND patient_id = ${input.patient_id}
               AND observation_type LIKE 'vital_%'
-              ${input.encounter_id ? sql`AND encounter_id = ${input.encounter_id}` : sql``}
+              ${input.encounter_id ? getSql()`AND encounter_id = ${input.encounter_id}` : getSql()``}
           )
           SELECT
             observation_type,
@@ -638,7 +642,7 @@ export const observationsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const rows = (await sql`
+        const rows = (await getSql()`
           SELECT
             id,
             alert_type,
@@ -653,7 +657,7 @@ export const observationsRouter = router({
           FROM clinical_alert_logs
           WHERE hospital_id = ${hospitalId}
             AND patient_id = ${input.patient_id}
-            ${input.encounter_id ? sql`AND encounter_id = ${input.encounter_id}` : sql``}
+            ${input.encounter_id ? getSql()`AND encounter_id = ${input.encounter_id}` : getSql()``}
             AND acknowledged_at IS NULL
           ORDER BY
             CASE severity WHEN 'critical' THEN 0 ELSE 1 END ASC,
@@ -686,7 +690,7 @@ export const observationsRouter = router({
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
 
-        const rows = (await sql`
+        const rows = (await getSql()`
           UPDATE clinical_alert_logs
           SET
             acknowledged_by_user_id = ${userId},
@@ -735,7 +739,7 @@ export const observationsRouter = router({
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
 
-        const rows = (await sql`
+        const rows = (await getSql()`
           INSERT INTO observations (
             hospital_id,
             patient_id,
@@ -832,7 +836,7 @@ export const observationsRouter = router({
         endOfDay.setHours(23, 59, 59, 999);
 
         // Fetch intake and output records
-        const entries = (await sql`
+        const entries = (await getSql()`
           SELECT
             id,
             observation_type,

@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { router, protectedProcedure } from '../trpc';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 // Validation schemas
 const vendorSchema = z.object({
@@ -88,7 +92,7 @@ export const pharmacyRouter = router({
     .input(vendorSchema)
     .mutation(async ({ ctx, input }) => {
       try {
-        const result = await sql(
+        const result = await getSql()(
           `INSERT INTO vendors
           (hospital_id, vendor_code, vendor_name, contact_person, vendor_phone, vendor_email,
            vendor_address, vendor_gst, drug_license, license_expiry, payment_terms_days, vendor_is_active, vendor_created_at)
@@ -127,7 +131,7 @@ export const pharmacyRouter = router({
     )
     .query(async ({ ctx, input }) => {
       try {
-        const vendors = await sql(
+        const vendors = await getSql()(
           `SELECT * FROM vendors
           WHERE hospital_id = $1
           AND (${input.is_active ?? null}::boolean IS NULL OR vendor_is_active = ${input.is_active ?? null})
@@ -158,7 +162,7 @@ export const pharmacyRouter = router({
           .map((key, idx) => `${key} = $${idx + 2}`)
           .join(', ');
 
-        const result = await sql(
+        const result = await getSql()(
           `UPDATE vendors
           SET ${setClause}
           WHERE id = $1 AND hospital_id = $${Object.keys(updates).length + 2}
@@ -187,7 +191,7 @@ export const pharmacyRouter = router({
     .input(z.string().uuid())
     .query(async ({ ctx, input }) => {
       try {
-        const vendor = await sql(
+        const vendor = await getSql()(
           `SELECT * FROM vendors
           WHERE id = $1 AND hospital_id = $2`,
           [input, ctx.user.hospital_id]
@@ -215,7 +219,7 @@ export const pharmacyRouter = router({
     .input(inventorySchema)
     .mutation(async ({ ctx, input }) => {
       try {
-        const result = await sql(
+        const result = await getSql()(
           `INSERT INTO pharmacy_inventory
           (hospital_id, pi_drug_id, pi_location, batch_number, pi_manufacturer, expiry_date,
            quantity_on_hand, quantity_reserved, quantity_available, unit_cost, pi_mrp,
@@ -240,7 +244,7 @@ export const pharmacyRouter = router({
         );
 
         // Create stock movement record
-        await sql(
+        await getSql()(
           `INSERT INTO stock_movements
           (hospital_id, sm_inventory_id, sm_drug_id, sm_type, sm_quantity, previous_balance, new_balance,
            sm_batch_number, sm_location, sm_unit_cost, sm_total_value, sm_performed_by, sm_performed_at)
@@ -303,7 +307,7 @@ export const pharmacyRouter = router({
           whereClause += ` AND expiry_date <= (CURRENT_DATE + INTERVAL '${input.expiring_within_days} days')`;
         }
 
-        const inventory = await sql(
+        const inventory = await getSql()(
           `SELECT pi.*, dm.drug_name, dm.generic_name
           FROM pharmacy_inventory pi
           LEFT JOIN drug_master dm ON pi.pi_drug_id = dm.id
@@ -326,7 +330,7 @@ export const pharmacyRouter = router({
     .input(z.string().uuid())
     .query(async ({ ctx, input }) => {
       try {
-        const inventory = await sql(
+        const inventory = await getSql()(
           `SELECT pi.*, dm.drug_name, dm.generic_name, dm.dm_strength
           FROM pharmacy_inventory pi
           LEFT JOIN drug_master dm ON pi.pi_drug_id = dm.id
@@ -355,7 +359,7 @@ export const pharmacyRouter = router({
     .input(stockAdjustmentSchema)
     .mutation(async ({ ctx, input }) => {
       try {
-        const inventory = await sql(
+        const inventory = await getSql()(
           `SELECT * FROM pharmacy_inventory WHERE id = $1 AND hospital_id = $2`,
           [input.sm_inventory_id, ctx.user.hospital_id]
         );
@@ -380,7 +384,7 @@ export const pharmacyRouter = router({
         }
 
         // Update inventory
-        await sql(
+        await getSql()(
           `UPDATE pharmacy_inventory
           SET quantity_on_hand = $1, quantity_available = $2, last_restocked_at = NOW()
           WHERE id = $3`,
@@ -388,7 +392,7 @@ export const pharmacyRouter = router({
         );
 
         // Create stock movement
-        const movement = await sql(
+        const movement = await getSql()(
           `INSERT INTO stock_movements
           (hospital_id, sm_inventory_id, sm_drug_id, sm_type, sm_quantity, previous_balance, new_balance,
            sm_batch_number, sm_location, sm_unit_cost, sm_total_value, sm_reason, sm_performed_by, sm_performed_at)
@@ -426,7 +430,7 @@ export const pharmacyRouter = router({
     .input(stockTransferSchema)
     .mutation(async ({ ctx, input }) => {
       try {
-        const inventory = await sql(
+        const inventory = await getSql()(
           `SELECT * FROM pharmacy_inventory WHERE id = $1 AND hospital_id = $2`,
           [input.sm_inventory_id, ctx.user.hospital_id]
         );
@@ -448,7 +452,7 @@ export const pharmacyRouter = router({
         }
 
         // Create transfer_out movement
-        await sql(
+        await getSql()(
           `INSERT INTO stock_movements
           (hospital_id, sm_inventory_id, sm_drug_id, sm_type, sm_quantity, previous_balance, new_balance,
            sm_batch_number, sm_location, sm_unit_cost, sm_total_value, sm_reason, sm_performed_by, sm_performed_at)
@@ -470,7 +474,7 @@ export const pharmacyRouter = router({
         );
 
         // Create transfer_in movement at destination
-        const transferIn = await sql(
+        const transferIn = await getSql()(
           `INSERT INTO stock_movements
           (hospital_id, sm_inventory_id, sm_drug_id, sm_type, sm_quantity, previous_balance, new_balance,
            sm_batch_number, sm_location, sm_unit_cost, sm_total_value, sm_reason, sm_performed_by, sm_performed_at)
@@ -491,7 +495,7 @@ export const pharmacyRouter = router({
         );
 
         // Update source inventory
-        await sql(
+        await getSql()(
           `UPDATE pharmacy_inventory
           SET quantity_on_hand = quantity_on_hand - $1,
               quantity_available = quantity_available - $1,
@@ -519,7 +523,7 @@ export const pharmacyRouter = router({
     )
     .query(async ({ ctx, input }) => {
       try {
-        const items = await sql(
+        const items = await getSql()(
           `SELECT pi.*, dm.drug_name, dm.generic_name
           FROM pharmacy_inventory pi
           LEFT JOIN drug_master dm ON pi.pi_drug_id = dm.id
@@ -547,7 +551,7 @@ export const pharmacyRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         // Get medication order details
-        const order = await sql(
+        const order = await getSql()(
           `SELECT mo.* FROM medication_orders mo
           WHERE mo.id = $1 AND mo.hospital_id = $2`,
           [input.medication_order_id, ctx.user.hospital_id]
@@ -561,7 +565,7 @@ export const pharmacyRouter = router({
         }
 
         // Get inventory details
-        const inventory = await sql(
+        const inventory = await getSql()(
           `SELECT pi.*, dm.drug_name FROM pharmacy_inventory pi
           LEFT JOIN drug_master dm ON pi.pi_drug_id = dm.id
           WHERE pi.id = $1 AND pi.hospital_id = $2`,
@@ -585,7 +589,7 @@ export const pharmacyRouter = router({
         }
 
         // Create dispensing record
-        const dispensing = await sql(
+        const dispensing = await getSql()(
           `INSERT INTO dispensing_records
           (hospital_id, dr_patient_id, dr_encounter_id, medication_order_id, dr_inventory_id,
            dr_drug_id, dr_drug_name, dr_batch_number, quantity_ordered, quantity_dispensed,
@@ -610,7 +614,7 @@ export const pharmacyRouter = router({
         );
 
         // Update inventory (deduct stock)
-        await sql(
+        await getSql()(
           `UPDATE pharmacy_inventory
           SET quantity_on_hand = quantity_on_hand - $1,
               quantity_available = quantity_available - $1,
@@ -620,7 +624,7 @@ export const pharmacyRouter = router({
         );
 
         // Create stock movement (issue)
-        await sql(
+        await getSql()(
           `INSERT INTO stock_movements
           (hospital_id, sm_inventory_id, sm_drug_id, sm_type, sm_quantity, previous_balance, new_balance,
            sm_batch_number, sm_location, sm_unit_cost, sm_total_value, sm_ref_type, sm_ref_id, sm_performed_by, sm_performed_at)
@@ -661,7 +665,7 @@ export const pharmacyRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       try {
-        const dispensing = await sql(
+        const dispensing = await getSql()(
           `SELECT * FROM dispensing_records
           WHERE id = $1 AND hospital_id = $2`,
           [input.dr_id, ctx.user.hospital_id]
@@ -684,7 +688,7 @@ export const pharmacyRouter = router({
         }
 
         // Update dispensing record
-        const updated = await sql(
+        const updated = await getSql()(
           `UPDATE dispensing_records
           SET quantity_returned = $1,
               dr_status = CASE WHEN $1 = quantity_dispensed THEN 'returned' ELSE 'partially_returned' END,
@@ -696,7 +700,7 @@ export const pharmacyRouter = router({
         );
 
         // Update inventory
-        await sql(
+        await getSql()(
           `UPDATE pharmacy_inventory
           SET quantity_on_hand = quantity_on_hand + $1,
               quantity_available = quantity_available + $1,
@@ -706,7 +710,7 @@ export const pharmacyRouter = router({
         );
 
         // Create stock movement (return_to_stock)
-        await sql(
+        await getSql()(
           `INSERT INTO stock_movements
           (hospital_id, sm_inventory_id, sm_drug_id, sm_type, sm_quantity, sm_ref_type, sm_ref_id, sm_performed_by, sm_performed_at)
           VALUES ($1, $2, $3, 'return_to_stock', $4, 'dispensing', $5, $6, NOW())`,
@@ -763,7 +767,7 @@ export const pharmacyRouter = router({
           paramIdx++;
         }
 
-        const records = await sql(
+        const records = await getSql()(
           `SELECT dr.*, p.patient_name, u.user_full_name as dispensed_by_name
           FROM dispensing_records dr
           LEFT JOIN patients p ON dr.dr_patient_id = p.id
@@ -787,7 +791,7 @@ export const pharmacyRouter = router({
     .input(z.string().uuid())
     .query(async ({ ctx, input }) => {
       try {
-        const record = await sql(
+        const record = await getSql()(
           `SELECT dr.*, p.patient_name, u.user_full_name as dispensed_by_name, dm.drug_name
           FROM dispensing_records dr
           LEFT JOIN patients p ON dr.dr_patient_id = p.id
@@ -833,7 +837,7 @@ export const pharmacyRouter = router({
           paramIdx++;
         }
 
-        const pending = await sql(
+        const pending = await getSql()(
           `SELECT mo.*, p.patient_name, dm.drug_name, dm.dm_strength
           FROM medication_orders mo
           LEFT JOIN patients p ON mo.mo_patient_id = p.id
@@ -863,7 +867,7 @@ export const pharmacyRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         // Get current balance
-        const lastRecord = await sql(
+        const lastRecord = await getSql()(
           `SELECT nr_running_balance FROM narcotics_register
           WHERE hospital_id = $1 AND nr_drug_id = $2
           ORDER BY nr_recorded_at DESC LIMIT 1`,
@@ -889,7 +893,7 @@ export const pharmacyRouter = router({
         }
 
         // Get drug details
-        const drug = await sql(
+        const drug = await getSql()(
           `SELECT drug_name FROM drug_master WHERE id = $1`,
           [input.nr_drug_id]
         );
@@ -901,7 +905,7 @@ export const pharmacyRouter = router({
           });
         }
 
-        const record = await sql(
+        const record = await getSql()(
           `INSERT INTO narcotics_register
           (hospital_id, nr_drug_id, nr_drug_name, nr_class, nr_movement_type, nr_quantity,
            nr_running_balance, nr_patient_id, nr_encounter_id, nr_performed_by, nr_witnessed_by,
@@ -940,7 +944,7 @@ export const pharmacyRouter = router({
     .input(z.string().uuid())
     .query(async ({ ctx, input }) => {
       try {
-        const records = await sql(
+        const records = await getSql()(
           `SELECT nr.*, u.user_full_name as performed_by_name, uw.user_full_name as witnessed_by_name
           FROM narcotics_register nr
           LEFT JOIN users u ON nr.nr_performed_by = u.id
@@ -964,7 +968,7 @@ export const pharmacyRouter = router({
     .input(z.string().uuid())
     .query(async ({ ctx, input }) => {
       try {
-        const balance = await sql(
+        const balance = await getSql()(
           `SELECT nr_drug_id, nr_drug_name, nr_class, nr_running_balance as current_balance
           FROM narcotics_register
           WHERE hospital_id = $1 AND nr_drug_id = $2
@@ -1018,7 +1022,7 @@ export const pharmacyRouter = router({
           paramIdx++;
         }
 
-        const report = await sql(
+        const report = await getSql()(
           `SELECT
             nr_drug_id, nr_drug_name, nr_class,
             COUNT(*) as movement_count,
@@ -1049,7 +1053,7 @@ export const pharmacyRouter = router({
       try {
         // Generate PO number: PO-YYYYMMDD-NNNN
         const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
-        const countToday = await sql(
+        const countToday = await getSql()(
           `SELECT COUNT(*) as cnt FROM purchase_orders
           WHERE hospital_id = $1 AND po_number LIKE $2`,
           [ctx.user.hospital_id, `PO-${today}%`]
@@ -1058,7 +1062,7 @@ export const pharmacyRouter = router({
         const nextSeq = (countToday[0].cnt || 0) + 1;
         const poNumber = `PO-${today}-${String(nextSeq).padStart(4, '0')}`;
 
-        const po = await sql(
+        const po = await getSql()(
           `INSERT INTO purchase_orders
           (hospital_id, po_number, po_vendor_id, po_status, po_total_items, po_total_amount,
            expected_delivery, po_notes, po_created_by, po_created_at)
@@ -1089,7 +1093,7 @@ export const pharmacyRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         // Verify PO exists
-        const po = await sql(
+        const po = await getSql()(
           `SELECT * FROM purchase_orders WHERE id = $1 AND hospital_id = $2`,
           [input.poi_po_id, ctx.user.hospital_id]
         );
@@ -1102,7 +1106,7 @@ export const pharmacyRouter = router({
         }
 
         // Get drug details
-        const drug = await sql(
+        const drug = await getSql()(
           `SELECT drug_name FROM drug_master WHERE id = $1`,
           [input.poi_drug_id]
         );
@@ -1116,7 +1120,7 @@ export const pharmacyRouter = router({
 
         const totalCost = input.poi_qty_ordered * input.poi_unit_cost;
 
-        const item = await sql(
+        const item = await getSql()(
           `INSERT INTO purchase_order_items
           (hospital_id, poi_po_id, poi_drug_id, poi_drug_name, poi_qty_ordered, poi_unit_cost,
            poi_total_cost, poi_batch_number, poi_expiry_date, poi_manufacturer)
@@ -1137,7 +1141,7 @@ export const pharmacyRouter = router({
         );
 
         // Update PO totals
-        await sql(
+        await getSql()(
           `UPDATE purchase_orders
           SET po_total_items = po_total_items + 1,
               po_total_amount = po_total_amount + $1
@@ -1160,7 +1164,7 @@ export const pharmacyRouter = router({
     .input(z.string().uuid())
     .mutation(async ({ ctx, input }) => {
       try {
-        const po = await sql(
+        const po = await getSql()(
           `UPDATE purchase_orders
           SET po_status = 'submitted'
           WHERE id = $1 AND hospital_id = $2
@@ -1190,7 +1194,7 @@ export const pharmacyRouter = router({
     .input(z.string().uuid())
     .mutation(async ({ ctx, input }) => {
       try {
-        const po = await sql(
+        const po = await getSql()(
           `UPDATE purchase_orders
           SET po_status = 'approved', po_approved_by = $1, po_approved_at = NOW()
           WHERE id = $2 AND hospital_id = $3
@@ -1230,7 +1234,7 @@ export const pharmacyRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       try {
-        const po = await sql(
+        const po = await getSql()(
           `SELECT * FROM purchase_orders WHERE id = $1 AND hospital_id = $2`,
           [input.po_id, ctx.user.hospital_id]
         );
@@ -1244,7 +1248,7 @@ export const pharmacyRouter = router({
 
         // Update PO items and create inventory/movements
         for (const item of input.items) {
-          const poItem = await sql(
+          const poItem = await getSql()(
             `SELECT * FROM purchase_order_items WHERE id = $1 AND hospital_id = $2`,
             [item.poi_id, ctx.user.hospital_id]
           );
@@ -1254,13 +1258,13 @@ export const pharmacyRouter = router({
           const poi = poItem[0];
 
           // Update PO item
-          await sql(
+          await getSql()(
             `UPDATE purchase_order_items SET poi_qty_received = $1 WHERE id = $2`,
             [item.poi_qty_received, item.poi_id]
           );
 
           // Create or update inventory
-          const inventory = await sql(
+          const inventory = await getSql()(
             `SELECT * FROM pharmacy_inventory
             WHERE hospital_id = $1 AND pi_drug_id = $2 AND batch_number = $3 AND pi_location = $4`,
             [ctx.user.hospital_id, poi.poi_drug_id, poi.poi_batch_number || 'N/A', 'warehouse']
@@ -1268,7 +1272,7 @@ export const pharmacyRouter = router({
 
           if (inventory.length) {
             // Update existing
-            await sql(
+            await getSql()(
               `UPDATE pharmacy_inventory
               SET quantity_on_hand = quantity_on_hand + $1,
                   quantity_available = quantity_available + $1
@@ -1277,7 +1281,7 @@ export const pharmacyRouter = router({
             );
           } else {
             // Create new
-            await sql(
+            await getSql()(
               `INSERT INTO pharmacy_inventory
               (hospital_id, pi_drug_id, pi_location, batch_number, pi_manufacturer, expiry_date,
                quantity_on_hand, quantity_reserved, quantity_available, unit_cost, pi_mrp,
@@ -1297,7 +1301,7 @@ export const pharmacyRouter = router({
           }
 
           // Create stock movement
-          await sql(
+          await getSql()(
             `INSERT INTO stock_movements
             (hospital_id, sm_inventory_id, sm_drug_id, sm_type, sm_quantity,
              sm_batch_number, sm_location, sm_unit_cost, sm_total_value,
@@ -1319,7 +1323,7 @@ export const pharmacyRouter = router({
         }
 
         // Update PO status
-        const updated = await sql(
+        const updated = await getSql()(
           `UPDATE purchase_orders
           SET po_status = 'received', po_received_at = NOW()
           WHERE id = $1
@@ -1363,7 +1367,7 @@ export const pharmacyRouter = router({
           paramIdx++;
         }
 
-        const orders = await sql(
+        const orders = await getSql()(
           `SELECT po.*, v.vendor_name, u.user_full_name as created_by_name
           FROM purchase_orders po
           LEFT JOIN vendors v ON po.po_vendor_id = v.id
@@ -1387,7 +1391,7 @@ export const pharmacyRouter = router({
   checkLowStock: protectedProcedure.mutation(async ({ ctx }) => {
     try {
       // Find all inventory items below reorder level
-      const lowStockItems = await sql(
+      const lowStockItems = await getSql()(
         `SELECT pi.* FROM pharmacy_inventory pi
         WHERE pi.hospital_id = $1 AND pi.quantity_available <= pi.reorder_level AND pi.pi_is_active = TRUE`,
         [ctx.user.hospital_id]
@@ -1396,14 +1400,14 @@ export const pharmacyRouter = router({
       // Create alerts for each
       for (const item of lowStockItems) {
         // Check if alert already exists
-        const existing = await sql(
+        const existing = await getSql()(
           `SELECT id FROM stock_alerts
           WHERE hospital_id = $1 AND sa_drug_id = $2 AND sa_alert_type = 'low_stock' AND sa_is_resolved = FALSE`,
           [ctx.user.hospital_id, item.pi_drug_id]
         );
 
         if (!existing.length) {
-          await sql(
+          await getSql()(
             `INSERT INTO stock_alerts
             (hospital_id, sa_drug_id, sa_drug_name, sa_location, sa_alert_type, sa_severity,
              sa_message, sa_current_stock, sa_threshold, sa_is_resolved)
@@ -1454,7 +1458,7 @@ export const pharmacyRouter = router({
           paramIdx++;
         }
 
-        const alerts = await sql(
+        const alerts = await getSql()(
           `SELECT * FROM stock_alerts
           WHERE ${whereClause}
           ORDER BY sa_severity DESC, id DESC`,
@@ -1475,7 +1479,7 @@ export const pharmacyRouter = router({
     .input(z.string().uuid())
     .mutation(async ({ ctx, input }) => {
       try {
-        const alert = await sql(
+        const alert = await getSql()(
           `UPDATE stock_alerts
           SET sa_is_resolved = TRUE, sa_resolved_by = $1, sa_resolved_at = NOW()
           WHERE id = $2 AND hospital_id = $3
@@ -1503,7 +1507,7 @@ export const pharmacyRouter = router({
 
   pharmacyStats: protectedProcedure.query(async ({ ctx }) => {
     try {
-      const stats = await sql(
+      const stats = await getSql()(
         `SELECT
           COUNT(DISTINCT pi.id) as total_items,
           COUNT(DISTINCT pi.pi_location) as locations,
@@ -1516,7 +1520,7 @@ export const pharmacyRouter = router({
         [ctx.user.hospital_id]
       );
 
-      const movementCounts = await sql(
+      const movementCounts = await getSql()(
         `SELECT
           sm_type,
           COUNT(*) as count
@@ -1547,7 +1551,7 @@ export const pharmacyRouter = router({
     )
     .query(async ({ ctx, input }) => {
       try {
-        const topDrugs = await sql(
+        const topDrugs = await getSql()(
           `SELECT
             dr_drug_id, dr_drug_name,
             COUNT(*) as dispensing_count,
@@ -1561,7 +1565,7 @@ export const pharmacyRouter = router({
           [ctx.user.hospital_id]
         );
 
-        const returnRate = await sql(
+        const returnRate = await getSql()(
           `SELECT
             COUNT(CASE WHEN dr_status = 'returned' THEN 1 END)::float /
             NULLIF(COUNT(*), 0) * 100 as return_percentage

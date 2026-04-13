@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { router, protectedProcedure, adminProcedure } from '../trpc';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 // ─── ENUMS AND VALIDATION SCHEMAS ─────────────────────────────────────────
 
@@ -215,7 +219,7 @@ const rcaOverdueAlertsInput = z.object({
 // ─── HELPER FUNCTIONS ─────────────────────────────────────────────────────
 
 async function getRcaWithDetails(hospitalId: string, rcaId: string) {
-  const rcaResult = await sql`
+  const rcaResult = await getSql()`
     SELECT * FROM rca_investigations
     WHERE id = ${rcaId} AND hospital_id = ${hospitalId};
   `;
@@ -228,7 +232,7 @@ async function getRcaWithDetails(hospitalId: string, rcaId: string) {
   const rca = rcaRows[0];
 
   // Get team members with user details
-  const teamResult = await sql`
+  const teamResult = await getSql()`
     SELECT rtm.*, u.email, u.full_name
     FROM rca_team_members rtm
     LEFT JOIN users u ON rtm.rtm_user_id = u.id
@@ -236,25 +240,25 @@ async function getRcaWithDetails(hospitalId: string, rcaId: string) {
     ORDER BY rtm.rtm_added_at;
   `;
 
-  const timeline = await sql`
+  const timeline = await getSql()`
     SELECT * FROM rca_timeline_events
     WHERE rte_rca_id = ${rcaId} AND hospital_id = ${hospitalId}
     ORDER BY sequence_order ASC;
   `;
 
-  const fishbone = await sql`
+  const fishbone = await getSql()`
     SELECT * FROM rca_fishbone_factors
     WHERE rff_rca_id = ${rcaId} AND hospital_id = ${hospitalId}
     ORDER BY rff_category, rff_added_at;
   `;
 
-  const fiveWhy = await sql`
+  const fiveWhy = await getSql()`
     SELECT * FROM rca_five_why
     WHERE rfw_rca_id = ${rcaId} AND hospital_id = ${hospitalId}
     ORDER BY question_sequence ASC;
   `;
 
-  const capaItems = await sql`
+  const capaItems = await getSql()`
     SELECT rci.*, u.email, u.full_name
     FROM rca_capa_items rci
     LEFT JOIN users u ON rci.responsible_user_id = u.id
@@ -284,7 +288,7 @@ export const rcaRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Get adverse event details
-        const aeResult = await sql`
+        const aeResult = await getSql()`
           SELECT * FROM adverse_events
           WHERE id = ${input.adverse_event_id} AND hospital_id = ${hospitalId};
         `;
@@ -312,7 +316,7 @@ export const rcaRouter = router({
         const deadline = new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000);
 
         // Create RCA investigation
-        const rcaResult = await sql`
+        const rcaResult = await getSql()`
           INSERT INTO rca_investigations (
             hospital_id, adverse_event_id, rca_incident_type, rca_severity,
             rca_incident_date, rca_inv_status, investigation_start_date,
@@ -334,7 +338,7 @@ export const rcaRouter = router({
         const rca = rcaRows[0];
 
         // Update adverse event with RCA reference
-        await sql`
+        await getSql()`
           UPDATE adverse_events
           SET has_rca = true, rca_id = ${rca.id}
           WHERE id = ${input.adverse_event_id} AND hospital_id = ${hospitalId};
@@ -377,7 +381,7 @@ export const rcaRouter = router({
         const dateFrom = input.date_from ?? null;
         const dateTo = input.date_to ?? null;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             ri.*,
             ae.incident_description,
@@ -392,7 +396,7 @@ export const rcaRouter = router({
           LIMIT ${input.limit} OFFSET ${input.offset};
         `;
 
-        const countResult = await sql`
+        const countResult = await getSql()`
           SELECT COUNT(*) as total
           FROM rca_investigations ri
           WHERE ri.hospital_id = ${hospitalId}
@@ -419,7 +423,7 @@ export const rcaRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE rca_investigations
           SET rca_inv_status = ${input.rca_inv_status}, rca_updated_at = NOW()
           WHERE id = ${input.rca_id} AND hospital_id = ${hospitalId}
@@ -447,7 +451,7 @@ export const rcaRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const rca = await sql`
+        const rca = await getSql()`
           SELECT * FROM rca_investigations
           WHERE id = ${input.rca_id} AND hospital_id = ${hospitalId};
         `;
@@ -459,7 +463,7 @@ export const rcaRouter = router({
 
         const isQualityHead = input.role === 'quality_head';
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE rca_investigations
           SET
             signed_by_quality_head_at = CASE WHEN ${isQualityHead} THEN NOW() ELSE signed_by_quality_head_at END,
@@ -488,7 +492,7 @@ export const rcaRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Verify RCA exists
-        const rca = await sql`
+        const rca = await getSql()`
           SELECT id FROM rca_investigations
           WHERE id = ${input.rca_id} AND hospital_id = ${hospitalId};
         `;
@@ -498,7 +502,7 @@ export const rcaRouter = router({
           throw new TRPCError({ code: 'NOT_FOUND', message: 'RCA not found' });
         }
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO rca_team_members (
             hospital_id, rtm_rca_id, rtm_user_id, rtm_role, rtm_added_at,
             rtm_added_by_user_id
@@ -524,7 +528,7 @@ export const rcaRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           DELETE FROM rca_team_members
           WHERE id = ${input.rtm_id} AND hospital_id = ${hospitalId}
           RETURNING *;
@@ -551,7 +555,7 @@ export const rcaRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT rtm.*, u.email, u.full_name
           FROM rca_team_members rtm
           LEFT JOIN users u ON rtm.rtm_user_id = u.id
@@ -576,7 +580,7 @@ export const rcaRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO rca_timeline_events (
             hospital_id, rte_rca_id, event_time, event_description,
             sequence_order, data_source, rte_added_by_user_id, rte_added_at
@@ -608,7 +612,7 @@ export const rcaRouter = router({
         const eventDesc = input.event_description ?? null;
         const seqOrder = input.sequence_order ?? null;
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE rca_timeline_events
           SET
             event_time = COALESCE(${eventTime}::timestamptz, event_time),
@@ -638,7 +642,7 @@ export const rcaRouter = router({
     .input(listTimelineInput)
     .query(async ({ ctx, input }) => {
       try {
-        const result = await sql`
+        const result = await getSql()`
           SELECT * FROM rca_timeline_events
           WHERE rte_rca_id = ${input.rca_id} AND hospital_id = ${ctx.user.hospital_id}
           ORDER BY sequence_order ASC;
@@ -661,7 +665,7 @@ export const rcaRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO rca_fishbone_factors (
             hospital_id, rff_rca_id, rff_category, factor_description,
             is_contributing_factor, rff_added_by_user_id, rff_added_at
@@ -691,7 +695,7 @@ export const rcaRouter = router({
         const factorDesc = input.factor_description ?? null;
         const isContributing = input.is_contributing_factor ?? null;
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE rca_fishbone_factors
           SET
             factor_description = COALESCE(${factorDesc}::text, factor_description),
@@ -719,7 +723,7 @@ export const rcaRouter = router({
     .input(getFishboneInput)
     .query(async ({ ctx, input }) => {
       try {
-        const result = await sql`
+        const result = await getSql()`
           SELECT * FROM rca_fishbone_factors
           WHERE rff_rca_id = ${input.rca_id} AND hospital_id = ${ctx.user.hospital_id}
           ORDER BY rff_category, rff_added_at;
@@ -751,7 +755,7 @@ export const rcaRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO rca_five_why (
             hospital_id, rfw_rca_id, question_sequence, rfw_question,
             rfw_answer, contributing_factor, is_root_cause, rfw_added_by_user_id, rfw_added_at
@@ -783,7 +787,7 @@ export const rcaRouter = router({
         const contribFactor = input.contributing_factor ?? null;
         const isRoot = input.is_root_cause ?? null;
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE rca_five_why
           SET
             rfw_question = COALESCE(${question}::text, rfw_question),
@@ -813,7 +817,7 @@ export const rcaRouter = router({
     .input(getFiveWhyChainInput)
     .query(async ({ ctx, input }) => {
       try {
-        const result = await sql`
+        const result = await getSql()`
           SELECT * FROM rca_five_why
           WHERE rfw_rca_id = ${input.rca_id} AND hospital_id = ${ctx.user.hospital_id}
           ORDER BY question_sequence ASC;
@@ -836,7 +840,7 @@ export const rcaRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO rca_capa_items (
             hospital_id, rci_rca_id, action_description, action_type,
             responsible_user_id, rci_assigned_at, rci_assigned_by_user_id,
@@ -870,7 +874,7 @@ export const rcaRouter = router({
 
         const isImplemented = input.capa_status === 'implemented';
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE rca_capa_items
           SET
             capa_status = ${input.capa_status}::capa_status,
@@ -905,7 +909,7 @@ export const rcaRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE rca_capa_items
           SET completion_estimate_percent = ${input.completion_estimate_percent}, rci_updated_at = NOW()
           WHERE id = ${input.rci_id} AND hospital_id = ${hospitalId}
@@ -933,7 +937,7 @@ export const rcaRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           UPDATE rca_capa_items
           SET
             effectiveness_review_status = ${input.effectiveness_review_status},
@@ -969,7 +973,7 @@ export const rcaRouter = router({
         const capaStatusVal = input.capa_status ?? null;
         const responsibleVal = input.responsible_user_id ?? null;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT rci.*, u.email, u.full_name
           FROM rca_capa_items rci
           LEFT JOIN users u ON rci.responsible_user_id = u.id
@@ -981,7 +985,7 @@ export const rcaRouter = router({
           LIMIT ${input.limit} OFFSET ${input.offset};
         `;
 
-        const countResult = await sql`
+        const countResult = await getSql()`
           SELECT COUNT(*) as total
           FROM rca_capa_items rci
           WHERE rci.hospital_id = ${hospitalId}
@@ -1011,7 +1015,7 @@ export const rcaRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Open RCAs
-        const openResult = await sql`
+        const openResult = await getSql()`
           SELECT COUNT(*) as count
           FROM rca_investigations
           WHERE hospital_id = ${hospitalId}
@@ -1019,7 +1023,7 @@ export const rcaRouter = router({
         `;
 
         // Overdue RCAs
-        const overdueResult = await sql`
+        const overdueResult = await getSql()`
           SELECT COUNT(*) as count
           FROM rca_investigations
           WHERE hospital_id = ${hospitalId}
@@ -1028,7 +1032,7 @@ export const rcaRouter = router({
         `;
 
         // Average days to complete
-        const avgResult = await sql`
+        const avgResult = await getSql()`
           SELECT AVG(EXTRACT(DAY FROM (rca_completed_at - investigation_start_date))) as avg_days
           FROM rca_investigations
           WHERE hospital_id = ${hospitalId}
@@ -1036,7 +1040,7 @@ export const rcaRouter = router({
         `;
 
         // CAPA status distribution
-        const capaStatusResult = await sql`
+        const capaStatusResult = await getSql()`
           SELECT capa_status, COUNT(*) as count
           FROM rca_capa_items
           WHERE hospital_id = ${hospitalId}
@@ -1063,7 +1067,7 @@ export const rcaRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             ri.*,
             ae.incident_description,

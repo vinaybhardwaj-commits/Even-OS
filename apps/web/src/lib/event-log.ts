@@ -1,6 +1,10 @@
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 export type EventType = 'created' | 'updated' | 'deleted' | 'restored' | 'status_changed';
 
@@ -22,7 +26,7 @@ export interface WriteEventParams {
  */
 export async function writeEvent(params: WriteEventParams): Promise<void> {
   try {
-    await sql`
+    await getSql()`
       INSERT INTO event_log (
         hospital_id,
         resource_type,
@@ -72,7 +76,7 @@ export async function getResourceHistory(
   resource_id: string
 ): Promise<any[]> {
   try {
-    const result = await sql`
+    const result = await getSql()`
       SELECT
         id,
         version,
@@ -107,7 +111,7 @@ export async function getResourceAtVersion(
   version: number
 ): Promise<any> {
   try {
-    const result = await sql`
+    const result = await getSql()`
       SELECT
         id,
         version,

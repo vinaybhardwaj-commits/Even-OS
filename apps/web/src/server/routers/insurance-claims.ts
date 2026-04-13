@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 // ─── ENUMS ─────────────────────────────────────────────
 const claimStatusEnum = [
@@ -87,7 +91,7 @@ async function generateClaimNumber(hospitalId: string): Promise<string> {
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
 
-  const result = await sql`
+  const result = await getSql()`
     SELECT COUNT(*) as cnt FROM insurance_claims
     WHERE hospital_id = ${hospitalId}
     AND ic_created_at >= DATE(NOW())
@@ -129,7 +133,7 @@ export const insuranceClaimsRouter = router({
         const userId = ctx.user.sub;
 
         // Verify patient exists
-        const patientCheck = await sql`
+        const patientCheck = await getSql()`
           SELECT id FROM patients
           WHERE id = ${input.patient_id} AND hospital_id = ${hospitalId}
           LIMIT 1
@@ -142,7 +146,7 @@ export const insuranceClaimsRouter = router({
         }
 
         // Verify encounter exists
-        const encounterCheck = await sql`
+        const encounterCheck = await getSql()`
           SELECT id FROM encounters
           WHERE id = ${input.encounter_id} AND hospital_id = ${hospitalId}
           LIMIT 1
@@ -155,7 +159,7 @@ export const insuranceClaimsRouter = router({
         }
 
         // Verify account exists
-        const accountCheck = await sql`
+        const accountCheck = await getSql()`
           SELECT id FROM billing_accounts
           WHERE id = ${input.account_id} AND hospital_id = ${hospitalId}
           LIMIT 1
@@ -171,7 +175,7 @@ export const insuranceClaimsRouter = router({
         const claimNumber = await generateClaimNumber(hospitalId);
 
         // Create claim
-        const claimResult = await sql`
+        const claimResult = await getSql()`
           INSERT INTO insurance_claims (
             hospital_id, ic_patient_id, ic_encounter_id, ic_account_id,
             claim_number, ic_insurer_name, ic_tpa, ic_policy_number,
@@ -201,7 +205,7 @@ export const insuranceClaimsRouter = router({
         }
 
         // Create 'created' event
-        await sql`
+        await getSql()`
           INSERT INTO claim_events (
             hospital_id, ce_claim_id, ce_event_type, ce_to_status,
             ce_description, ce_performed_by, ce_performed_at
@@ -234,7 +238,7 @@ export const insuranceClaimsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             ic.id, ic.hospital_id, ic.ic_patient_id as patient_id,
             ic.ic_encounter_id as encounter_id, ic.ic_account_id as account_id,
@@ -295,7 +299,7 @@ export const insuranceClaimsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             ic.id, ic.claim_number, ic.ic_insurer_name as insurer_name,
             ic.ic_tpa as tpa, ic.ic_status as status,
@@ -342,7 +346,7 @@ export const insuranceClaimsRouter = router({
         const userId = ctx.user.sub;
 
         // Get current claim
-        const claimResult = await sql`
+        const claimResult = await getSql()`
           SELECT id, ic_status FROM insurance_claims
           WHERE id = ${input.claim_id} AND hospital_id = ${hospitalId}
           LIMIT 1
@@ -358,14 +362,14 @@ export const insuranceClaimsRouter = router({
         const oldStatus = (claimResult[0] as any).ic_status;
 
         // Update claim
-        await sql`
+        await getSql()`
           UPDATE insurance_claims
           SET ic_status = ${input.new_status}, ic_updated_at = NOW()
           WHERE id = ${input.claim_id} AND hospital_id = ${hospitalId}
         `;
 
         // Create event
-        await sql`
+        await getSql()`
           INSERT INTO claim_events (
             hospital_id, ce_claim_id, ce_event_type, ce_from_status, ce_to_status,
             ce_description, ce_performed_by, ce_performed_at
@@ -402,7 +406,7 @@ export const insuranceClaimsRouter = router({
         const userId = ctx.user.sub;
 
         // Verify user exists
-        const userCheck = await sql`
+        const userCheck = await getSql()`
           SELECT id FROM users WHERE id = ${input.assign_to_user_id} LIMIT 1
         `;
         if (!userCheck || userCheck.length === 0) {
@@ -413,7 +417,7 @@ export const insuranceClaimsRouter = router({
         }
 
         // Update claim
-        await sql`
+        await getSql()`
           UPDATE insurance_claims
           SET ic_assigned_to = ${input.assign_to_user_id},
               ic_priority = ${input.priority || 'medium'},
@@ -422,7 +426,7 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Create event
-        await sql`
+        await getSql()`
           INSERT INTO claim_events (
             hospital_id, ce_claim_id, ce_event_type,
             ce_description, ce_performed_by, ce_performed_at
@@ -463,7 +467,7 @@ export const insuranceClaimsRouter = router({
         const userId = ctx.user.sub;
 
         // Get claim
-        const claimResult = await sql`
+        const claimResult = await getSql()`
           SELECT id, ic_status FROM insurance_claims
           WHERE id = ${input.claim_id} AND hospital_id = ${hospitalId}
           LIMIT 1
@@ -477,7 +481,7 @@ export const insuranceClaimsRouter = router({
         }
 
         // Create pre-auth request
-        const preAuthResult = await sql`
+        const preAuthResult = await getSql()`
           INSERT INTO pre_auth_requests (
             hospital_id, par_claim_id, par_status, par_requested_amount,
             par_diagnosis, par_proposed_treatment, expected_los_days,
@@ -494,14 +498,14 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Update claim status
-        await sql`
+        await getSql()`
           UPDATE insurance_claims
           SET ic_status = 'pre_auth_pending', ic_updated_at = NOW()
           WHERE id = ${input.claim_id}
         `;
 
         // Create event
-        await sql`
+        await getSql()`
           INSERT INTO claim_events (
             hospital_id, ce_claim_id, ce_event_type, ce_to_status,
             ce_amount, ce_performed_by, ce_performed_at
@@ -544,7 +548,7 @@ export const insuranceClaimsRouter = router({
         const userId = ctx.user.sub;
 
         // Get pre-auth
-        const preAuthResult = await sql`
+        const preAuthResult = await getSql()`
           SELECT id FROM pre_auth_requests
           WHERE par_claim_id = ${input.claim_id} AND hospital_id = ${hospitalId}
           ORDER BY par_created_at DESC
@@ -561,7 +565,7 @@ export const insuranceClaimsRouter = router({
         const preAuthId = (preAuthResult[0] as any).id;
 
         // Update pre-auth
-        await sql`
+        await getSql()`
           UPDATE pre_auth_requests
           SET par_status = 'approved', par_approved_amount = ${input.approved_amount},
               tpa_auth_number = ${input.auth_number || null},
@@ -571,7 +575,7 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Update claim
-        await sql`
+        await getSql()`
           UPDATE insurance_claims
           SET ic_status = 'pre_auth_approved',
               ic_pre_auth_amount = ${input.approved_amount},
@@ -580,7 +584,7 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Create event
-        await sql`
+        await getSql()`
           INSERT INTO claim_events (
             hospital_id, ce_claim_id, ce_event_type, ce_to_status,
             ce_amount, ce_performed_by, ce_performed_at
@@ -617,7 +621,7 @@ export const insuranceClaimsRouter = router({
         const userId = ctx.user.sub;
 
         // Get pre-auth
-        const preAuthResult = await sql`
+        const preAuthResult = await getSql()`
           SELECT id FROM pre_auth_requests
           WHERE par_claim_id = ${input.claim_id} AND hospital_id = ${hospitalId}
           ORDER BY par_created_at DESC
@@ -634,7 +638,7 @@ export const insuranceClaimsRouter = router({
         const preAuthId = (preAuthResult[0] as any).id;
 
         // Update pre-auth
-        await sql`
+        await getSql()`
           UPDATE pre_auth_requests
           SET par_status = 'rejected', par_rejection_reason = ${input.rejection_reason},
               par_responded_at = NOW(), par_updated_at = NOW()
@@ -642,14 +646,14 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Update claim
-        await sql`
+        await getSql()`
           UPDATE insurance_claims
           SET ic_status = 'pre_auth_rejected', ic_updated_at = NOW()
           WHERE id = ${input.claim_id}
         `;
 
         // Create event
-        await sql`
+        await getSql()`
           INSERT INTO claim_events (
             hospital_id, ce_claim_id, ce_event_type, ce_to_status,
             ce_description, ce_performed_by, ce_performed_at
@@ -678,7 +682,7 @@ export const insuranceClaimsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, par_claim_id as claim_id, par_status as status,
             par_requested_amount as requested_amount,
@@ -730,7 +734,7 @@ export const insuranceClaimsRouter = router({
         const userId = ctx.user.sub;
 
         // Get claim with current approved amount
-        const claimResult = await sql`
+        const claimResult = await getSql()`
           SELECT id, ic_pre_auth_amount FROM insurance_claims
           WHERE id = ${input.claim_id} AND hospital_id = ${hospitalId}
           LIMIT 1
@@ -747,7 +751,7 @@ export const insuranceClaimsRouter = router({
         const newTotal = (parseFloat(previousApproved) + parseFloat(input.additional_requested)).toString();
 
         // Get sequence number
-        const seqResult = await sql`
+        const seqResult = await getSql()`
           SELECT COALESCE(MAX(er_sequence_number), 0) + 1 as next_seq
           FROM enhancement_requests
           WHERE er_claim_id = ${input.claim_id}
@@ -755,7 +759,7 @@ export const insuranceClaimsRouter = router({
         const sequenceNumber = (seqResult[0] as any).next_seq;
 
         // Create enhancement request
-        const enhancementResult = await sql`
+        const enhancementResult = await getSql()`
           INSERT INTO enhancement_requests (
             hospital_id, er_claim_id, er_status, er_sequence_number,
             previous_approved, additional_requested, new_total_requested,
@@ -774,7 +778,7 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Update claim status
-        await sql`
+        await getSql()`
           UPDATE insurance_claims
           SET ic_status = 'enhancement_pending', enhancement_total = ${newTotal},
               ic_updated_at = NOW()
@@ -782,7 +786,7 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Create event
-        await sql`
+        await getSql()`
           INSERT INTO claim_events (
             hospital_id, ce_claim_id, ce_event_type, ce_to_status,
             ce_amount, ce_performed_by, ce_performed_at
@@ -825,7 +829,7 @@ export const insuranceClaimsRouter = router({
         const userId = ctx.user.sub;
 
         // Get enhancement request
-        const enhancementResult = await sql`
+        const enhancementResult = await getSql()`
           SELECT er_claim_id, er_status FROM enhancement_requests
           WHERE id = ${input.enhancement_id} AND hospital_id = ${hospitalId}
           LIMIT 1
@@ -841,7 +845,7 @@ export const insuranceClaimsRouter = router({
         const claimId = (enhancementResult[0] as any).er_claim_id;
 
         // Update enhancement
-        await sql`
+        await getSql()`
           UPDATE enhancement_requests
           SET er_status = 'approved', er_approved_amount = ${input.approved_amount},
               er_tpa_reference = ${input.tpa_reference || null},
@@ -850,7 +854,7 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Update claim
-        await sql`
+        await getSql()`
           UPDATE insurance_claims
           SET ic_status = 'enhancement_approved',
               ic_approved_amount = ic_pre_auth_amount + ${input.approved_amount}::numeric,
@@ -859,7 +863,7 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Create event
-        await sql`
+        await getSql()`
           INSERT INTO claim_events (
             hospital_id, ce_claim_id, ce_event_type, ce_to_status,
             ce_amount, ce_performed_by, ce_performed_at
@@ -896,7 +900,7 @@ export const insuranceClaimsRouter = router({
         const userId = ctx.user.sub;
 
         // Get enhancement request
-        const enhancementResult = await sql`
+        const enhancementResult = await getSql()`
           SELECT er_claim_id FROM enhancement_requests
           WHERE id = ${input.enhancement_id} AND hospital_id = ${hospitalId}
           LIMIT 1
@@ -912,7 +916,7 @@ export const insuranceClaimsRouter = router({
         const claimId = (enhancementResult[0] as any).er_claim_id;
 
         // Update enhancement
-        await sql`
+        await getSql()`
           UPDATE enhancement_requests
           SET er_status = 'rejected', er_rejection_reason = ${input.rejection_reason},
               er_responded_at = NOW(), er_updated_at = NOW()
@@ -920,14 +924,14 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Update claim
-        await sql`
+        await getSql()`
           UPDATE insurance_claims
           SET ic_status = 'enhancement_rejected', ic_updated_at = NOW()
           WHERE id = ${claimId}
         `;
 
         // Create event
-        await sql`
+        await getSql()`
           INSERT INTO claim_events (
             hospital_id, ce_claim_id, ce_event_type, ce_to_status,
             ce_description, ce_performed_by, ce_performed_at
@@ -956,7 +960,7 @@ export const insuranceClaimsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, er_claim_id as claim_id, er_status as status,
             er_sequence_number as sequence_number, previous_approved,
@@ -998,7 +1002,7 @@ export const insuranceClaimsRouter = router({
         const userId = ctx.user.sub;
 
         // Update claim
-        await sql`
+        await getSql()`
           UPDATE insurance_claims
           SET ic_status = 'discharge_pending', total_bill_amount = ${input.total_bill_amount},
               ic_discharge_date = ${input.discharge_date || null},
@@ -1007,7 +1011,7 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Create event
-        await sql`
+        await getSql()`
           INSERT INTO claim_events (
             hospital_id, ce_claim_id, ce_event_type, ce_to_status,
             ce_amount, ce_performed_by, ce_performed_at
@@ -1047,7 +1051,7 @@ export const insuranceClaimsRouter = router({
         const status = input.is_partial ? 'partially_approved' : 'approved';
 
         // Update claim
-        await sql`
+        await getSql()`
           UPDATE insurance_claims
           SET ic_status = ${status}, ic_approved_amount = ${input.approved_amount},
               ic_updated_at = NOW()
@@ -1055,7 +1059,7 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Create event
-        await sql`
+        await getSql()`
           INSERT INTO claim_events (
             hospital_id, ce_claim_id, ce_event_type, ce_to_status,
             ce_amount, ce_performed_by, ce_performed_at
@@ -1095,7 +1099,7 @@ export const insuranceClaimsRouter = router({
         const userId = ctx.user.sub;
 
         // Create deduction
-        const deductionResult = await sql`
+        const deductionResult = await getSql()`
           INSERT INTO tpa_deductions (
             hospital_id, td_claim_id, td_category, td_description, td_amount,
             td_invoice_line_id, td_charge_code, is_disputed, td_applied_by, td_created_at
@@ -1108,7 +1112,7 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Update claim total deductions
-        await sql`
+        await getSql()`
           UPDATE insurance_claims
           SET ic_total_deductions = COALESCE(ic_total_deductions, 0) + ${input.amount}::numeric,
               ic_updated_at = NOW()
@@ -1116,7 +1120,7 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Create event
-        await sql`
+        await getSql()`
           INSERT INTO claim_events (
             hospital_id, ce_claim_id, ce_event_type, ce_amount,
             ce_description, ce_performed_by, ce_performed_at
@@ -1154,7 +1158,7 @@ export const insuranceClaimsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Update deduction
-        await sql`
+        await getSql()`
           UPDATE tpa_deductions
           SET is_disputed = true, dispute_reason = ${input.dispute_reason}
           WHERE id = ${input.deduction_id} AND hospital_id = ${hospitalId}
@@ -1185,7 +1189,7 @@ export const insuranceClaimsRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // Get deduction
-        const deductionResult = await sql`
+        const deductionResult = await getSql()`
           SELECT td_claim_id, td_amount FROM tpa_deductions
           WHERE id = ${input.deduction_id} AND hospital_id = ${hospitalId}
           LIMIT 1
@@ -1204,14 +1208,14 @@ export const insuranceClaimsRouter = router({
         const adjustmentAmount = originalAmount - parseFloat(input.resolved_amount);
 
         // Update deduction
-        await sql`
+        await getSql()`
           UPDATE tpa_deductions
           SET dispute_resolved = true, resolved_amount = ${input.resolved_amount}
           WHERE id = ${input.deduction_id}
         `;
 
         // Adjust claim total deductions
-        await sql`
+        await getSql()`
           UPDATE insurance_claims
           SET ic_total_deductions = COALESCE(ic_total_deductions, 0) - ${adjustmentAmount}::numeric,
               ic_updated_at = NOW()
@@ -1241,7 +1245,7 @@ export const insuranceClaimsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id, td_claim_id as claim_id, td_category as category,
             td_description as description, td_amount as amount,
@@ -1280,7 +1284,7 @@ export const insuranceClaimsRouter = router({
         const userId = ctx.user.sub;
 
         // Update claim
-        await sql`
+        await getSql()`
           UPDATE insurance_claims
           SET ic_status = 'settled', settled_amount = ${input.settled_amount},
               patient_liability = ${input.patient_liability || null},
@@ -1289,7 +1293,7 @@ export const insuranceClaimsRouter = router({
         `;
 
         // Create event
-        await sql`
+        await getSql()`
           INSERT INTO claim_events (
             hospital_id, ce_claim_id, ce_event_type, ce_to_status,
             ce_amount, ce_performed_by, ce_performed_at
@@ -1325,7 +1329,7 @@ export const insuranceClaimsRouter = router({
         const userId = ctx.user.sub;
 
         // Update claim notes
-        const claimResult = await sql`
+        const claimResult = await getSql()`
           SELECT ic_notes FROM insurance_claims
           WHERE id = ${input.claim_id} AND hospital_id = ${hospitalId}
           LIMIT 1
@@ -1341,14 +1345,14 @@ export const insuranceClaimsRouter = router({
         const existingNotes = (claimResult[0] as any).ic_notes || '';
         const newNotes = existingNotes ? `${existingNotes}\n\n${input.note}` : input.note;
 
-        await sql`
+        await getSql()`
           UPDATE insurance_claims
           SET ic_notes = ${newNotes}, ic_updated_at = NOW()
           WHERE id = ${input.claim_id}
         `;
 
         // Create event
-        await sql`
+        await getSql()`
           INSERT INTO claim_events (
             hospital_id, ce_claim_id, ce_event_type, ce_description,
             ce_performed_by, ce_performed_at
@@ -1377,7 +1381,7 @@ export const insuranceClaimsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             ce.id, ce.ce_claim_id as claim_id, ce.ce_event_type as event_type,
             ce.ce_from_status as from_status, ce.ce_to_status as to_status,
@@ -1414,7 +1418,7 @@ export const insuranceClaimsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             COUNT(CASE WHEN ic_status = 'draft' THEN 1 END) as draft_count,
             COUNT(CASE WHEN ic_status = 'pre_auth_pending' THEN 1 END) as pre_auth_pending_count,
@@ -1450,7 +1454,7 @@ export const insuranceClaimsRouter = router({
     try {
       const hospitalId = ctx.user.hospital_id;
 
-      const result = await sql`
+      const result = await getSql()`
         SELECT
           ic_tpa as tpa,
           COUNT(*) as total_claims,
@@ -1497,7 +1501,7 @@ export const insuranceClaimsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             ic.id, ic.claim_number, ic.ic_insurer_name as insurer_name,
             ic.ic_tpa as tpa, ic.ic_status as status,

@@ -1,10 +1,14 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeAuditLog } from '@/lib/audit/logger';
 
-const sql = neon(process.env.DATABASE_URL!);
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 // ============================================================
 // TYPE DEFINITIONS & VALIDATORS
@@ -47,7 +51,7 @@ export const clinicalNotesRouter = router({
         const queueId = crypto.randomUUID();
 
         // 1. Insert clinical impression (SOAP note)
-        const noteResult = await sql`
+        const noteResult = await getSql()`
           INSERT INTO clinical_impressions (
             id,
             hospital_id,
@@ -90,7 +94,7 @@ export const clinicalNotesRouter = router({
         }
 
         // 2. Create co-signature queue entry
-        const queueResult = await sql`
+        const queueResult = await getSql()`
           INSERT INTO co_signature_queue (
             id,
             hospital_id,
@@ -166,7 +170,7 @@ export const clinicalNotesRouter = router({
         const userId = ctx.user.sub;
         const noteId = crypto.randomUUID();
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO clinical_impressions (
             id,
             hospital_id,
@@ -261,7 +265,7 @@ export const clinicalNotesRouter = router({
         const endTime = new Date(input.operation_end_datetime).getTime();
         const operationDurationMinutes = Math.round((endTime - startTime) / 60000);
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO clinical_impressions (
             id,
             hospital_id,
@@ -375,7 +379,7 @@ export const clinicalNotesRouter = router({
         const userId = ctx.user.sub;
         const noteId = crypto.randomUUID();
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO clinical_impressions (
             id,
             hospital_id,
@@ -472,7 +476,7 @@ export const clinicalNotesRouter = router({
         const hospitalId = ctx.user.hospital_id;
 
         // 1. Verify note exists and is in draft status
-        const checkResult = await sql`
+        const checkResult = await getSql()`
           SELECT id, status, note_type FROM clinical_impressions
           WHERE id = ${input.note_id} AND hospital_id = ${hospitalId};
         `;
@@ -570,7 +574,7 @@ export const clinicalNotesRouter = router({
           RETURNING id, updated_at;
         `;
 
-        const updateResult = await sql(updateQuery, [...values, input.note_id, hospitalId]);
+        const updateResult = await getSql()(updateQuery, [...values, input.note_id, hospitalId]);
 
         const rows = (updateResult as any);
         if (!rows || rows.length === 0) {
@@ -614,7 +618,7 @@ export const clinicalNotesRouter = router({
         const userId = ctx.user.sub;
 
         // 1. Verify note exists and is in draft status
-        const checkResult = await sql`
+        const checkResult = await getSql()`
           SELECT id, status FROM clinical_impressions
           WHERE id = ${input.note_id} AND hospital_id = ${hospitalId};
         `;
@@ -635,7 +639,7 @@ export const clinicalNotesRouter = router({
         }
 
         // 2. Sign note
-        const signResult = await sql`
+        const signResult = await getSql()`
           UPDATE clinical_impressions
           SET status = 'signed',
               signed_by_user_id = ${userId},
@@ -655,7 +659,7 @@ export const clinicalNotesRouter = router({
         }
 
         // 3. Update co-signature queue entry if exists
-        const queueUpdateResult = await sql`
+        const queueUpdateResult = await getSql()`
           UPDATE co_signature_queue
           SET cosign_status = 'signed',
               signed_at = NOW(),
@@ -713,7 +717,7 @@ export const clinicalNotesRouter = router({
           whereConditions += ` AND status = '${input.status}'`;
         }
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id,
             note_type,
@@ -729,7 +733,7 @@ export const clinicalNotesRouter = router({
             plan,
             shift_summary
           FROM clinical_impressions
-          WHERE ${sql(whereConditions)}
+          WHERE ${getSql()(whereConditions)}
           ORDER BY created_at DESC
           LIMIT ${input.limit} OFFSET ${input.offset};
         `;
@@ -761,7 +765,7 @@ export const clinicalNotesRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT *
           FROM clinical_impressions
           WHERE id = ${input.note_id} AND hospital_id = ${hospitalId};
@@ -778,7 +782,7 @@ export const clinicalNotesRouter = router({
         const note = rows[0];
 
         // Fetch version history if available
-        const versionResult = await sql`
+        const versionResult = await getSql()`
           SELECT id, version_number, created_at FROM clinical_impression_versions
           WHERE clinical_impression_id = ${input.note_id}
           ORDER BY version_number DESC
@@ -813,7 +817,7 @@ export const clinicalNotesRouter = router({
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             csq.id as queue_id,
             csq.note_id,
@@ -864,7 +868,7 @@ export const clinicalNotesRouter = router({
         const userId = ctx.user.sub;
 
         // 1. Count pending
-        const pendingResult = await sql`
+        const pendingResult = await getSql()`
           SELECT COUNT(*) as count FROM co_signature_queue
           WHERE hospital_id = ${hospitalId}
             AND required_signer_id = ${userId}
@@ -875,7 +879,7 @@ export const clinicalNotesRouter = router({
         const pendingCount = pendingRows?.[0]?.count || 0;
 
         // 2. Count signed today
-        const signedTodayResult = await sql`
+        const signedTodayResult = await getSql()`
           SELECT COUNT(*) as count FROM co_signature_queue
           WHERE hospital_id = ${hospitalId}
             AND required_signer_id = ${userId}
@@ -887,7 +891,7 @@ export const clinicalNotesRouter = router({
         const signedTodayCount = signedTodayRows?.[0]?.count || 0;
 
         // 3. Count overdue (pending for > 4 hours)
-        const overdueResult = await sql`
+        const overdueResult = await getSql()`
           SELECT COUNT(*) as count FROM co_signature_queue
           WHERE hospital_id = ${hospitalId}
             AND required_signer_id = ${userId}
@@ -931,7 +935,7 @@ export const clinicalNotesRouter = router({
         const userId = ctx.user.sub;
         const docId = crypto.randomUUID();
 
-        const result = await sql`
+        const result = await getSql()`
           INSERT INTO document_references (
             id,
             hospital_id,
@@ -1023,7 +1027,7 @@ export const clinicalNotesRouter = router({
           whereConditions += ` AND document_type = '${input.document_type}'`;
         }
 
-        const result = await sql`
+        const result = await getSql()`
           SELECT
             id,
             document_type,
@@ -1035,7 +1039,7 @@ export const clinicalNotesRouter = router({
             created_at,
             updated_at
           FROM document_references
-          WHERE ${sql(whereConditions)}
+          WHERE ${getSql()(whereConditions)}
           ORDER BY created_at DESC
           LIMIT ${input.limit} OFFSET ${input.offset};
         `;
