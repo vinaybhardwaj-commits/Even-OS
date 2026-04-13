@@ -4,7 +4,8 @@
  */
 
 const RESEND_API_URL = 'https://api.resend.com/emails';
-const FROM_ADDRESS = 'Even OS <noreply@even.in>';
+// TODO: Switch back to 'Even OS <noreply@even.in>' once even.in is verified in Resend
+const FROM_ADDRESS = 'Even OS <onboarding@resend.dev>';
 
 interface SendEmailOptions {
   to: string;
