@@ -46,6 +46,7 @@ import { hl7AnalyzerRouter } from './hl7-analyzer';
 import { drizzleTestRouter } from './drizzle-test';
 import { dashboardsRouter } from './dashboards';
 import { integrationsRouter } from './integrations';
+import { mrdDocumentsRouter } from './mrd-documents';
 
 export const appRouter = router({
   auth: authRouter,
@@ -95,6 +96,7 @@ export const appRouter = router({
   drizzleTest: drizzleTestRouter,
   dashboards: dashboardsRouter,
   integrations: integrationsRouter,
+  mrdDocuments: mrdDocumentsRouter,
 });
 
 export type AppRouter = typeof appRouter;

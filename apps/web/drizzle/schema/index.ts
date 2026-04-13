@@ -25,3 +25,4 @@ export * from './24-qc-levey-jennings';
 export * from './25-hl7-analyzer';
 export * from './26-dashboards';
 export * from './27-integrations';
+export * from './28-mrd-documents';
