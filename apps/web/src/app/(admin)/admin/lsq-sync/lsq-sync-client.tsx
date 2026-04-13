@@ -4,12 +4,13 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 
 /**
- * tRPC query helper — handles superjson error extraction properly.
- * tRPC v10 with superjson returns errors at json.error.json.message,
- * NOT json.error.message.
+ * tRPC query helper — handles superjson input/output serialization.
+ * superjson wraps input as {json: {...}} and errors at json.error.json.message.
  */
 async function trpcQuery(path: string, input?: any) {
-  const params = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
+  // superjson transformer requires input wrapped in {json: ...}
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
   const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
   if (json.error) {
@@ -20,13 +21,13 @@ async function trpcQuery(path: string, input?: any) {
 }
 
 /**
- * tRPC mutation helper (POST)
+ * tRPC mutation helper (POST) — superjson serialization.
  */
 async function trpcMutate(path: string, input?: any) {
   const res = await fetch(`/api/trpc/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input !== undefined ? { json: input } : {}),
+    body: JSON.stringify({ json: input !== undefined ? input : {} }),
   });
   const json = await res.json();
   if (json.error) {
