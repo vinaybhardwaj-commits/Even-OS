@@ -20,6 +20,9 @@ import { generateDischargeSummary } from '@/lib/ai/clinical/discharge-summary';
 import { runClinicalNudgeScan } from '@/lib/ai/clinical/decision-nudges';
 import { generateShiftHandoff, generateAllWardHandoffs } from '@/lib/ai/clinical/shift-handoff';
 import { suggestPathways, analyzePathwayVariance } from '@/lib/ai/clinical/care-pathway-suggest';
+import { runNabhAudit, getNabhScore } from '@/lib/ai/quality/nabh-auditor';
+import { runActiveMonitoring } from '@/lib/ai/quality/active-monitor';
+import { generateIncidentTrendReport, generateInfectionReport, generateComplianceReport, generateQualityDashboardSummary } from '@/lib/ai/quality/quality-reports';
 
 // ────────────────────────────────────────────────────────────────────────
 // Lazy SQL Client
@@ -253,6 +256,17 @@ export const runPathwayAnalysisInput = z.object({
 export const runPathwayVarianceInput = z.object({
   care_plan_id: z.string().uuid(),
 });
+
+// ════════════════════════════════════════════════════════════════════════
+// AI.4: QUALITY & NABH INTELLIGENCE INPUT SCHEMAS
+// ════════════════════════════════════════════════════════════════════════
+
+const runNabhAuditInput = z.object({});
+const runQualityMonitorInput = z.object({});
+const generateIncidentReportInput = z.object({ days: z.number().int().min(1).max(365).default(30) });
+const generateInfectionReportInput = z.object({ days: z.number().int().min(1).max(365).default(30) });
+const generateComplianceReportInput = z.object({ days: z.number().int().min(1).max(365).default(30) });
+const generateQualitySummaryInput = z.object({});
 
 // ════════════════════════════════════════════════════════════════════════
 // ROUTER
@@ -1321,6 +1335,167 @@ export const evenAIRouter = router({
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: `Pathway variance analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  // ══════════════════════════════════════════════════════════════════
+  // AI.4 — Quality & NABH Intelligence (endpoints 27-33)
+  // ══════════════════════════════════════════════════════════════════
+
+  /**
+   * 27. runNabhAudit — Run NABH readiness audit scoring
+   */
+  runNabhAudit: adminProcedure
+    .input(runNabhAuditInput)
+    .mutation(async () => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const result = await runNabhAudit(hospitalId);
+        return {
+          success: true,
+          overall_score: result.overall_score,
+          chapter_scores: result.chapter_scores,
+          top_gaps: result.top_gaps,
+          action_items: result.action_items,
+          card_id: result.card.id,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `NABH audit failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 28. runQualityMonitor — Run active quality monitoring checks
+   */
+  runQualityMonitor: adminProcedure
+    .input(runQualityMonitorInput)
+    .mutation(async () => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const result = await runActiveMonitoring(hospitalId);
+        return {
+          success: true,
+          checks_run: result.checks_run,
+          alerts_generated: result.alerts_generated,
+          cards: result.cards.map((c: any) => ({
+            id: c.id,
+            severity: c.severity,
+            title: c.title,
+            body: c.body,
+            action_url: c.action_url,
+          })),
+          errors: result.errors,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Quality monitor failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 30. generateIncidentReport — Generate incident trend report
+   */
+  generateIncidentReport: protectedProcedure
+    .input(generateIncidentReportInput)
+    .mutation(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const report = await generateIncidentTrendReport(hospitalId, input.days);
+        return {
+          success: true,
+          report_type: report.report_type,
+          period: { start: report.period_start, end: report.period_end },
+          metrics: report.metrics,
+          narrative: report.narrative,
+          source: report.source,
+          card_id: report.card.id,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Incident report failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 31. generateInfectionReport — Generate infection surveillance report
+   */
+  generateInfectionReport: protectedProcedure
+    .input(generateInfectionReportInput)
+    .mutation(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const report = await generateInfectionReport(hospitalId, input.days);
+        return {
+          success: true,
+          report_type: report.report_type,
+          period: { start: report.period_start, end: report.period_end },
+          metrics: report.metrics,
+          narrative: report.narrative,
+          source: report.source,
+          card_id: report.card.id,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Infection report failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 32. generateComplianceReport — Generate compliance posture report
+   */
+  generateComplianceReport: protectedProcedure
+    .input(generateComplianceReportInput)
+    .mutation(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const report = await generateComplianceReport(hospitalId, input.days);
+        return {
+          success: true,
+          report_type: report.report_type,
+          period: { start: report.period_start, end: report.period_end },
+          metrics: report.metrics,
+          narrative: report.narrative,
+          source: report.source,
+          card_id: report.card.id,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Compliance report failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 33. generateQualitySummary — Generate quality dashboard executive summary
+   */
+  generateQualitySummary: protectedProcedure
+    .input(generateQualitySummaryInput)
+    .mutation(async () => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const report = await generateQualityDashboardSummary(hospitalId);
+        return {
+          success: true,
+          narrative: report.narrative,
+          metrics: report.metrics,
+          source: report.source,
+          card_id: report.card.id,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Quality summary failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
         });
       }
     }),

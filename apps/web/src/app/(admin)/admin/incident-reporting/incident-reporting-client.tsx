@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 
 // ─── Types ───────────────────────────────────────────────
-type TabType = 'board' | 'report' | 'falls_risk' | 'med_errors' | 'falls' | 'analytics';
+type TabType = 'board' | 'report' | 'falls_risk' | 'med_errors' | 'falls' | 'analytics' | 'ai-insights';
 
 interface Incident {
   id: string;
@@ -197,6 +197,12 @@ export function IncidentReportingClient() {
   const [filterType, setFilterType] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterSeverity, setFilterSeverity] = useState('');
+
+  // AI Insights State
+  const [aiIncidentReport, setAiIncidentReport] = useState<any>(null);
+  const [aiQualityCards, setAiQualityCards] = useState<any[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // ──────────── LOAD DATA ────────────────────────────────────
   useEffect(() => {
@@ -433,6 +439,7 @@ export function IncidentReportingClient() {
               { id: 'med_errors', label: '💊 Medication Errors' },
               { id: 'falls', label: '👥 Falls' },
               { id: 'analytics', label: '📊 Analytics' },
+              { id: 'ai-insights', label: '🤖 AI Insights' },
             ] as const
           ).map((tab) => (
             <button
@@ -1975,6 +1982,245 @@ export function IncidentReportingClient() {
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB: AI INSIGHTS */}
+      {activeTab === 'ai-insights' && (
+        <div style={{ maxWidth: '90rem', margin: '0 auto', padding: '1.5rem 1.5rem' }}>
+          {/* Error Display */}
+          {aiError && (
+            <div
+              style={{
+                backgroundColor: '#FEE2E2',
+                borderColor: '#FCA5A5',
+                borderWidth: 1,
+                borderStyle: 'solid',
+                borderRadius: '0.5rem',
+                padding: '1rem',
+                marginBottom: '1.5rem',
+                color: '#991B1B',
+              }}
+            >
+              {aiError}
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+            <button
+              onClick={async () => {
+                setAiLoading(true);
+                setAiError(null);
+                try {
+                  const res = await fetch('/api/trpc/evenAI.generateIncidentReport', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ json: { days: 30 } }),
+                  });
+                  const data = await res.json();
+                  const result = data.result?.data?.json;
+                  if (result?.success) {
+                    setAiIncidentReport(result);
+                  } else {
+                    setAiError('Failed to generate incident report');
+                  }
+                } catch (err) {
+                  setAiError(err instanceof Error ? err.message : 'Error generating report');
+                } finally {
+                  setAiLoading(false);
+                }
+              }}
+              disabled={aiLoading}
+              style={{
+                padding: '0.75rem 1.5rem',
+                backgroundColor: '#7C3AED',
+                color: '#e0e0e0',
+                border: 'none',
+                borderRadius: '0.375rem',
+                cursor: aiLoading ? 'not-allowed' : 'pointer',
+                opacity: aiLoading ? 0.6 : 1,
+                fontWeight: '500',
+              }}
+            >
+              {aiLoading ? 'Loading...' : 'Generate Incident Report (30d)'}
+            </button>
+            <button
+              onClick={async () => {
+                setAiLoading(true);
+                setAiError(null);
+                try {
+                  const res = await fetch('/api/trpc/evenAI.runQualityMonitor', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ json: {} }),
+                  });
+                  const data = await res.json();
+                  const result = data.result?.data?.json;
+                  if (result?.success) {
+                    setAiQualityCards(result.cards || []);
+                  } else {
+                    setAiError('Failed to run quality monitor');
+                  }
+                } catch (err) {
+                  setAiError(err instanceof Error ? err.message : 'Error running monitor');
+                } finally {
+                  setAiLoading(false);
+                }
+              }}
+              disabled={aiLoading}
+              style={{
+                padding: '0.75rem 1.5rem',
+                backgroundColor: '#7C3AED',
+                color: '#e0e0e0',
+                border: 'none',
+                borderRadius: '0.375rem',
+                cursor: aiLoading ? 'not-allowed' : 'pointer',
+                opacity: aiLoading ? 0.6 : 1,
+                fontWeight: '500',
+              }}
+            >
+              {aiLoading ? 'Loading...' : 'Run Quality Monitor'}
+            </button>
+          </div>
+
+          {/* Incident Report Display */}
+          {aiIncidentReport && (
+            <div
+              style={{
+                backgroundColor: '#1a1a2e',
+                borderColor: '#0f3460',
+                borderWidth: 1,
+                borderStyle: 'solid',
+                borderRadius: '0.5rem',
+                padding: '1.5rem',
+                marginBottom: '1.5rem',
+              }}
+            >
+              <h3 style={{ fontSize: '1.125rem', fontWeight: 'bold', color: '#e0e0e0', marginBottom: '1rem' }}>
+                Incident Trend Report
+              </h3>
+              <div style={{ fontSize: '0.875rem', color: '#a0a0a0', marginBottom: '1rem' }}>
+                Period: {aiIncidentReport.period?.start} to {aiIncidentReport.period?.end}
+              </div>
+              <div
+                style={{
+                  backgroundColor: '#0f3460',
+                  borderRadius: '0.375rem',
+                  padding: '1rem',
+                  marginBottom: '1rem',
+                  color: '#e0e0e0',
+                  fontSize: '0.875rem',
+                  lineHeight: '1.5',
+                }}
+              >
+                {aiIncidentReport.narrative}
+              </div>
+              {aiIncidentReport.metrics && Object.keys(aiIncidentReport.metrics).length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+                  {Object.entries(aiIncidentReport.metrics).map(([key, value]: [string, any]) => (
+                    <div
+                      key={key}
+                      style={{
+                        backgroundColor: '#16213e',
+                        borderRadius: '0.375rem',
+                        padding: '0.75rem',
+                      }}
+                    >
+                      <div style={{ fontSize: '0.75rem', color: '#a0a0a0', marginBottom: '0.25rem' }}>
+                        {key.replace(/_/g, ' ').toUpperCase()}
+                      </div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#7C3AED' }}>
+                        {typeof value === 'object' ? JSON.stringify(value) : value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Quality Monitor Alerts */}
+          {aiQualityCards.length > 0 && (
+            <div
+              style={{
+                backgroundColor: '#1a1a2e',
+                borderColor: '#0f3460',
+                borderWidth: 1,
+                borderStyle: 'solid',
+                borderRadius: '0.5rem',
+                padding: '1.5rem',
+              }}
+            >
+              <h3 style={{ fontSize: '1.125rem', fontWeight: 'bold', color: '#e0e0e0', marginBottom: '1rem' }}>
+                Quality Monitor Alerts
+              </h3>
+              <div style={{ display: 'grid', gap: '1rem' }}>
+                {aiQualityCards.map((card) => {
+                  const severityColors: Record<string, string> = {
+                    critical: '#DC2626',
+                    high: '#EA580C',
+                    medium: '#F59E0B',
+                    low: '#7C3AED',
+                    info: '#7C3AED',
+                  };
+                  return (
+                    <div
+                      key={card.id}
+                      style={{
+                        backgroundColor: '#16213e',
+                        borderColor: severityColors[card.severity] || '#7C3AED',
+                        borderLeftWidth: '4px',
+                        borderLeftStyle: 'solid',
+                        borderRadius: '0.375rem',
+                        padding: '1rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
+                        <div
+                          style={{
+                            width: '2rem',
+                            height: '2rem',
+                            borderRadius: '0.375rem',
+                            backgroundColor: severityColors[card.severity] || '#7C3AED',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <span style={{ color: 'white', fontSize: '0.875rem', fontWeight: 'bold' }}>
+                            {card.severity[0].toUpperCase()}
+                          </span>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ color: '#e0e0e0', fontWeight: '600', marginBottom: '0.25rem' }}>
+                            {card.title}
+                          </div>
+                          <div style={{ fontSize: '0.875rem', color: '#a0a0a0', marginBottom: '0.5rem' }}>
+                            {card.body}
+                          </div>
+                          {card.action_url && (
+                            <a
+                              href={card.action_url}
+                              style={{
+                                fontSize: '0.875rem',
+                                color: '#7C3AED',
+                                textDecoration: 'none',
+                                fontWeight: '500',
+                              }}
+                            >
+                              View Details
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

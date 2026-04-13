@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 // ─── TYPES ────────────────────────────────────────────────────
-type TabType = 'safety-rounds' | 'round-findings' | 'templates' | 'clinical-audits' | 'complaints' | 'indicators' | 'analytics';
+type TabType = 'safety-rounds' | 'round-findings' | 'templates' | 'clinical-audits' | 'complaints' | 'indicators' | 'analytics' | 'ai-quality';
 
 interface SafetyRound {
   id: string;
@@ -156,6 +156,13 @@ export function SafetyAuditsClient() {
   const [newRound, setNewRound] = useState({ department: '', scheduled_date: '', template_id: '' });
   const [newTemplate, setNewTemplate] = useState({ template_name: '', description: '', checklist_items: '' });
   const [newAudit, setNewAudit] = useState({ nabh_chapter: '', audit_type: '', scheduled_date: '', sample_size: 10 });
+
+  // AI Quality State
+  const [aiNabhScore, setAiNabhScore] = useState<any>(null);
+  const [aiComplianceReport, setAiComplianceReport] = useState<any>(null);
+  const [aiNabhLoading, setAiNabhLoading] = useState(false);
+  const [aiComplianceLoading, setAiComplianceLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const fetchSafetyRounds = useCallback(async () => {
     setLoading(true);
@@ -1294,6 +1301,170 @@ export function SafetyAuditsClient() {
     </div>
   );
 
+  const renderAIQualityTab = () => (
+    <div style={{ padding: '20px', maxWidth: '1400px' }}>
+      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: '600', color: '#fff' }}>AI Quality Intelligence</h2>
+
+      {aiError && (
+        <div style={{ backgroundColor: '#7f1d1d', color: '#fca5a5', padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', border: '1px solid #991b1b' }}>
+          {aiError}
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
+        <button
+          onClick={async () => {
+            setAiNabhLoading(true);
+            setAiError(null);
+            try {
+              const res = await fetch('/api/trpc/evenAI.runNabhAudit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ json: {} }),
+              });
+              const data = await res.json();
+              const result = data.result?.data?.json;
+              if (result?.success) {
+                setAiNabhScore(result);
+              } else {
+                setAiError('Failed to run NABH audit');
+              }
+            } catch (err) {
+              setAiError(err instanceof Error ? err.message : 'Error running audit');
+            } finally {
+              setAiNabhLoading(false);
+            }
+          }}
+          disabled={aiNabhLoading}
+          style={{
+            padding: '10px 16px',
+            backgroundColor: '#7c3aed',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: aiNabhLoading ? 'not-allowed' : 'pointer',
+            opacity: aiNabhLoading ? 0.6 : 1,
+            fontWeight: '500',
+            fontSize: '14px',
+          }}
+        >
+          {aiNabhLoading ? 'Running...' : 'Run NABH Audit'}
+        </button>
+        <button
+          onClick={async () => {
+            setAiComplianceLoading(true);
+            setAiError(null);
+            try {
+              const res = await fetch('/api/trpc/evenAI.generateComplianceReport', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ json: { days: 30 } }),
+              });
+              const data = await res.json();
+              const result = data.result?.data?.json;
+              if (result?.success) {
+                setAiComplianceReport(result);
+              } else {
+                setAiError('Failed to generate compliance report');
+              }
+            } catch (err) {
+              setAiError(err instanceof Error ? err.message : 'Error generating report');
+            } finally {
+              setAiComplianceLoading(false);
+            }
+          }}
+          disabled={aiComplianceLoading}
+          style={{
+            padding: '10px 16px',
+            backgroundColor: '#7c3aed',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: aiComplianceLoading ? 'not-allowed' : 'pointer',
+            opacity: aiComplianceLoading ? 0.6 : 1,
+            fontWeight: '500',
+            fontSize: '14px',
+          }}
+        >
+          {aiComplianceLoading ? 'Generating...' : 'Generate Compliance Report (30d)'}
+        </button>
+      </div>
+
+      {/* NABH Score Card */}
+      {aiNabhScore && (
+        <div style={{ backgroundColor: '#1e293b', borderRadius: '8px', border: '1px solid #334155', padding: '20px', marginBottom: '24px' }}>
+          <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600', color: '#fff' }}>NABH Readiness Score</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+            <div style={{ backgroundColor: '#0f172a', borderRadius: '6px', padding: '16px', textAlign: 'center' }}>
+              <div style={{ fontSize: '14px', color: '#94a3b8', marginBottom: '8px' }}>Overall Score</div>
+              <div style={{
+                fontSize: '48px',
+                fontWeight: '700',
+                color: aiNabhScore.overall_score >= 80 ? '#10b981' : aiNabhScore.overall_score >= 60 ? '#f59e0b' : '#ef4444'
+              }}>
+                {aiNabhScore.overall_score}
+              </div>
+              <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '8px' }}>
+                {aiNabhScore.overall_score >= 80 ? 'Compliant' : aiNabhScore.overall_score >= 60 ? 'At Risk' : 'Non-Compliant'}
+              </div>
+            </div>
+          </div>
+          {aiNabhScore.chapter_scores && aiNabhScore.chapter_scores.length > 0 && (
+            <div style={{ marginBottom: '16px' }}>
+              <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#cbd5e1' }}>Chapter Scores</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+                {aiNabhScore.chapter_scores.map((ch: any) => (
+                  <div key={ch.chapter} style={{ backgroundColor: '#0f172a', borderRadius: '6px', padding: '12px' }}>
+                    <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>{ch.chapter}</div>
+                    <div style={{ fontSize: '20px', fontWeight: '700', color: ch.score >= 80 ? '#10b981' : ch.score >= 60 ? '#f59e0b' : '#ef4444' }}>
+                      {ch.score}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {aiNabhScore.top_gaps && aiNabhScore.top_gaps.length > 0 && (
+            <div>
+              <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#cbd5e1' }}>Top Gaps</h4>
+              <ul style={{ margin: 0, paddingLeft: '20px', color: '#cbd5e1' }}>
+                {aiNabhScore.top_gaps.map((gap: string, idx: number) => (
+                  <li key={idx} style={{ fontSize: '14px', marginBottom: '8px' }}>{gap}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Compliance Report Card */}
+      {aiComplianceReport && (
+        <div style={{ backgroundColor: '#1e293b', borderRadius: '8px', border: '1px solid #334155', padding: '20px' }}>
+          <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600', color: '#fff' }}>Compliance Report</h3>
+          <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '12px' }}>
+            Period: {aiComplianceReport.period?.start} to {aiComplianceReport.period?.end}
+          </div>
+          <div style={{ backgroundColor: '#0f172a', borderRadius: '6px', padding: '12px', marginBottom: '16px', color: '#cbd5e1', fontSize: '14px', lineHeight: '1.6' }}>
+            {aiComplianceReport.narrative}
+          </div>
+          {aiComplianceReport.metrics && Object.keys(aiComplianceReport.metrics).length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+              {Object.entries(aiComplianceReport.metrics).map(([key, value]: [string, any]) => (
+                <div key={key} style={{ backgroundColor: '#0f172a', borderRadius: '6px', padding: '12px' }}>
+                  <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>{key.replace(/_/g, ' ').toUpperCase()}</div>
+                  <div style={{ fontSize: '18px', fontWeight: '700', color: '#7c3aed' }}>
+                    {typeof value === 'object' ? JSON.stringify(value) : value}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   // ─── MAIN RENDER ────────────────────────────────────────────
   return (
     <div style={{ backgroundColor: '#0f172a', minHeight: '100vh', color: '#e2e8f0' }}>
@@ -1317,7 +1488,7 @@ export function SafetyAuditsClient() {
       {/* Tabs */}
       <div style={{ borderBottom: '1px solid #334155', backgroundColor: '#1e293b' }}>
         <div style={{ display: 'flex', overflowX: 'auto', maxWidth: '100%' }}>
-          {(['safety-rounds', 'round-findings', 'templates', 'clinical-audits', 'complaints', 'indicators', 'analytics'] as TabType[]).map((tab) => (
+          {(['safety-rounds', 'round-findings', 'templates', 'clinical-audits', 'complaints', 'indicators', 'analytics', 'ai-quality'] as TabType[]).map((tab) => (
             <button
               key={tab}
               onClick={() => { setActiveTab(tab); setStatusFilter('all'); setError(''); setSuccess(''); }}
@@ -1340,6 +1511,7 @@ export function SafetyAuditsClient() {
               {tab === 'complaints' && 'Complaints'}
               {tab === 'indicators' && 'Indicators'}
               {tab === 'analytics' && 'Analytics'}
+              {tab === 'ai-quality' && '🤖 AI Quality'}
             </button>
           ))}
         </div>
@@ -1355,6 +1527,7 @@ export function SafetyAuditsClient() {
         {!loading && activeTab === 'complaints' && renderComplaintsTab()}
         {!loading && activeTab === 'indicators' && renderIndicatorsTab()}
         {!loading && activeTab === 'analytics' && renderAnalyticsTab()}
+        {!loading && activeTab === 'ai-quality' && renderAIQualityTab()}
       </div>
     </div>
   );
