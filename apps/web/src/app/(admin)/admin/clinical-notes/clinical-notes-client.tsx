@@ -1493,7 +1493,7 @@ export default function ClinicalNotesClient() {
               <div style={{ fontSize: '24px', fontWeight: 700, color: '#55ff55' }}>{cosignStats.signed_today}</div>
             </div>
             <div style={{ backgroundColor: '#1a1a2e', border: '1px solid #0f3460', borderRadius: '6px', padding: '12px' }}>
-              <div style={{ fontSize: '11px', color: '#a0a0a0', marginBottom: '4px' }}>OVERDUE (> 4h)</div>
+              <div style={{ fontSize: '11px', color: '#a0a0a0', marginBottom: '4px' }}>OVERDUE ({'>'}4h)</div>
               <div style={{ fontSize: '24px', fontWeight: 700, color: '#ff5555' }}>{cosignStats.overdue}</div>
             </div>
           </div>
