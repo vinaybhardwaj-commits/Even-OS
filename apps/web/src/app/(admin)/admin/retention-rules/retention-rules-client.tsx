@@ -19,7 +19,7 @@ async function trpcQuery(path: string, input?: any) {
   const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
   if (json.error) throw new Error(json.error.message || 'Request failed');
-  return json.result?.data;
+  return json.result?.data?.json;
 }
 
 async function trpcMutate(path: string, input: any) {
@@ -30,7 +30,7 @@ async function trpcMutate(path: string, input: any) {
   });
   const json = await res.json();
   if (json.error) throw new Error(json.error.message || 'Request failed');
-  return json.result?.data;
+  return json.result?.data?.json;
 }
 
 export function RetentionRulesClient() {

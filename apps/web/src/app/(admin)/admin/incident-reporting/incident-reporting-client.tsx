@@ -64,7 +64,7 @@ async function trpcQuery(path: string, input?: Record<string, unknown>) {
   const res = await fetch(`/api/trpc/${path}${qs}`);
   const json = await res.json();
   if (json.error) throw new Error(json.error.message || 'Request failed');
-  return json.result?.data;
+  return json.result?.data?.json;
 }
 
 async function trpcMutate(path: string, input: Record<string, unknown>) {
@@ -75,7 +75,7 @@ async function trpcMutate(path: string, input: Record<string, unknown>) {
   });
   const json = await res.json();
   if (json.error) throw new Error(json.error.message || 'Request failed');
-  return json.result?.data;
+  return json.result?.data?.json;
 }
 
 // ─── Helper Functions ───────────────────────────────────────
