@@ -294,7 +294,7 @@ export async function runLsqSync(hospitalId: string, userId: string): Promise<Sy
             ${normalized.name_full}, ${normalized.phone}, ${normalized.email || null},
             ${normalized.gender}, ${normalized.dob || null},
             'lsq_lead', ${normalized.patient_category},
-            ${normalized.lsq_lead_id}, 'active', ${userId}
+            ${normalized.lsq_lead_id}, 'active', ${null}
           )
           RETURNING id, uhid
         `;
