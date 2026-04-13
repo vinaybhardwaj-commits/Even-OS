@@ -94,7 +94,7 @@ interface RoomCharge {
 }
 
 interface TabState {
-  activeTab: 'accounts' | 'deposits' | 'packages' | 'rooms';
+  activeTab: 'accounts' | 'deposits' | 'packages' | 'rooms' | 'ai-cost';
   selectedPatientId: string | null;
   selectedAccountId: string | null;
   loading: boolean;
@@ -133,6 +133,11 @@ export function BillingV2Client({ user }: { user: User }) {
   const [showPackageForm, setShowPackageForm] = useState(false);
   const [showRoomChargeForm, setShowRoomChargeForm] = useState(false);
   const [expandedPackageId, setExpandedPackageId] = useState<string | null>(null);
+
+  // AI Cost Intelligence state
+  const [aiCostEstimate, setAiCostEstimate] = useState<any>(null);
+  const [aiCostLoading, setAiCostLoading] = useState(false);
+  const [aiCostError, setAiCostError] = useState<string | null>(null);
 
   const [accountFormData, setAccountFormData] = useState({
     account_type: 'self_pay' as 'self_pay' | 'insurance' | 'corporate' | 'government',
@@ -431,6 +436,39 @@ export function BillingV2Client({ user }: { user: User }) {
     }
   };
 
+  const handleRunCostEstimate = async () => {
+    if (!account) return;
+    setAiCostLoading(true);
+    setAiCostError(null);
+    try {
+      // We need encounter_id — fetch it from the billing account
+      const acctRes = await fetch('/api/trpc/billingAccounts.getAccount?input=' + encodeURIComponent(JSON.stringify({ json: { account_id: account.id } })));
+      const acctData = await acctRes.json();
+      const encounterId = acctData.result?.data?.json?.encounter_id;
+
+      if (!encounterId) {
+        setAiCostError('No encounter linked to this billing account');
+        return;
+      }
+
+      const res = await fetch('/api/trpc/evenAI.runCostEstimation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: { encounter_id: encounterId } }),
+      });
+      const data = await res.json();
+      if (data.result?.data?.json) {
+        setAiCostEstimate(data.result.data.json);
+      } else {
+        setAiCostError(data.error?.json?.message || 'Cost estimation failed');
+      }
+    } catch (e: any) {
+      setAiCostError(e.message || 'Network error');
+    } finally {
+      setAiCostLoading(false);
+    }
+  };
+
   const categoryTotals = runningBill.reduce(
     (acc, item) => {
       acc[item.category] = (acc[item.category] || 0) + item.amount;
@@ -565,7 +603,7 @@ export function BillingV2Client({ user }: { user: User }) {
             <div className="bg-white rounded-lg shadow overflow-hidden">
               <div className="border-b border-gray-200">
                 <div className="flex">
-                  {(['accounts', 'deposits', 'packages', 'rooms'] as const).map(tab => (
+                  {(['accounts', 'deposits', 'packages', 'rooms', 'ai-cost'] as const).map(tab => (
                     <button
                       key={tab}
                       onClick={() => setTabState(prev => ({ ...prev, activeTab: tab }))}
@@ -579,6 +617,7 @@ export function BillingV2Client({ user }: { user: User }) {
                       {tab === 'deposits' && '🏦 Deposits'}
                       {tab === 'packages' && '📦 Packages'}
                       {tab === 'rooms' && '🛏️ Room Charges'}
+                      {tab === 'ai-cost' && '🤖 AI Cost'}
                     </button>
                   ))}
                 </div>
@@ -1400,6 +1439,145 @@ export function BillingV2Client({ user }: { user: User }) {
                         </tbody>
                       </table>
                     </div>
+                  </div>
+                )}
+
+                {tabState.activeTab === 'ai-cost' && (
+                  <div style={{ padding: '20px', maxWidth: '1400px' }}>
+                    <h2 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '600' }}>🤖 AI Cost Intelligence</h2>
+                    <p style={{ margin: '0 0 20px 0', fontSize: '14px', color: '#6b7280' }}>
+                      Real-time cost forecasting, margin analysis, and deposit adequacy assessment.
+                    </p>
+
+                    {aiCostError && (
+                      <div style={{ padding: '12px 16px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', marginBottom: '16px', color: '#991b1b', fontSize: '14px' }}>
+                        {aiCostError}
+                      </div>
+                    )}
+
+                    {account ? (
+                      <div>
+                        <button
+                          onClick={handleRunCostEstimate}
+                          disabled={aiCostLoading}
+                          style={{
+                            padding: '10px 20px',
+                            backgroundColor: aiCostLoading ? '#c4b5fd' : '#7c3aed',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: aiCostLoading ? 'not-allowed' : 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            marginBottom: '20px',
+                          }}
+                        >
+                          {aiCostLoading ? 'Analyzing...' : `Run Cost Analysis — ${account.insurer_name || 'Self Pay'}`}
+                        </button>
+
+                        {aiCostEstimate && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                            {/* Cost Estimate */}
+                            <div style={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '20px' }}>
+                              <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: '600', color: '#7c3aed' }}>Cost Estimate</h3>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '14px' }}>
+                                <div>
+                                  <div style={{ fontSize: '12px', color: '#6b7280' }}>Charges Accrued</div>
+                                  <div style={{ fontWeight: '700', fontSize: '18px' }}>₹{Number(aiCostEstimate.estimate?.charges_accrued || 0).toLocaleString('en-IN')}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: '12px', color: '#6b7280' }}>Estimated Remaining</div>
+                                  <div style={{ fontWeight: '700', fontSize: '18px' }}>₹{Number(aiCostEstimate.estimate?.estimated_remaining || 0).toLocaleString('en-IN')}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: '12px', color: '#6b7280' }}>Estimated Total</div>
+                                  <div style={{ fontWeight: '700', fontSize: '20px', color: '#7c3aed' }}>₹{Number(aiCostEstimate.estimate?.estimated_total || 0).toLocaleString('en-IN')}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: '12px', color: '#6b7280' }}>Daily Burn Rate</div>
+                                  <div style={{ fontWeight: '700', fontSize: '18px' }}>₹{Number(aiCostEstimate.estimate?.daily_burn_rate || 0).toLocaleString('en-IN')}/day</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: '12px', color: '#6b7280' }}>LOS</div>
+                                  <div style={{ fontWeight: '600' }}>{aiCostEstimate.estimate?.los_current_days || 0} / {aiCostEstimate.estimate?.los_expected_days || '?'} days</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: '12px', color: '#6b7280' }}>Confidence</div>
+                                  <div style={{ fontWeight: '600', color: '#059669' }}>{((aiCostEstimate.estimate?.confidence || 0) * 100).toFixed(0)}%</div>
+                                </div>
+                              </div>
+
+                              {/* Deposit Status */}
+                              {aiCostEstimate.estimate?.deposit_status && (
+                                <div style={{ marginTop: '16px', padding: '12px', backgroundColor: aiCostEstimate.estimate.deposit_status.shortfall > 0 ? '#fef2f2' : '#f0fdf4', borderRadius: '8px' }}>
+                                  <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '4px', color: aiCostEstimate.estimate.deposit_status.shortfall > 0 ? '#991b1b' : '#166534' }}>
+                                    {aiCostEstimate.estimate.deposit_status.shortfall > 0 ? '⚠ Deposit Shortfall' : '✓ Deposit Adequate'}
+                                  </div>
+                                  <div style={{ fontSize: '12px', color: '#4b5563' }}>
+                                    Collected: ₹{Number(aiCostEstimate.estimate.deposit_status.collected).toLocaleString('en-IN')} / Required: ₹{Number(aiCostEstimate.estimate.deposit_status.required).toLocaleString('en-IN')}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Package Comparison */}
+                              {aiCostEstimate.estimate?.package_comparison && (
+                                <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#eff6ff', borderRadius: '8px', fontSize: '13px' }}>
+                                  <div style={{ fontWeight: '600', color: '#1e40af', marginBottom: '4px' }}>Package vs Itemized</div>
+                                  <div>Package: ₹{Number(aiCostEstimate.estimate.package_comparison.package_total).toLocaleString('en-IN')}</div>
+                                  <div>Itemized: ₹{Number(aiCostEstimate.estimate.package_comparison.itemized_total).toLocaleString('en-IN')}</div>
+                                  <div style={{ marginTop: '4px', fontWeight: '600', color: '#047857' }}>
+                                    Recommended: {aiCostEstimate.estimate.package_comparison.recommended} (saves ₹{Number(aiCostEstimate.estimate.package_comparison.savings).toLocaleString('en-IN')})
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Margin Analysis */}
+                            <div style={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '20px' }}>
+                              <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: '600', color: '#7c3aed' }}>Margin Analysis</h3>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '14px', marginBottom: '16px' }}>
+                                <div>
+                                  <div style={{ fontSize: '12px', color: '#6b7280' }}>Revenue</div>
+                                  <div style={{ fontWeight: '700', fontSize: '18px' }}>₹{Number(aiCostEstimate.margin?.revenue || 0).toLocaleString('en-IN')}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: '12px', color: '#6b7280' }}>Cost</div>
+                                  <div style={{ fontWeight: '700', fontSize: '18px' }}>₹{Number(aiCostEstimate.margin?.cost || 0).toLocaleString('en-IN')}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: '12px', color: '#6b7280' }}>Margin</div>
+                                  <div style={{ fontWeight: '700', fontSize: '18px', color: (aiCostEstimate.margin?.margin_pct || 0) < 15 ? '#dc2626' : '#059669' }}>
+                                    {(aiCostEstimate.margin?.margin_pct || 0).toFixed(1)}%
+                                  </div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: '12px', color: '#6b7280' }}>Deposit Adequacy</div>
+                                  <div style={{ fontWeight: '700', fontSize: '18px' }}>{(aiCostEstimate.margin?.deposit_adequacy_pct || 0).toFixed(0)}%</div>
+                                </div>
+                              </div>
+
+                              {/* Low margin items */}
+                              {aiCostEstimate.margin?.low_margin_items?.length > 0 && (
+                                <div>
+                                  <div style={{ fontWeight: '600', color: '#991b1b', marginBottom: '8px', fontSize: '13px' }}>Low-Margin Items</div>
+                                  {aiCostEstimate.margin.low_margin_items.map((item: any, i: number) => (
+                                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: '12px' }}>
+                                      <span style={{ color: '#4b5563' }}>{item.description}</span>
+                                      <span style={{ fontWeight: '600', color: item.margin_pct < 0 ? '#dc2626' : '#d97706' }}>{item.margin_pct.toFixed(1)}%</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af', backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb' }}>
+                        <p style={{ fontSize: '16px', marginBottom: '8px' }}>Select a patient and billing account first</p>
+                        <p style={{ fontSize: '13px' }}>Go to the Accounts tab, search for a patient, and select their billing account.</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -12,6 +12,10 @@ import {
   getRequestsByModule,
 } from '@/lib/ai/llm-client';
 import { generateFromTemplate } from '@/lib/ai/template-engine';
+import { predictClaimOutcome } from '@/lib/ai/billing/claim-predictor';
+import { analyzeDenial } from '@/lib/ai/billing/denial-analysis';
+import { estimateCost, analyzeMargin } from '@/lib/ai/billing/cost-estimation';
+import { reviewPreAuth } from '@/lib/ai/billing/preauth-review';
 
 // ────────────────────────────────────────────────────────────────────────
 // Lazy SQL Client
@@ -199,6 +203,27 @@ export const updateTemplateRuleInput = z.object({
   condition_config: z.record(z.unknown()).optional(),
   card_template: z.record(z.unknown()).optional(),
   is_active: z.boolean().optional(),
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// AI.2 BILLING INTELLIGENCE INPUTS (4)
+// ════════════════════════════════════════════════════════════════════════
+
+export const runClaimPredictionInput = z.object({
+  encounter_id: z.string().uuid(),
+  claim_id: z.string().uuid().optional(),
+});
+
+export const runDenialAnalysisInput = z.object({
+  claim_id: z.string().uuid(),
+});
+
+export const runCostEstimationInput = z.object({
+  encounter_id: z.string().uuid(),
+});
+
+export const runPreAuthReviewInput = z.object({
+  pre_auth_id: z.string().uuid(),
 });
 
 // ════════════════════════════════════════════════════════════════════════
@@ -926,5 +951,147 @@ export const evenAIRouter = router({
       );
 
       return { success: true };
+    }),
+
+  // ──────────────────────────────────────────────────────────────────
+  // AI.2 BILLING INTELLIGENCE ENDPOINTS (4)
+  // ──────────────────────────────────────────────────────────────────
+
+  /**
+   * 18. runClaimPrediction — Run full claim prediction engine for an encounter
+   */
+  runClaimPrediction: protectedProcedure
+    .input(runClaimPredictionInput)
+    .mutation(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const result = await predictClaimOutcome({
+          hospital_id: hospitalId,
+          encounter_id: input.encounter_id,
+          claim_id: input.claim_id,
+        });
+        return {
+          success: true,
+          prediction: result.prediction,
+          card_id: result.card.id,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Claim prediction failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 19. runDenialAnalysis — Analyze a denied/settled claim for root causes
+   */
+  runDenialAnalysis: protectedProcedure
+    .input(runDenialAnalysisInput)
+    .mutation(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const result = await analyzeDenial({
+          hospital_id: hospitalId,
+          claim_id: input.claim_id,
+        });
+        return {
+          success: true,
+          analysis: {
+            denial_type: result.denial_type,
+            total_bill_amount: result.total_bill_amount,
+            approved_amount: result.approved_amount,
+            total_deductions: result.total_deductions,
+            denial_percent: result.denial_percent,
+            deduction_breakdown: result.deduction_breakdown,
+            root_cause: result.root_cause,
+            recommendations: result.recommendations,
+            resubmission_viable: result.resubmission_viable,
+            resubmission_checklist: result.resubmission_checklist,
+          },
+          card_id: result.card.id,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Denial analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 20. runCostEstimation — Get real-time cost estimate + margin analysis
+   */
+  runCostEstimation: protectedProcedure
+    .input(runCostEstimationInput)
+    .mutation(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const [estimate, margin] = await Promise.all([
+          estimateCost({ hospital_id: hospitalId, encounter_id: input.encounter_id }),
+          analyzeMargin({ hospital_id: hospitalId, encounter_id: input.encounter_id }),
+        ]);
+        return {
+          success: true,
+          estimate: {
+            charges_accrued: estimate.charges_accrued,
+            estimated_remaining: estimate.estimated_remaining,
+            estimated_total: estimate.estimated_total,
+            daily_burn_rate: estimate.daily_burn_rate,
+            los_current_days: estimate.los_current_days,
+            los_expected_days: estimate.los_expected_days,
+            package_comparison: estimate.package_comparison,
+            deposit_status: estimate.deposit_status,
+            confidence: estimate.confidence,
+          },
+          margin: {
+            revenue: margin.revenue,
+            cost: margin.cost,
+            margin: margin.margin,
+            margin_pct: margin.margin_pct,
+            low_margin_items: margin.low_margin_items.slice(0, 5),
+            deposit_adequacy_pct: margin.deposit_adequacy_pct,
+          },
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Cost estimation failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 21. runPreAuthReview — Check pre-auth completeness and TPA readiness
+   */
+  runPreAuthReview: protectedProcedure
+    .input(runPreAuthReviewInput)
+    .mutation(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const review = await reviewPreAuth({
+          hospital_id: hospitalId,
+          pre_auth_id: input.pre_auth_id,
+        });
+        return {
+          success: true,
+          review: {
+            readiness_pct: review.readiness_pct,
+            status: review.status,
+            missing_items: review.missing_items,
+            tpa_specific_tips: review.tpa_specific_tips,
+            has_documents: review.has_documents,
+            has_consents: review.has_consents,
+            diagnosis_procedure_match: review.diagnosis_procedure_match,
+            amount_reasonableness: review.amount_reasonableness,
+            confidence: review.confidence,
+          },
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Pre-auth review failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
     }),
 });

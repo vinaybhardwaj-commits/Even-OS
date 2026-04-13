@@ -177,7 +177,7 @@ async function trpcMutate(path: string, input: any) {
 
 // ─── MAIN COMPONENT ────────────────────────────────────────────
 export default function InsuranceClaimsClient({ user }: { user: User }) {
-  const [activeTab, setActiveTab] = useState<'board' | 'pre-auth' | 'deductions' | 'timeline' | 'analytics'>('board');
+  const [activeTab, setActiveTab] = useState<'board' | 'pre-auth' | 'deductions' | 'timeline' | 'analytics' | 'ai-insights'>('board');
   const [claims, setClaims] = useState<Claim[]>([]);
   const [preAuths, setPreAuths] = useState<PreAuth[]>([]);
   const [enhancements, setEnhancements] = useState<Enhancement[]>([]);
@@ -189,6 +189,12 @@ export default function InsuranceClaimsClient({ user }: { user: User }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
+  // AI Insights state
+  const [aiPrediction, setAiPrediction] = useState<any>(null);
+  const [aiDenialAnalysis, setAiDenialAnalysis] = useState<any>(null);
+  const [aiPreAuthReview, setAiPreAuthReview] = useState<any>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const searchTimeout = useRef<NodeJS.Timeout>();
 
   const fetchClaims = useCallback(async () => {
@@ -799,6 +805,370 @@ export default function InsuranceClaimsClient({ user }: { user: User }) {
     </div>
   );
 
+  // ─── BILLING INSIGHT CARDS INLINE COMPONENT ──────────────────
+  const BillingInsightCards = () => {
+    const [cards, setCards] = useState<any[]>([]);
+    const [cardsLoading, setCardsLoading] = useState(true);
+
+    useEffect(() => {
+      (async () => {
+        try {
+          const res = await fetch('/api/trpc/evenAI.getInsightCards?input=' + encodeURIComponent(JSON.stringify({ json: { module: 'billing', status: 'active', limit: 10 } })));
+          const data = await res.json();
+          setCards(data.result?.data?.json?.cards || []);
+        } catch {
+          setCards([]);
+        } finally {
+          setCardsLoading(false);
+        }
+      })();
+    }, []);
+
+    if (cardsLoading) return <div style={{ fontSize: '13px', color: '#6b7280' }}>Loading AI alerts...</div>;
+    if (cards.length === 0) return <div style={{ fontSize: '13px', color: '#9ca3af', fontStyle: 'italic' }}>No active billing alerts.</div>;
+
+    const severityColors: Record<string, string> = { critical: '#dc2626', high: '#ea580c', medium: '#d97706', low: '#7c3aed', info: '#6b7280' };
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {cards.map((card: any) => (
+          <div
+            key={card.id}
+            style={{
+              padding: '10px 12px',
+              borderRadius: '6px',
+              borderLeft: `3px solid ${severityColors[card.severity] || '#6b7280'}`,
+              backgroundColor: '#fafafa',
+              fontSize: '13px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <span style={{ fontWeight: '600', color: '#1f2937' }}>{card.title}</span>
+              <span style={{ fontSize: '11px', padding: '0 6px', borderRadius: '3px', backgroundColor: severityColors[card.severity] + '20', color: severityColors[card.severity], fontWeight: '600' }}>
+                {card.severity}
+              </span>
+            </div>
+            <div style={{ color: '#6b7280', fontSize: '12px', whiteSpace: 'pre-line' }}>{card.body?.substring(0, 200)}</div>
+            {card.suggested_action && (
+              <div style={{ marginTop: '4px', fontSize: '12px', color: '#047857' }}>→ {card.suggested_action}</div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // ─── AI INSIGHTS TAB ────────────────────────────────────────
+  const handleRunPrediction = async (encounterId: string, claimId?: string) => {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const res = await fetch('/api/trpc/evenAI.runClaimPrediction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: { encounter_id: encounterId, claim_id: claimId } }),
+      });
+      const data = await res.json();
+      if (data.result?.data?.json) {
+        setAiPrediction(data.result.data.json);
+      } else {
+        setAiError(data.error?.json?.message || 'Prediction failed');
+      }
+    } catch (e: any) {
+      setAiError(e.message || 'Network error');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleRunDenialAnalysis = async (claimId: string) => {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const res = await fetch('/api/trpc/evenAI.runDenialAnalysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: { claim_id: claimId } }),
+      });
+      const data = await res.json();
+      if (data.result?.data?.json) {
+        setAiDenialAnalysis(data.result.data.json);
+      } else {
+        setAiError(data.error?.json?.message || 'Denial analysis failed');
+      }
+    } catch (e: any) {
+      setAiError(e.message || 'Network error');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleRunPreAuthReview = async (preAuthId: string) => {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const res = await fetch('/api/trpc/evenAI.runPreAuthReview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: { pre_auth_id: preAuthId } }),
+      });
+      const data = await res.json();
+      if (data.result?.data?.json) {
+        setAiPreAuthReview(data.result.data.json);
+      } else {
+        setAiError(data.error?.json?.message || 'Pre-auth review failed');
+      }
+    } catch (e: any) {
+      setAiError(e.message || 'Network error');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const renderAIInsightsTab = () => (
+    <div style={{ padding: '20px', maxWidth: '1400px' }}>
+      <h2 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '600' }}>🤖 AI Billing Intelligence</h2>
+      <p style={{ margin: '0 0 20px 0', fontSize: '14px', color: '#6b7280' }}>
+        Even AI analyzes claims against TPA rubrics to predict approvals, flag denials, and validate pre-auths.
+      </p>
+
+      {aiError && (
+        <div style={{ padding: '12px 16px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', marginBottom: '16px', color: '#991b1b', fontSize: '14px' }}>
+          {aiError}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
+        {/* Claim Prediction */}
+        <div style={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '20px' }}>
+          <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: '600', color: '#7c3aed' }}>Claim Prediction</h3>
+          <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#6b7280' }}>
+            Predict TPA approval amount and deductions for an active claim.
+          </p>
+          {selectedClaim ? (
+            <button
+              onClick={() => handleRunPrediction(selectedClaim.encounter_id, selectedClaim.id)}
+              disabled={aiLoading}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: aiLoading ? '#c4b5fd' : '#7c3aed',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: aiLoading ? 'not-allowed' : 'pointer',
+                fontSize: '13px',
+                fontWeight: '600',
+              }}
+            >
+              {aiLoading ? 'Running...' : `Predict: ${selectedClaim.claim_number}`}
+            </button>
+          ) : (
+            <p style={{ fontSize: '13px', color: '#9ca3af', fontStyle: 'italic' }}>
+              Select a claim from the Claims Board tab first.
+            </p>
+          )}
+
+          {aiPrediction?.prediction && (
+            <div style={{ marginTop: '16px', padding: '12px', backgroundColor: '#f5f3ff', borderRadius: '8px', fontSize: '13px' }}>
+              <div style={{ fontWeight: '600', marginBottom: '8px', color: '#7c3aed' }}>
+                Predicted Approval: ₹{Number(aiPrediction.prediction.predicted_approval).toLocaleString('en-IN')}
+                <span style={{ fontWeight: '400', marginLeft: '8px', color: '#6b7280' }}>
+                  ({aiPrediction.prediction.predicted_approval_pct}%)
+                </span>
+              </div>
+              <div style={{ color: '#4b5563', marginBottom: '4px' }}>
+                Total Bill: ₹{Number(aiPrediction.prediction.total_bill_amount).toLocaleString('en-IN')}
+              </div>
+              {aiPrediction.prediction.predicted_deductions?.length > 0 && (
+                <div style={{ marginTop: '8px' }}>
+                  <div style={{ fontWeight: '600', color: '#991b1b', marginBottom: '4px' }}>Predicted Deductions:</div>
+                  {aiPrediction.prediction.predicted_deductions.map((d: any, i: number) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <span style={{ color: '#6b7280' }}>{d.type.replace(/_/g, ' ')}</span>
+                      <span style={{ fontWeight: '600' }}>₹{Number(d.amount).toLocaleString('en-IN')}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {aiPrediction.prediction.recommendations?.length > 0 && (
+                <div style={{ marginTop: '12px', paddingTop: '8px', borderTop: '1px solid #e5e7eb' }}>
+                  <div style={{ fontWeight: '600', color: '#047857', marginBottom: '4px' }}>Recommendations:</div>
+                  {aiPrediction.prediction.recommendations.slice(0, 3).map((r: string, i: number) => (
+                    <div key={i} style={{ color: '#4b5563', marginBottom: '2px', fontSize: '12px' }}>• {r}</div>
+                  ))}
+                </div>
+              )}
+              <div style={{ marginTop: '8px', fontSize: '11px', color: '#9ca3af' }}>
+                Confidence: {(aiPrediction.prediction.confidence * 100).toFixed(0)}%
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Denial Analysis */}
+        <div style={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '20px' }}>
+          <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: '600', color: '#dc2626' }}>Denial Analysis</h3>
+          <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#6b7280' }}>
+            Analyze denied/settled claims for root causes and resubmission options.
+          </p>
+          {selectedClaim && ['settled', 'rejected'].includes(selectedClaim.claim_status) ? (
+            <button
+              onClick={() => handleRunDenialAnalysis(selectedClaim.id)}
+              disabled={aiLoading}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: aiLoading ? '#fca5a5' : '#dc2626',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: aiLoading ? 'not-allowed' : 'pointer',
+                fontSize: '13px',
+                fontWeight: '600',
+              }}
+            >
+              {aiLoading ? 'Analyzing...' : `Analyze: ${selectedClaim.claim_number}`}
+            </button>
+          ) : (
+            <p style={{ fontSize: '13px', color: '#9ca3af', fontStyle: 'italic' }}>
+              {selectedClaim ? 'Denial analysis available for settled/rejected claims.' : 'Select a settled or rejected claim from the Claims Board tab.'}
+            </p>
+          )}
+
+          {aiDenialAnalysis?.analysis && (
+            <div style={{ marginTop: '16px', padding: '12px', backgroundColor: '#fef2f2', borderRadius: '8px', fontSize: '13px' }}>
+              <div style={{ fontWeight: '600', marginBottom: '8px', color: '#991b1b' }}>
+                Denial Type: {aiDenialAnalysis.analysis.denial_type.replace(/_/g, ' ')}
+              </div>
+              <div style={{ marginBottom: '4px', color: '#4b5563' }}>Root Cause: {aiDenialAnalysis.analysis.root_cause}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '8px' }}>
+                <div>
+                  <div style={{ color: '#9ca3af', fontSize: '11px' }}>Total Billed</div>
+                  <div style={{ fontWeight: '600' }}>₹{Number(aiDenialAnalysis.analysis.total_bill_amount).toLocaleString('en-IN')}</div>
+                </div>
+                <div>
+                  <div style={{ color: '#9ca3af', fontSize: '11px' }}>Approved</div>
+                  <div style={{ fontWeight: '600' }}>₹{Number(aiDenialAnalysis.analysis.approved_amount).toLocaleString('en-IN')}</div>
+                </div>
+              </div>
+              {aiDenialAnalysis.analysis.resubmission_viable && (
+                <div style={{ marginTop: '12px', paddingTop: '8px', borderTop: '1px solid #fecaca' }}>
+                  <div style={{ fontWeight: '600', color: '#047857', marginBottom: '4px' }}>Resubmission Checklist:</div>
+                  {aiDenialAnalysis.analysis.resubmission_checklist?.slice(0, 4).map((item: string, i: number) => (
+                    <div key={i} style={{ color: '#4b5563', marginBottom: '2px', fontSize: '12px' }}>☐ {item}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Pre-Auth Review */}
+        <div style={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '20px' }}>
+          <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: '600', color: '#2563eb' }}>Pre-Auth Readiness</h3>
+          <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#6b7280' }}>
+            Check pre-auth completeness before TPA submission.
+          </p>
+          {preAuths.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {preAuths.filter((pa) => pa.status === 'pending').slice(0, 3).map((pa) => (
+                <button
+                  key={pa.id}
+                  onClick={() => handleRunPreAuthReview(pa.id)}
+                  disabled={aiLoading}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: aiLoading ? '#93c5fd' : '#2563eb',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: aiLoading ? 'not-allowed' : 'pointer',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    textAlign: 'left',
+                  }}
+                >
+                  {aiLoading ? 'Checking...' : `Review: #${pa.claim_number}`}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p style={{ fontSize: '13px', color: '#9ca3af', fontStyle: 'italic' }}>
+              No pending pre-auth requests to review.
+            </p>
+          )}
+
+          {aiPreAuthReview?.review && (
+            <div style={{ marginTop: '16px', padding: '12px', backgroundColor: '#eff6ff', borderRadius: '8px', fontSize: '13px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontWeight: '600', color: '#1e40af' }}>
+                  Readiness: {aiPreAuthReview.review.readiness_pct}%
+                </span>
+                <span style={{
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  backgroundColor: aiPreAuthReview.review.status === 'ready' ? '#dcfce7' : aiPreAuthReview.review.status === 'needs_attention' ? '#fef9c3' : '#fef2f2',
+                  color: aiPreAuthReview.review.status === 'ready' ? '#166534' : aiPreAuthReview.review.status === 'needs_attention' ? '#854d0e' : '#991b1b',
+                }}>
+                  {aiPreAuthReview.review.status.replace(/_/g, ' ')}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
+                <span style={{ color: aiPreAuthReview.review.has_documents ? '#047857' : '#991b1b' }}>
+                  {aiPreAuthReview.review.has_documents ? '✓' : '✗'} Documents
+                </span>
+                <span style={{ color: aiPreAuthReview.review.has_consents ? '#047857' : '#991b1b' }}>
+                  {aiPreAuthReview.review.has_consents ? '✓' : '✗'} Consents
+                </span>
+                <span style={{ color: aiPreAuthReview.review.diagnosis_procedure_match ? '#047857' : '#991b1b' }}>
+                  {aiPreAuthReview.review.diagnosis_procedure_match ? '✓' : '✗'} Diagnosis Match
+                </span>
+              </div>
+              {aiPreAuthReview.review.missing_items?.length > 0 && (
+                <div style={{ marginTop: '8px' }}>
+                  <div style={{ fontWeight: '600', color: '#991b1b', marginBottom: '4px' }}>Missing Items:</div>
+                  {aiPreAuthReview.review.missing_items.map((item: any, i: number) => (
+                    <div key={i} style={{ display: 'flex', gap: '8px', marginBottom: '2px', fontSize: '12px' }}>
+                      <span style={{
+                        padding: '0 4px',
+                        borderRadius: '2px',
+                        fontSize: '10px',
+                        fontWeight: '600',
+                        backgroundColor: item.severity === 'required' ? '#fef2f2' : '#fef9c3',
+                        color: item.severity === 'required' ? '#991b1b' : '#854d0e',
+                      }}>
+                        {item.severity}
+                      </span>
+                      <span style={{ color: '#4b5563' }}>{item.description}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {aiPreAuthReview.review.tpa_specific_tips?.length > 0 && (
+                <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #bfdbfe' }}>
+                  <div style={{ fontWeight: '600', color: '#1e40af', marginBottom: '4px' }}>TPA Tips:</div>
+                  {aiPreAuthReview.review.tpa_specific_tips.slice(0, 3).map((tip: string, i: number) => (
+                    <div key={i} style={{ color: '#4b5563', marginBottom: '2px', fontSize: '12px' }}>💡 {tip}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* AI Insight Cards for module=billing */}
+        <div style={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '20px' }}>
+          <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: '600', color: '#7c3aed' }}>Active Billing Alerts</h3>
+          <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#6b7280' }}>
+            AI-generated insight cards for billing module.
+          </p>
+          <BillingInsightCards />
+        </div>
+      </div>
+    </div>
+  );
+
   // ─── MAIN RENDER ────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f3f4f6' }}>
@@ -813,6 +1183,7 @@ export default function InsuranceClaimsClient({ user }: { user: User }) {
               { id: 'deductions', label: '✂️ TPA Deductions' },
               { id: 'timeline', label: '📅 Claim Timeline' },
               { id: 'analytics', label: '📈 Analytics' },
+              { id: 'ai-insights', label: '🤖 AI Insights' },
             ].map((tab: any) => (
               <button
                 key={tab.id}
@@ -847,6 +1218,7 @@ export default function InsuranceClaimsClient({ user }: { user: User }) {
         {!loading && activeTab === 'deductions' && renderDeductionsTab()}
         {!loading && activeTab === 'timeline' && renderTimelineTab()}
         {!loading && activeTab === 'analytics' && renderAnalyticsTab()}
+        {!loading && activeTab === 'ai-insights' && renderAIInsightsTab()}
       </div>
     </div>
   );

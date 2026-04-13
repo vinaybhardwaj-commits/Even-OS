@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
+import { predictClaimOutcome } from '@/lib/ai/billing/claim-predictor';
 
 let _sql: any = null;
 function getSql() {
@@ -20,95 +21,61 @@ export async function POST(req: NextRequest) {
     let cardsGenerated = 0;
     let errors = 0;
 
-    // Get active encounters with billing and insurance
+    // Get active encounters with insurance billing accounts
     let activeClaims: any[] = [];
     try {
       activeClaims = await sql`
-        SELECT
-          e.id as encounter_id, e.hospital_id, e.patient_id, e.primary_diagnosis,
-          ba.id as billing_account_id, ba.insurance_provider_id,
-          ic.insurance_company_id, ic.tpa_name
+        SELECT DISTINCT
+          e.id as encounter_id,
+          e.hospital_id,
+          ba.tpa_name,
+          ba.insurer_name
         FROM encounters e
         JOIN billing_accounts ba ON e.id = ba.encounter_id
-        JOIN insurance_coverage ic ON ba.insurance_coverage_id = ic.id
         WHERE e.status = 'admitted'
-        AND ba.status IN ('active', 'pending_approval')
-        LIMIT 500
+          AND ba.account_type = 'insurance'
+          AND ba.tpa_name IS NOT NULL
+        LIMIT 200
       `;
     } catch (err: any) {
       if (err.message?.includes('does not exist')) {
-        const duration_ms = Date.now() - startTime;
         return NextResponse.json({
           job: 'claim-predictions',
           status: 'skipped',
           cards_generated: 0,
           errors: 0,
-          duration_ms,
-          details: 'encounters table not found',
+          duration_ms: Date.now() - startTime,
+          details: 'Required tables not found — run billing migrations first',
         });
       }
       throw err;
     }
 
-    // Process predictions for each claim
+    if (activeClaims.length === 0) {
+      return NextResponse.json({
+        job: 'claim-predictions',
+        status: 'completed',
+        cards_generated: 0,
+        errors: 0,
+        duration_ms: Date.now() - startTime,
+        details: 'No active insurance encounters found',
+      });
+    }
+
+    // Run predictions for each encounter using the full billing engine
     for (const claim of activeClaims) {
       try {
-        // Get rubric for TPA
-        let rubricApprovalRate = 70; // Default
-        try {
-          const rubric = await sql`
-            SELECT approval_rate
-            FROM claim_rubrics
-            WHERE hospital_id = ${claim.hospital_id}
-            AND tpa_name = ${claim.tpa_name}
-            ORDER BY updated_at DESC
-            LIMIT 1
-          `;
-          if (rubric && rubric[0]?.approval_rate) {
-            rubricApprovalRate = rubric[0].approval_rate;
-          }
-        } catch (e) {
-          // Table may not exist yet
-        }
+        const result = await predictClaimOutcome({
+          hospital_id: claim.hospital_id,
+          encounter_id: claim.encounter_id,
+        });
 
-        // Adjust based on diagnosis category
-        let predictionScore = rubricApprovalRate;
-        const diagnosis = claim.primary_diagnosis || '';
-
-        // Heuristic adjustments for common patterns
-        if (diagnosis.includes('emergency') || diagnosis.includes('trauma')) {
-          predictionScore = Math.min(100, predictionScore + 10);
-        }
-        if (diagnosis.includes('elective')) {
-          predictionScore = Math.max(50, predictionScore - 5);
-        }
-
-        // Ensure score is between 0 and 100
-        predictionScore = Math.max(0, Math.min(100, predictionScore));
-
-        // Upsert into claim_predictions
-        try {
-          await sql`
-            INSERT INTO claim_predictions (
-              encounter_id, billing_account_id, hospital_id, predicted_approval_rate,
-              prediction_confidence, tpa_name, created_at, updated_at
-            ) VALUES (
-              ${claim.encounter_id}, ${claim.billing_account_id}, ${claim.hospital_id},
-              ${predictionScore}, 0.75, ${claim.tpa_name}, NOW(), NOW()
-            )
-            ON CONFLICT (billing_account_id) DO UPDATE SET
-              predicted_approval_rate = ${predictionScore},
-              updated_at = NOW()
-          `;
+        if (result?.card) {
           cardsGenerated++;
-        } catch (e: any) {
-          if (!e.message?.includes('does not exist')) {
-            throw e;
-          }
         }
-      } catch (error) {
+      } catch (error: any) {
         errors++;
-        console.error(`Error predicting claim ${claim.billing_account_id}:`, error);
+        console.error(`[claim-predictions] Error for encounter ${claim.encounter_id}:`, error?.message || error);
       }
     }
 
@@ -120,20 +87,18 @@ export async function POST(req: NextRequest) {
       cards_generated: cardsGenerated,
       errors,
       duration_ms,
-      details: `Processed ${activeClaims.length} active claims`,
+      details: `Processed ${activeClaims.length} encounters, generated ${cardsGenerated} prediction cards`,
     });
-  } catch (error) {
-    const duration_ms = Date.now() - startTime;
-    console.error('Claim predictions job failed:', error);
-
+  } catch (error: any) {
+    console.error('[claim-predictions] Job failed:', error);
     return NextResponse.json(
       {
         job: 'claim-predictions',
-        status: 'skipped',
+        status: 'failed',
         cards_generated: 0,
         errors: 1,
-        duration_ms,
-        details: error instanceof Error ? error.message : 'Unknown error',
+        duration_ms: Date.now() - startTime,
+        details: error?.message || 'Unknown error',
       },
       { status: 500 }
     );
