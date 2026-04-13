@@ -44,6 +44,7 @@ import { bloodBankRouter } from './blood-bank';
 import { qcLeveyJenningsRouter } from './qc-levey-jennings';
 import { hl7AnalyzerRouter } from './hl7-analyzer';
 import { drizzleTestRouter } from './drizzle-test';
+import { dashboardsRouter } from './dashboards';
 
 export const appRouter = router({
   auth: authRouter,
@@ -91,6 +92,7 @@ export const appRouter = router({
   qcLeveyJennings: qcLeveyJenningsRouter,
   hl7Analyzer: hl7AnalyzerRouter,
   drizzleTest: drizzleTestRouter,
+  dashboards: dashboardsRouter,
 });
 
 export type AppRouter = typeof appRouter;

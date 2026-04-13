@@ -23,3 +23,4 @@ export * from './22-culture-histopath';
 export * from './23-blood-bank';
 export * from './24-qc-levey-jennings';
 export * from './25-hl7-analyzer';
+export * from './26-dashboards';
