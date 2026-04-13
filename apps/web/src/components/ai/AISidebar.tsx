@@ -22,7 +22,7 @@ interface AISidebarProps {
   onToggle: (open: boolean) => void;
 }
 
-type FilterType = 'all' | 'clinical' | 'billing' | 'quality' | 'operations';
+type FilterType = 'all' | 'clinical' | 'billing' | 'quality' | 'operations' | 'pharmacy';
 
 async function trpcQuery(path: string, input?: any) {
   const params = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
@@ -48,6 +48,15 @@ export function AISidebar({ isOpen, onToggle }: AISidebarProps) {
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<FilterType>('all');
   const [cardCount, setCardCount] = useState(0);
+  const [dismissing, setDismissing] = useState(false);
+
+  // Count HIGH and CRITICAL severity active cards
+  const criticalCount = cards.filter(c => c.severity === 'high' || c.severity === 'critical').length;
+
+  // Filter cards for display
+  const filteredCards = filter === 'all'
+    ? cards
+    : cards.filter(c => c.module.toLowerCase() === filter);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -98,6 +107,26 @@ export function AISidebar({ isOpen, onToggle }: AISidebarProps) {
     }
   };
 
+  const handleMarkAllRead = async () => {
+    setDismissing(true);
+    try {
+      // Dismiss all visible filtered cards
+      const cardIds = filteredCards.map(c => c.id);
+      await Promise.all(
+        cardIds.map(id =>
+          trpcMutate('evenAI.dismissCard', { card_id: id }).catch(e =>
+            console.error(`Failed to dismiss card ${id}:`, e)
+          )
+        )
+      );
+      setCards(cards.filter(c => !cardIds.includes(c.id)));
+    } catch (error) {
+      console.error('Failed to mark all as read:', error);
+    } finally {
+      setDismissing(false);
+    }
+  };
+
   if (!isOpen) {
     return (
       <button
@@ -120,35 +149,53 @@ export function AISidebar({ isOpen, onToggle }: AISidebarProps) {
   return (
     <div className="fixed right-0 top-0 h-full w-96 bg-white border-l border-gray-200 shadow-2xl flex flex-col z-40">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
-        <div className="flex items-center gap-2">
-          <Brain size={20} className="text-violet-600" />
-          <h2 className="font-semibold text-gray-900">Even AI</h2>
-          <div className="w-2 h-2 rounded-full bg-emerald-500" title="System healthy" />
+      <div className="p-4 border-b border-gray-200">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Brain size={20} className="text-violet-600" />
+            <h2 className="font-semibold text-gray-900">Even AI</h2>
+            <div className="w-2 h-2 rounded-full bg-emerald-500" title="System healthy" />
+          </div>
+          <button
+            onClick={() => onToggle(false)}
+            className="text-gray-400 hover:text-gray-600 transition p-1"
+          >
+            <ChevronLeft size={20} />
+          </button>
         </div>
-        <button
-          onClick={() => onToggle(false)}
-          className="text-gray-400 hover:text-gray-600 transition p-1"
-        >
-          <ChevronLeft size={20} />
-        </button>
+        {criticalCount > 0 && (
+          <div className="px-3 py-1.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-semibold">
+            {criticalCount} high/critical {criticalCount === 1 ? 'alert' : 'alerts'}
+          </div>
+        )}
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-1 p-3 border-b border-gray-200 overflow-x-auto">
-        {(['all', 'clinical', 'billing', 'quality', 'operations'] as const).map((f) => (
+      <div className="border-b border-gray-200 p-3 space-y-3">
+        <div className="flex items-center gap-1 overflow-x-auto">
+          {(['all', 'clinical', 'billing', 'quality', 'operations', 'pharmacy'] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition ${
+                filter === f
+                  ? 'bg-violet-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              {f.charAt(0).toUpperCase() + f.slice(1)}
+            </button>
+          ))}
+        </div>
+        {filteredCards.length > 0 && (
           <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition ${
-              filter === f
-                ? 'bg-violet-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+            onClick={handleMarkAllRead}
+            disabled={dismissing}
+            className="w-full px-2 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded transition disabled:opacity-50"
           >
-            {f.charAt(0).toUpperCase() + f.slice(1)}
+            {dismissing ? 'Marking...' : 'Mark All Read'}
           </button>
-        ))}
+        )}
       </div>
 
       {/* Content */}
@@ -157,8 +204,8 @@ export function AISidebar({ isOpen, onToggle }: AISidebarProps) {
           <div className="flex items-center justify-center h-32">
             <Loader size={20} className="animate-spin text-violet-600" />
           </div>
-        ) : cards.length > 0 ? (
-          cards.map(card => (
+        ) : filteredCards.length > 0 ? (
+          filteredCards.map(card => (
             <InsightCard
               key={card.id}
               card={card}
@@ -168,8 +215,12 @@ export function AISidebar({ isOpen, onToggle }: AISidebarProps) {
             />
           ))
         ) : (
-          <div className="flex items-center justify-center h-32 text-gray-500">
-            <p className="text-sm">No insights yet</p>
+          <div className="flex flex-col items-center justify-center h-32 text-gray-500">
+            <p className="text-sm">
+              {cards.length > 0
+                ? `No ${filter !== 'all' ? filter : 'insights'} yet`
+                : 'No insights yet'}
+            </p>
           </div>
         )}
       </div>

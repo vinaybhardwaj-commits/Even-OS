@@ -95,11 +95,14 @@ async function trpcMutate(path: string, input: any) {
 }
 
 export function AIObservatoryClient() {
-  const [tab, setTab] = useState<'overview' | 'audit-log' | 'template-rules' | 'claim-rubrics'>('overview');
+  const [tab, setTab] = useState<'overview' | 'audit-log' | 'template-rules' | 'claim-rubrics' | 'feedback'>('overview');
   const [data, setData] = useState<ObservatoryData | null>(null);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
   const [templateRules, setTemplateRules] = useState<TemplateRule[]>([]);
   const [claimRubrics, setClaimRubrics] = useState<ClaimRubric[]>([]);
+  const [feedbackData, setFeedbackData] = useState<any>(null);
+  const [feedbackTrend, setFeedbackTrend] = useState<any[]>([]);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -131,6 +134,23 @@ export function AIObservatoryClient() {
     }
   };
 
+  // Load feedback data
+  const loadFeedbackData = async () => {
+    try {
+      setFeedbackLoading(true);
+      const [metrics, trend] = await Promise.all([
+        trpcQuery('evenAI.getEffectivenessMetrics', { days: 30 }),
+        trpcQuery('evenAI.getFeedbackTrend', { days: 14 }),
+      ]);
+      setFeedbackData(metrics);
+      setFeedbackTrend(trend || []);
+    } catch (err) {
+      console.error('Failed to load feedback data:', err);
+    } finally {
+      setFeedbackLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadData();
     if (autoRefresh) {
@@ -140,6 +160,12 @@ export function AIObservatoryClient() {
       if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
     };
   }, [autoRefresh]);
+
+  useEffect(() => {
+    if (tab === 'feedback') {
+      loadFeedbackData();
+    }
+  }, [tab]);
 
   const handleToggleRule = async (ruleId: string, currentActive: boolean) => {
     try {
@@ -247,7 +273,7 @@ export function AIObservatoryClient() {
 
       {/* Tab navigation */}
       <div className="flex gap-2 bg-white rounded-lg p-4 border border-gray-200">
-        {['overview', 'audit-log', 'template-rules', 'claim-rubrics'].map(t => (
+        {['overview', 'audit-log', 'template-rules', 'claim-rubrics', 'feedback'].map(t => (
           <button
             key={t}
             onClick={() => setTab(t as any)}
@@ -261,6 +287,7 @@ export function AIObservatoryClient() {
             {t === 'audit-log' && 'Audit Log'}
             {t === 'template-rules' && 'Template Rules'}
             {t === 'claim-rubrics' && 'Claim Rubrics'}
+            {t === 'feedback' && 'Feedback'}
           </button>
         ))}
       </div>
@@ -683,6 +710,132 @@ export function AIObservatoryClient() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* FEEDBACK TAB */}
+      {tab === 'feedback' && (
+        <div className="space-y-6">
+          {feedbackLoading ? (
+            <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+              <p className="text-gray-500">Loading feedback data...</p>
+            </div>
+          ) : feedbackData ? (
+            <>
+              {/* Effectiveness Score Cards */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                  <p className="text-xs text-gray-600 font-semibold mb-1">ACTION RATE</p>
+                  <p className="text-2xl font-bold text-gray-800">{(feedbackData.action_rate * 100).toFixed(1)}%</p>
+                  <p className="text-xs text-gray-500 mt-1">{feedbackData.actions_count || 0} actions</p>
+                </div>
+                <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                  <p className="text-xs text-gray-600 font-semibold mb-1">RESPONSE RATE</p>
+                  <p className="text-2xl font-bold text-gray-800">{(feedbackData.response_rate * 100).toFixed(1)}%</p>
+                  <p className="text-xs text-gray-500 mt-1">{feedbackData.responses_count || 0} responses</p>
+                </div>
+                <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                  <p className="text-xs text-gray-600 font-semibold mb-1">DISMISS RATE</p>
+                  <p className="text-2xl font-bold text-gray-800">{(feedbackData.dismiss_rate * 100).toFixed(1)}%</p>
+                  <p className="text-xs text-gray-500 mt-1">{feedbackData.dismissals_count || 0} dismissals</p>
+                </div>
+              </div>
+
+              {/* Feedback Distribution */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+                <h3 className="font-bold text-gray-800 mb-4">Feedback Distribution</h3>
+                <div className="space-y-3">
+                  {feedbackData.feedback_distribution && Object.entries(feedbackData.feedback_distribution).map(([type, count]: [string, any]) => {
+                    const total = Object.values(feedbackData.feedback_distribution).reduce((a: number, b: any) => a + b, 0);
+                    const pct = (count / total) * 100;
+                    const colors: Record<string, string> = {
+                      'helpful': 'bg-green-500',
+                      'neutral': 'bg-gray-400',
+                      'not_helpful': 'bg-red-500',
+                    };
+                    return (
+                      <div key={type}>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="font-medium text-gray-700 capitalize">{type.replace('_', ' ')}</span>
+                          <span className="text-gray-600">{count} ({pct.toFixed(1)}%)</span>
+                        </div>
+                        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${colors[type] || 'bg-gray-400'}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Module Effectiveness Table */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+                <h3 className="font-bold text-gray-800 mb-4">Module Effectiveness</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-600">Module</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-600">Cards</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-600">Action Rate</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-600">Avg Feedback Score</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {feedbackData.module_effectiveness && feedbackData.module_effectiveness.map((m: any) => (
+                        <tr key={m.module} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 text-gray-800 font-medium">{m.module}</td>
+                          <td className="px-4 py-2 text-gray-600">{m.card_count}</td>
+                          <td className="px-4 py-2 text-gray-600">{(m.action_rate * 100).toFixed(1)}%</td>
+                          <td className="px-4 py-2 text-gray-600 font-semibold">{m.avg_feedback_score.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Source Comparison */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                  <p className="text-xs text-gray-600 font-semibold mb-1">AI CARDS EFFECTIVENESS</p>
+                  <p className="text-2xl font-bold text-violet-600">{(feedbackData.ai_effectiveness * 100).toFixed(1)}%</p>
+                  <p className="text-xs text-gray-500 mt-1">avg action rate</p>
+                </div>
+                <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                  <p className="text-xs text-gray-600 font-semibold mb-1">TEMPLATE CARDS EFFECTIVENESS</p>
+                  <p className="text-2xl font-bold text-blue-600">{(feedbackData.template_effectiveness * 100).toFixed(1)}%</p>
+                  <p className="text-xs text-gray-500 mt-1">avg action rate</p>
+                </div>
+              </div>
+
+              {/* Daily Feedback Trend */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+                <h3 className="font-bold text-gray-800 mb-4">14-Day Feedback Trend</h3>
+                <div className="space-y-2 text-xs font-mono text-gray-700">
+                  {feedbackTrend.length > 0 ? (
+                    feedbackTrend.map((day: any) => (
+                      <div key={day.date} className="flex justify-between">
+                        <span>{day.date}</span>
+                        <span className="text-gray-600">
+                          {day.card_count} cards • avg_score: {day.avg_score.toFixed(2)} • actions: {day.actions_count}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-gray-500">No trend data available</p>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+              <p className="text-gray-500">No feedback data available</p>
+            </div>
+          )}
         </div>
       )}
 

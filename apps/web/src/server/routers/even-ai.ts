@@ -27,6 +27,7 @@ import { predictBedDischarges, getOccupancyForecast, getBedPredictions } from '@
 import { analyzeOTSchedule, getOTTurnoverAnalysis, getOTEfficiencyReport } from '@/lib/ai/operations/ot-optimizer';
 import { runPharmacyAlerts } from '@/lib/ai/operations/pharmacy-alerts';
 import { generateMorningBriefing, getLatestBriefing } from '@/lib/ai/operations/morning-briefing';
+import { getEffectivenessMetrics, getModuleEffectiveness, getLowPerformingCards, getCardLifecycleStats, getFeedbackTrend } from '@/lib/ai/feedback-loop';
 
 // ────────────────────────────────────────────────────────────────────────
 // Lazy SQL Client
@@ -284,6 +285,16 @@ const getOTEfficiencyInput = z.object({});
 const runPharmacyAlertsInput = z.object({});
 const generateMorningBriefingInput = z.object({});
 const getLatestBriefingInput = z.object({});
+
+// ════════════════════════════════════════════════════════════════════════
+// AI.6: OBSERVATORY & FEEDBACK INPUT SCHEMAS
+// ════════════════════════════════════════════════════════════════════════
+
+const getEffectivenessInput = z.object({ days: z.number().int().min(1).max(365).default(30) });
+const getModuleEffectivenessInput = z.object({ module: z.string(), days: z.number().int().min(1).max(365).default(30) });
+const getLowPerformingInput = z.object({ days: z.number().int().min(1).max(365).default(30) });
+const getCardLifecycleInput = z.object({ days: z.number().int().min(1).max(365).default(30) });
+const getFeedbackTrendInput = z.object({ days: z.number().int().min(1).max(90).default(14) });
 
 // ════════════════════════════════════════════════════════════════════════
 // ROUTER
@@ -1698,6 +1709,100 @@ export const evenAIRouter = router({
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: `Latest briefing query failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  // ──────────────────────────────────────────────────────────────────
+  // AI.6: OBSERVATORY & FEEDBACK (5 endpoints: 43-47)
+  // ──────────────────────────────────────────────────────────────────
+
+  /**
+   * 43. getEffectivenessMetrics — Comprehensive AI effectiveness report
+   */
+  getEffectivenessMetrics: adminProcedure
+    .input(getEffectivenessInput)
+    .query(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const report = await getEffectivenessMetrics(hospitalId, input.days);
+        return { success: true, report };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Effectiveness metrics failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 44. getModuleEffectiveness — Deep dive per module
+   */
+  getModuleEffectiveness: adminProcedure
+    .input(getModuleEffectivenessInput)
+    .query(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const report = await getModuleEffectiveness(hospitalId, input.module, input.days);
+        return { success: true, report };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Module effectiveness failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 45. getLowPerformingCards — Pattern detection for poor-performing cards
+   */
+  getLowPerformingCards: adminProcedure
+    .input(getLowPerformingInput)
+    .query(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const patterns = await getLowPerformingCards(hospitalId, input.days);
+        return { success: true, patterns };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Low performing cards failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 46. getCardLifecycleStats — Card lifecycle analysis
+   */
+  getCardLifecycleStats: adminProcedure
+    .input(getCardLifecycleInput)
+    .query(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const stats = await getCardLifecycleStats(hospitalId, input.days);
+        return { success: true, stats };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Card lifecycle stats failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 47. getFeedbackTrend — Time-series feedback data
+   */
+  getFeedbackTrend: adminProcedure
+    .input(getFeedbackTrendInput)
+    .query(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const trend = await getFeedbackTrend(hospitalId, input.days);
+        return { success: true, trend };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Feedback trend failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
         });
       }
     }),
