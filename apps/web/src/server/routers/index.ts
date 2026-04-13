@@ -49,6 +49,7 @@ import { integrationsRouter } from './integrations';
 import { mrdDocumentsRouter } from './mrd-documents';
 import { hardeningRouter } from './hardening';
 import { patientPortalRouter } from './patient-portal';
+import { evenAIRouter } from './even-ai';
 
 export const appRouter = router({
   auth: authRouter,
@@ -101,6 +102,7 @@ export const appRouter = router({
   mrdDocuments: mrdDocumentsRouter,
   hardening: hardeningRouter,
   patientPortal: patientPortalRouter,
+  evenAI: evenAIRouter,
 });
 
 export type AppRouter = typeof appRouter;
