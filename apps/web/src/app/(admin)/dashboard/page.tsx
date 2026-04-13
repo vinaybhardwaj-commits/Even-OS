@@ -331,6 +331,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-violet-600">Westgard rules, LJ chart, sigma</p>
                 </div>
               </a>
+              <a href="/admin/hl7-analyzer" className="flex items-center gap-3 p-4 bg-sky-50 rounded-lg border border-sky-200 hover:bg-sky-100 hover:border-sky-300 transition-colors">
+                <span className="text-2xl">&#128268;</span>
+                <div>
+                  <p className="text-sm font-semibold text-sky-800">HL7 Analyzers</p>
+                  <p className="text-xs text-sky-600">Adapters, messages, dead letters</p>
+                </div>
+              </a>
               <a href="/admin/ot-management" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
                 <span className="text-2xl">&#129657;</span>
                 <div>
@@ -431,7 +438,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint L.7 — QC &amp; Levey-Jennings (Westgard multi-rule, LJ chart, sigma). 159 tables, ~496 routes.</p>
+              <p className="text-sm text-gray-600">Sprint L.8 — HL7 Analyzer Integration (adapters, message routing, dead letters). 162 tables, ~509 routes. LIS PHASE COMPLETE.</p>
             </div>
           </div>
         </div>
