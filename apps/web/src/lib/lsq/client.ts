@@ -119,50 +119,22 @@ async function fetchLeadsByStage(stage: string, pageIndex = 1, pageSize = 200): 
 /**
  * Fetch IPD WIN leads modified after a given date from LSQ.
  * Only syncs IPD WIN stage (admitted patients).
- * Paginated fetch, then client-side filter by ModifiedOn.
+ * Fetches a single page of up to maxLeads (default 50) to keep sync fast.
  */
-export async function fetchLeadsModifiedAfter(since: Date): Promise<LsqApiCallResult & { leads?: LsqLead[] }> {
-  const stages = ['IPD WIN'];
-  const allLeads: LsqLead[] = [];
-  let lastResult: LsqApiCallResult | null = null;
+export async function fetchLeadsModifiedAfter(since: Date, maxLeads = 50): Promise<LsqApiCallResult & { leads?: LsqLead[] }> {
+  const result = await fetchLeadsByStage('IPD WIN', 1, maxLeads);
 
-  for (const stage of stages) {
-    let pageIndex = 1;
-    const pageSize = 200;
-
-    while (true) {
-      const result = await fetchLeadsByStage(stage, pageIndex, pageSize);
-      lastResult = result;
-
-      if (result.error) {
-        // Return first error encountered
-        return { ...result, leads: [] };
-      }
-
-      const batch = result.leads || [];
-      allLeads.push(...batch);
-
-      if (batch.length < pageSize) break;
-      pageIndex++;
-
-      // Safety limit: max 10 pages per stage (2000 leads)
-      if (pageIndex > 10) break;
-    }
+  if (result.error || !result.leads) {
+    return result;
   }
 
-  // Client-side filter by ModifiedOn (LSQ API limitation)
-  const filtered = allLeads.filter(lead => {
+  // Client-side filter by ModifiedOn
+  const filtered = result.leads.filter(lead => {
     if (!lead.ModifiedOn) return true;
     return new Date(lead.ModifiedOn) >= since;
   });
 
-  return {
-    endpoint: 'LeadManagement.svc/Leads.Get',
-    method: 'POST',
-    status: lastResult?.status || 200,
-    latency_ms: lastResult?.latency_ms || 0,
-    leads: filtered,
-  };
+  return { ...result, leads: filtered };
 }
 
 /**
