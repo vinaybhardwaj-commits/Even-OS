@@ -141,7 +141,7 @@ export async function runLsqSync(hospitalId: string, userId: string): Promise<Sy
   // 1. Create sync run record
   const [syncRun] = await sql`
     INSERT INTO lsq_sync_log (hospital_id, status)
-    VALUES (${hospitalId}, 'running')
+    VALUES (${hospitalId}, 'partial')
     RETURNING id
   `;
 
