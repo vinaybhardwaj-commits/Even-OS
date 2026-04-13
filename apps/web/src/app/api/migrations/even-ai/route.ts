@@ -181,7 +181,7 @@ export async function POST(req: NextRequest) {
       CREATE TABLE IF NOT EXISTS bed_predictions (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         hospital_id UUID NOT NULL REFERENCES hospitals(id),
-        bed_id UUID NOT NULL REFERENCES beds(id),
+        bed_id UUID NOT NULL,
         encounter_id UUID NOT NULL REFERENCES encounters(id),
         predicted_discharge_at TIMESTAMPTZ NOT NULL,
         confidence NUMERIC(3,2) NOT NULL,
