@@ -98,77 +98,11 @@ export const authRouter = router({
         });
       }
 
-      // Password correct — check device trust
-      const deviceId = await getDeviceId();
-      let deviceTrusted = false;
+      // TODO: Re-enable device trust check once Resend domain (even.in) is verified
+      // Device trust bypassed — go straight to login
+      const deviceTrusted = true;
 
-      if (deviceId) {
-        const [device] = await db.select()
-          .from(trustedDevices)
-          .where(and(
-            eq(trustedDevices.user_id, user.id),
-            eq(trustedDevices.device_id, deviceId),
-            eq(trustedDevices.is_active, true),
-          ))
-          .limit(1);
-
-        if (device) {
-          deviceTrusted = true;
-          // Update last_seen
-          await db.update(trustedDevices)
-            .set({ last_seen_at: new Date() })
-            .where(eq(trustedDevices.id, device.id));
-        }
-      }
-
-      if (!deviceTrusted) {
-        // New device — send OTP email and return pending state
-        const otp = generateOTP();
-        const otpHash = hashCode(otp);
-
-        // Clear any existing unused codes for this user
-        await db.delete(verificationCodes)
-          .where(and(
-            eq(verificationCodes.user_id, user.id),
-            eq(verificationCodes.purpose, 'device_verification'),
-            isNull(verificationCodes.used_at),
-          ));
-
-        // Store OTP
-        await db.insert(verificationCodes).values({
-          user_id: user.id,
-          code_hash: otpHash,
-          purpose: 'device_verification',
-          metadata: { email: input.email, hospital_id: input.hospital_id },
-          expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
-        });
-
-        // Send OTP email
-        await sendEmail({
-          to: user.email,
-          subject: 'Even OS — Device Verification Code',
-          html: otpEmailHtml(otp, user.full_name),
-          text: `Your Even OS verification code is: ${otp}. It expires in 10 minutes.`,
-        });
-
-        // Log the attempt (successful credentials, pending device verification)
-        await db.insert(loginAttempts).values({
-          email: input.email,
-          hospital_id: input.hospital_id,
-          success: false,
-          failure_reason: 'device_verification_pending',
-          ip_address: '0.0.0.0',
-        });
-
-        return {
-          success: false,
-          requires_device_verification: true,
-          user_id: user.id,
-          message: 'Verification code sent to your email.',
-        };
-      }
-
-      // Device trusted — complete login
+      // Complete login
       await db.insert(loginAttempts).values({
         email: input.email,
         hospital_id: input.hospital_id,
