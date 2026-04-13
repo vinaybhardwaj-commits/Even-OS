@@ -45,6 +45,7 @@ import { qcLeveyJenningsRouter } from './qc-levey-jennings';
 import { hl7AnalyzerRouter } from './hl7-analyzer';
 import { drizzleTestRouter } from './drizzle-test';
 import { dashboardsRouter } from './dashboards';
+import { integrationsRouter } from './integrations';
 
 export const appRouter = router({
   auth: authRouter,
@@ -93,6 +94,7 @@ export const appRouter = router({
   hl7Analyzer: hl7AnalyzerRouter,
   drizzleTest: drizzleTestRouter,
   dashboards: dashboardsRouter,
+  integrations: integrationsRouter,
 });
 
 export type AppRouter = typeof appRouter;

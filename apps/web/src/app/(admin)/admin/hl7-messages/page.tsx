@@ -1,9 +1,9 @@
 import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { LsqSyncClient } from './lsq-sync-client';
+import { Hl7MessagesClient } from './hl7-messages-client';
 
-export default async function LsqSyncPage() {
+export default async function Hl7MessagesPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  return <LsqSyncClient />;
+  return <Hl7MessagesClient />;
 }

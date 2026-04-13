@@ -1,9 +1,9 @@
 import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { LsqSyncClient } from './lsq-sync-client';
+import { EventBusClient } from './event-bus-client';
 
-export default async function LsqSyncPage() {
+export default async function EventBusPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  return <LsqSyncClient />;
+  return <EventBusClient />;
 }
