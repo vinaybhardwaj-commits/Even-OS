@@ -283,18 +283,18 @@ export async function runLsqSync(hospitalId: string, userId: string): Promise<Sy
           uhid = `EVEN-LSQ-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
         }
 
-        // Create patient
+        // Create patient (no created_by_user_id — system sync)
         const [newPatient] = await sql`
           INSERT INTO patients (
             hospital_id, uhid, name_given, name_family, name_full,
             phone, email, gender, dob, source_type, patient_category,
-            lsq_lead_id, status, created_by_user_id
+            lsq_lead_id, status
           ) VALUES (
             ${hospitalId}, ${uhid}, ${normalized.name_given}, ${normalized.name_family},
             ${normalized.name_full}, ${normalized.phone}, ${normalized.email || null},
             ${normalized.gender}, ${normalized.dob || null},
             'lsq_lead', ${normalized.patient_category},
-            ${normalized.lsq_lead_id}, 'active', ${null}
+            ${normalized.lsq_lead_id}, 'active'
           )
           RETURNING id, uhid
         `;
