@@ -92,37 +92,77 @@ export async function lsqFetch(
 }
 
 /**
- * Fetch leads modified after a given date from LSQ
- * Uses the LeadSquared search endpoint with ModifiedOn filter
+ * Fetch leads by stage from LSQ with pagination.
+ * Uses LeadManagement.svc/Leads.Get (same as Rounds — proven endpoint).
  */
-export async function fetchLeadsModifiedAfter(since: Date): Promise<LsqApiCallResult & { leads?: LsqLead[] }> {
+async function fetchLeadsByStage(stage: string, pageIndex = 1, pageSize = 200): Promise<LsqApiCallResult & { leads?: LsqLead[] }> {
   const result = await lsqFetch(
-    'LeadManagement.svc/Leads.GetByFilter',
+    'LeadManagement.svc/Leads.Get',
     'POST',
     {
       Parameter: {
-        LookupName: 'mx_Stage',
-        LookupValue: 'OPD WIN,IPD WIN',
-        Operator: 'in',
+        LookupName: 'ProspectStage',
+        LookupValue: stage,
+        SqlOperator: '=',
       },
-      Columns: {
-        Include_CSV: 'ProspectID,FirstName,LastName,Phone,EmailAddress,mx_Gender,mx_Age,mx_Date_of_Birth,mx_Ailment,mx_Doctor_Name,mx_Insurance_Company,mx_TPA,ProspectStage,Source,SourceMedium,SourceCampaign,CreatedOn,ModifiedOn',
-      },
-      Sorting: { ColumnName: 'ModifiedOn', Direction: 'DESC' },
-      Paging: { PageIndex: 1, PageSize: 500 },
+      Paging: { PageIndex: pageIndex, PageSize: pageSize },
     },
   );
 
   if (result.data && Array.isArray(result.data)) {
-    // Client-side filter by ModifiedOn (LSQ API limitation)
-    const leads = (result.data as LsqLead[]).filter(lead => {
-      if (!lead.ModifiedOn) return true;
-      return new Date(lead.ModifiedOn) >= since;
-    });
-    return { ...result, leads };
+    return { ...result, leads: result.data as LsqLead[] };
   }
 
   return { ...result, leads: [] };
+}
+
+/**
+ * Fetch leads modified after a given date from LSQ.
+ * Fetches OPD WIN + IPD WIN stages (paginated), then filters client-side
+ * by ModifiedOn — same strategy as the working Rounds implementation.
+ */
+export async function fetchLeadsModifiedAfter(since: Date): Promise<LsqApiCallResult & { leads?: LsqLead[] }> {
+  const stages = ['OPD WIN', 'IPD WIN'];
+  const allLeads: LsqLead[] = [];
+  let lastResult: LsqApiCallResult | null = null;
+
+  for (const stage of stages) {
+    let pageIndex = 1;
+    const pageSize = 200;
+
+    while (true) {
+      const result = await fetchLeadsByStage(stage, pageIndex, pageSize);
+      lastResult = result;
+
+      if (result.error) {
+        // Return first error encountered
+        return { ...result, leads: [] };
+      }
+
+      const batch = result.leads || [];
+      allLeads.push(...batch);
+
+      if (batch.length < pageSize) break;
+      pageIndex++;
+
+      // Safety limit: max 10 pages per stage (2000 leads)
+      if (pageIndex > 10) break;
+    }
+  }
+
+  // Client-side filter by ModifiedOn (LSQ API limitation)
+  const filtered = allLeads.filter(lead => {
+    if (!lead.ModifiedOn) return true;
+    return new Date(lead.ModifiedOn) >= since;
+  });
+
+  return {
+    endpoint: 'LeadManagement.svc/Leads.Get',
+    method: 'POST',
+    status: lastResult?.status || 200,
+    latency_ms: lastResult?.latency_ms || 0,
+    leads: filtered,
+  };
 }
 
 /**
