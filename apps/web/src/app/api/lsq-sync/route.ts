@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runLsqSync } from '@/lib/lsq/sync-engine';
 
+// Env: ADMIN_KEY (auth), CRON_SECRET (Vercel cron)
 let _sql: any = null;
 function getSql() {
   if (!_sql) {
