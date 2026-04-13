@@ -28,3 +28,4 @@ pnpm-debug.log*
 
 # drizzle
 drizzle/migrations/meta/
+package-lock.json
