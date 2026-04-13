@@ -61,22 +61,29 @@ interface ChecklistItem {
 }
 
 // ─── tRPC helper ─────────────────────────────────────────
-async function trpcQuery(path: string, input?: Record<string, unknown>) {
-  const qs = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
-  const res = await fetch(`/api/trpc/${path}${qs}`);
+async function trpcQuery(path: string, input?: any) {
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
+  const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Request failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
-async function trpcMutate(path: string, input: Record<string, unknown>) {
+async function trpcMutate(path: string, input?: any) {
   const res = await fetch(`/api/trpc/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ json: input !== undefined ? input : {} }),
   });
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Mutation failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
@@ -405,9 +412,9 @@ export default function AdmissionsClient() {
               <div className="px-6 py-3 border-t border-gray-200 flex items-center justify-between text-sm text-gray-600">
                 <span>{total} admission{total !== 1 ? 's' : ''}</span>
                 <div className="flex gap-2">
-                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40">&#8592; Prev</button>
+                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40">← Prev</button>
                   <span className="px-3 py-1">Page {page} of {totalPages}</span>
-                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40">Next &#8594;</button>
+                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40">Next →</button>
                 </div>
               </div>
             )}
@@ -425,7 +432,7 @@ export default function AdmissionsClient() {
                 <h2 className="text-lg font-bold text-gray-900">New Admission</h2>
                 <p className="text-xs text-gray-500 mt-0.5">Step {wizardStep} of 4</p>
               </div>
-              <button onClick={resetWizard} className="text-gray-400 hover:text-gray-600 text-xl">&#10005;</button>
+              <button onClick={resetWizard} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
             </div>
 
             {/* Step indicators */}
@@ -436,7 +443,7 @@ export default function AdmissionsClient() {
                   wizardStep > i + 1 ? 'bg-green-100 text-green-700' :
                   'bg-gray-100 text-gray-400'
                 }`}>
-                  {wizardStep > i + 1 ? '&#10003; ' : ''}{label}
+                  {wizardStep > i + 1 ? '✓ ' : ''}{label}
                 </div>
               ))}
             </div>
@@ -632,7 +639,7 @@ export default function AdmissionsClient() {
                         Patient Category: <span className="font-bold">{selectedPatient.patient_category}</span>
                       </p>
                       {selectedPatient.patient_category === 'insured' && (
-                        <p className="text-xs text-blue-700 mt-1">&#9888; Insured patients require pre-authorization before admission.</p>
+                        <p className="text-xs text-blue-700 mt-1">⚠ Insured patients require pre-authorization before admission.</p>
                       )}
                     </div>
                   )}
@@ -669,7 +676,7 @@ export default function AdmissionsClient() {
                   {preAuthStatus === 'override' && (
                     <div>
                       <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg mb-3">
-                        <p className="text-sm text-orange-800 font-medium">&#9888; Emergency Override</p>
+                        <p className="text-sm text-orange-800 font-medium">⚠ Emergency Override</p>
                         <p className="text-xs text-orange-700 mt-1">This admission will proceed without pre-authorization. Your name will be recorded in the audit trail.</p>
                       </div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Override Reason <span className="text-red-500">*</span></label>
@@ -759,7 +766,7 @@ export default function AdmissionsClient() {
                 onClick={() => wizardStep === 1 ? resetWizard() : setWizardStep(s => s - 1)}
                 className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
               >
-                {wizardStep === 1 ? 'Cancel' : '&#8592; Back'}
+                {wizardStep === 1 ? 'Cancel' : '← Back'}
               </button>
 
               {wizardStep < 4 ? (
@@ -772,7 +779,7 @@ export default function AdmissionsClient() {
                   }
                   className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
-                  Next &#8594;
+                  Next →
                 </button>
               ) : (
                 <button
@@ -780,7 +787,7 @@ export default function AdmissionsClient() {
                   disabled={!canSubmit() || submitting}
                   className="px-5 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
-                  {submitting ? 'Admitting...' : '&#10003; Confirm Admission'}
+                  {submitting ? 'Admitting...' : '✓ Confirm Admission'}
                 </button>
               )}
             </div>

@@ -55,22 +55,29 @@ interface ActiveAdmission {
 }
 
 // ─── tRPC helper ─────────────────────────────────────────
-async function trpcQuery(path: string, input?: Record<string, unknown>) {
-  const qs = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
-  const res = await fetch(`/api/trpc/${path}${qs}`);
+async function trpcQuery(path: string, input?: any) {
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
+  const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Request failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
-async function trpcMutate(path: string, input: Record<string, unknown>) {
+async function trpcMutate(path: string, input?: any) {
   const res = await fetch(`/api/trpc/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ json: input !== undefined ? input : {} }),
   });
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Mutation failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
@@ -321,7 +328,7 @@ export default function DischargeClient() {
                       onClick={() => openMilestones(q.encounter_id, q.patient_name)}
                       className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100"
                     >
-                      Manage &#8594;
+                      Manage →
                     </button>
                   </div>
                   {/* Milestone progress bar */}
@@ -403,7 +410,7 @@ export default function DischargeClient() {
                 <h2 className="text-lg font-bold text-gray-900">Initiate Discharge</h2>
                 <p className="text-sm text-gray-500">{initiateEncounter.patient_name} ({initiateEncounter.uhid})</p>
               </div>
-              <button onClick={() => setShowInitiate(false)} className="text-gray-400 hover:text-gray-600 text-xl">&#10005;</button>
+              <button onClick={() => setShowInitiate(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
             </div>
 
             <div className="px-6 py-5 space-y-4">
@@ -456,7 +463,7 @@ export default function DischargeClient() {
                 <h2 className="text-lg font-bold text-gray-900">Discharge Milestones</h2>
                 <p className="text-sm text-gray-500">{milestonePatientName}</p>
               </div>
-              <button onClick={() => { setShowMilestones(false); setError(''); }} className="text-gray-400 hover:text-gray-600 text-xl">&#10005;</button>
+              <button onClick={() => { setShowMilestones(false); setError(''); }} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
             </div>
 
             <div className="px-6 py-5">
@@ -490,7 +497,7 @@ export default function DischargeClient() {
                   <div className="mb-4">
                     <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
                       <span className="font-medium">Progress: {dischargeStatus.completed}/{dischargeStatus.total} milestones</span>
-                      {dischargeStatus.all_complete && <span className="text-green-600 font-bold">&#10003; All Complete</span>}
+                      {dischargeStatus.all_complete && <span className="text-green-600 font-bold">✓ All Complete</span>}
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-3">
                       <div
@@ -514,7 +521,7 @@ export default function DischargeClient() {
                             </span>
                           </div>
                           {m.completed_at ? (
-                            <span className="text-xs text-green-600">&#10003; {formatDate(m.completed_at)}</span>
+                            <span className="text-xs text-green-600">✓ {formatDate(m.completed_at)}</span>
                           ) : (
                             <button
                               onClick={() => handleCompleteMilestone(m.id)}
@@ -569,7 +576,7 @@ export default function DischargeClient() {
                     disabled={completingDischarge || !dischargeStatus.all_complete}
                     className="px-5 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-40 transition-colors"
                   >
-                    {completingDischarge ? 'Discharging...' : '&#10003; Complete Discharge'}
+                    {completingDischarge ? 'Discharging...' : '✓ Complete Discharge'}
                   </button>
                 </div>
               </div>

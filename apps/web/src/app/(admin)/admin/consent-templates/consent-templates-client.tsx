@@ -10,20 +10,24 @@ type ConsentTemplate = {
 const CATEGORIES = ['surgical', 'anesthesia', 'transfusion', 'research', 'general', 'procedure', 'other'] as const;
 
 async function trpcQuery(path: string, input?: any) {
-  const params = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
   const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Request failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
 async function trpcMutate(path: string, input: any) {
   const res = await fetch(`/api/trpc/${path}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ json: input }),
   });
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) throw new Error(json.error?.json?.message || json.error?.message || 'Request failed');
   return json.result?.data?.json;
 }
 

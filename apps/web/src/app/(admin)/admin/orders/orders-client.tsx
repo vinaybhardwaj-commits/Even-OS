@@ -53,22 +53,29 @@ interface Note {
 }
 
 // ─── Helpers ─────────────────────────────────────────────
-async function trpcQuery(path: string, input?: Record<string, unknown>) {
-  const qs = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
-  const res = await fetch(`/api/trpc/${path}${qs}`);
+async function trpcQuery(path: string, input?: any) {
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
+  const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Request failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
-async function trpcMutate(path: string, input: Record<string, unknown>) {
+async function trpcMutate(path: string, input?: any) {
   const res = await fetch(`/api/trpc/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ json: input !== undefined ? input : {} }),
   });
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Mutation failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
@@ -446,7 +453,7 @@ export default function OrdersClient() {
     <div style={themeStyles.container}>
       {/* Header */}
       <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '28px', fontWeight: '700', marginBottom: '8px' }}>Orders &#38; Vitals</h1>
+        <h1 style={{ fontSize: '28px', fontWeight: '700', marginBottom: '8px' }}>Orders & Vitals</h1>
         <p style={{ fontSize: '14px', color: '#999' }}>Manage clinical orders, vital signs, and clinical notes</p>
       </div>
 
@@ -462,7 +469,7 @@ export default function OrdersClient() {
             fontSize: '14px',
           }}
         >
-          &#10005; {error}
+          ✕ {error}
         </div>
       )}
       {success && (
@@ -476,7 +483,7 @@ export default function OrdersClient() {
             fontSize: '14px',
           }}
         >
-          &#10004; {success}
+          ✔ {success}
         </div>
       )}
 

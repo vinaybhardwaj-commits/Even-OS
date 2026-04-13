@@ -197,23 +197,30 @@ function formatIndianNumber(value: number | null | undefined): string {
 // API HELPERS
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function trpcQuery(path: string, input?: Record<string, any>) {
-  const qs = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
-  const res = await fetch(`/api/trpc/${path}${qs}`);
+async function trpcQuery(path: string, input?: any) {
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
+  const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
-  return json.result?.data?.json || json.result?.data || json.result;
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Request failed';
+    throw new Error(msg);
+  }
+  return json.result?.data?.json;
 }
 
-async function trpcMutate(path: string, input: Record<string, any>) {
+async function trpcMutate(path: string, input?: any) {
   const res = await fetch(`/api/trpc/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ json: input !== undefined ? input : {} }),
   });
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
-  return json.result?.data?.json || json.result?.data || json.result;
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Mutation failed';
+    throw new Error(msg);
+  }
+  return json.result?.data?.json;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1484,7 +1491,7 @@ export function OTManagementClient() {
                     try {
                       const res = await fetch('/api/trpc/evenAI.analyzeOTSchedule', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ json: {} }) });
                       const json = await res.json();
-                      if (json.error) throw new Error(json.error.message);
+                      if (json.error) throw new Error(json.error?.json?.message || json.error?.message || 'Request failed');
                       setAiOTAnalysis(json.result?.data?.json);
                     } catch (e: any) { setAiOTError(e.message); }
                     finally { setAiOTLoading(false); }
@@ -1501,7 +1508,7 @@ export function OTManagementClient() {
                       const params = `?input=${encodeURIComponent(JSON.stringify({ days: 30 }))}`;
                       const res = await fetch(`/api/trpc/evenAI.getOTTurnover${params}`);
                       const json = await res.json();
-                      if (json.error) throw new Error(json.error.message);
+                      if (json.error) throw new Error(json.error?.json?.message || json.error?.message || 'Request failed');
                       setAiOTTurnover(json.result?.data?.json?.analysis);
                     } catch (e: any) { setAiOTError(e.message); }
                     finally { setAiOTLoading(false); }
@@ -1517,7 +1524,7 @@ export function OTManagementClient() {
                     try {
                       const res = await fetch('/api/trpc/evenAI.getOTEfficiency', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ json: {} }) });
                       const json = await res.json();
-                      if (json.error) throw new Error(json.error.message);
+                      if (json.error) throw new Error(json.error?.json?.message || json.error?.message || 'Request failed');
                       setAiOTReport(json.result?.data?.json);
                     } catch (e: any) { setAiOTError(e.message); }
                     finally { setAiOTLoading(false); }

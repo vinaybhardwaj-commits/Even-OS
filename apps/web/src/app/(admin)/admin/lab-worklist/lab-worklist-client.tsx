@@ -5,21 +5,29 @@ import { useState, useEffect, useCallback } from 'react';
 // ============================================================
 // tRPC fetch helpers
 // ============================================================
-async function trpcQuery(path: string, input?: Record<string, unknown>) {
-  const params = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
+async function trpcQuery(path: string, input?: any) {
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
   const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Request failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
-async function trpcMutate(path: string, input: Record<string, unknown>) {
+async function trpcMutate(path: string, input?: any) {
   const res = await fetch(`/api/trpc/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ json: input !== undefined ? input : {} }),
   });
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Mutation failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Mutation failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
@@ -288,7 +296,7 @@ export default function LabWorklistClient() {
       {/* Header */}
       <div style={{ background: '#1e293b', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' }}>
         <div>
-          <a href="/dashboard" style={{ color: '#64748b', textDecoration: 'none', fontSize: '13px' }}>&#8592; Dashboard</a>
+          <a href="/dashboard" style={{ color: '#64748b', textDecoration: 'none', fontSize: '13px' }}>← Dashboard</a>
           <h1 style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 700 }}>Lab Worklist</h1>
           <p style={{ margin: '2px 0 0', color: '#94a3b8', fontSize: '13px' }}>Orders, specimens, results, verification</p>
         </div>
@@ -314,7 +322,7 @@ export default function LabWorklistClient() {
       {error && (
         <div style={{ background: '#7f1d1d', padding: '10px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ color: '#fca5a5', fontSize: '13px' }}>{error}</span>
-          <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer' }}>&#10005;</button>
+          <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer' }}>✕</button>
         </div>
       )}
 
@@ -372,7 +380,7 @@ export default function LabWorklistClient() {
 
             {orders.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px', color: '#64748b' }}>
-                <div style={{ fontSize: '48px', marginBottom: '16px' }}>&#128300;</div>
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔬</div>
                 <p>No lab orders matching filters</p>
               </div>
             ) : (
@@ -455,7 +463,7 @@ export default function LabWorklistClient() {
 
             {specimens.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px', color: '#64748b' }}>
-                <div style={{ fontSize: '48px', marginBottom: '16px' }}>&#129514;</div>
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>🧪</div>
                 <p>No specimens matching filters</p>
               </div>
             ) : (
@@ -764,7 +772,7 @@ function AnalyticsTab() {
       <div style={{ background: '#1e293b', borderRadius: '12px', padding: '24px', border: '1px solid #334155' }}>
         <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>Specimen Rejection Rate (30 days)</h3>
         {rejectionStats.length === 0 ? (
-          <p style={{ color: '#22c55e', fontSize: '13px' }}>&#10003; No rejected specimens in the last 30 days</p>
+          <p style={{ color: '#22c55e', fontSize: '13px' }}>✓ No rejected specimens in the last 30 days</p>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>

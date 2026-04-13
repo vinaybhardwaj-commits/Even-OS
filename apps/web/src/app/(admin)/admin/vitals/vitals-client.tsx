@@ -477,7 +477,7 @@ export default function VitalsClient() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-800 mb-2">
-            &#127777; Enhanced Vitals &amp; Observations
+            🌡 Enhanced Vitals &amp; Observations
           </h1>
           <p className="text-gray-600">
             Monitor patient vital signs, intake/output, and clinical alerts
@@ -550,10 +550,10 @@ export default function VitalsClient() {
                       : 'text-gray-700 hover:bg-gray-100'
                   }`}
                 >
-                  {tab === 'vitals' && '&#127777; Vitals'}
-                  {tab === 'io' && '&#128167; Intake/Output'}
-                  {tab === 'alerts' && `&#9888; Alerts ${unacknowledgedCount > 0 ? `(${unacknowledgedCount})` : ''}`}
-                  {tab === 'ai' && '&#128175; AI Alerts'}
+                  {tab === 'vitals' && '🌡 Vitals'}
+                  {tab === 'io' && '💧 Intake/Output'}
+                  {tab === 'alerts' && `⚠ Alerts ${unacknowledgedCount > 0 ? `(${unacknowledgedCount})` : ''}`}
+                  {tab === 'ai' && '💯 AI Alerts'}
                 </button>
               ))}
             </div>
@@ -573,7 +573,7 @@ export default function VitalsClient() {
                           )}`}
                         >
                           <div className="text-xs font-semibold uppercase opacity-75">
-                            &#127777; Temperature
+                            🌡 Temperature
                           </div>
                           <div className="text-2xl font-bold mt-1">
                             {latestVitals.temperature.value}
@@ -592,7 +592,7 @@ export default function VitalsClient() {
                           )}`}
                         >
                           <div className="text-xs font-semibold uppercase opacity-75">
-                            &#10084; Pulse
+                            ❤ Pulse
                           </div>
                           <div className="text-2xl font-bold mt-1">
                             {latestVitals.pulse.value}
@@ -666,7 +666,7 @@ export default function VitalsClient() {
                           )}`}
                         >
                           <div className="text-xs font-semibold uppercase opacity-75">
-                            &#128168; RR
+                            💨 RR
                           </div>
                           <div className="text-2xl font-bold mt-1">
                             {latestVitals.rr.value}
@@ -730,7 +730,7 @@ export default function VitalsClient() {
                       {latestVitals.bmi && (
                         <div className="p-4 rounded-lg border-2 bg-purple-50 border-purple-300 text-purple-900">
                           <div className="text-xs font-semibold uppercase opacity-75">
-                            &#128202; BMI
+                            📊 BMI
                           </div>
                           <div className="text-2xl font-bold mt-1">
                             {latestVitals.bmi.value.toFixed(1)}
@@ -750,7 +750,7 @@ export default function VitalsClient() {
                     latestVitals.rr ? (
                       <div className="bg-white rounded-lg shadow-md p-6">
                         <h3 className="text-lg font-semibold text-gray-800 mb-4">
-                          &#128202; NEWS2 Score
+                          📊 NEWS2 Score
                         </h3>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                           <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
@@ -807,7 +807,7 @@ export default function VitalsClient() {
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1">
-                        &#127777; Temperature (°C)
+                        🌡 Temperature (°C)
                       </label>
                       <input
                         type="number"
@@ -826,7 +826,7 @@ export default function VitalsClient() {
 
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1">
-                        &#10084; Pulse (bpm)
+                        ❤ Pulse (bpm)
                       </label>
                       <input
                         type="number"
@@ -898,7 +898,7 @@ export default function VitalsClient() {
 
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1">
-                        &#128168; RR (breaths/min)
+                        💨 RR (breaths/min)
                       </label>
                       <input
                         type="number"
@@ -1300,7 +1300,7 @@ export default function VitalsClient() {
               <div className="space-y-6">
                 <div className="bg-white rounded-lg shadow-md p-6">
                   <h3 className="text-lg font-semibold text-gray-800 mb-4">
-                    &#9888; Clinical Alerts ({unacknowledgedCount} Unacknowledged)
+                    ⚠ Clinical Alerts ({unacknowledgedCount} Unacknowledged)
                   </h3>
 
                   {alerts.length > 0 ? (
@@ -1347,7 +1347,7 @@ export default function VitalsClient() {
                     </div>
                   ) : (
                     <div className="text-center text-gray-500 py-8">
-                      &#10003; All alerts acknowledged. Great job!
+                      ✓ All alerts acknowledged. Great job!
                     </div>
                   )}
                 </div>
@@ -1374,7 +1374,7 @@ export default function VitalsClient() {
                       fontWeight: 600,
                     }}
                   >
-                    {aiLoading ? 'Scanning...' : '&#128175; Run Clinical Scan'}
+                    {aiLoading ? 'Scanning...' : '💯 Run Clinical Scan'}
                   </button>
                 </div>
 

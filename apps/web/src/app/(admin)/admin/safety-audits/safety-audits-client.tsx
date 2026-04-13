@@ -117,22 +117,29 @@ function getStatusLabel(status: string): string {
   return status.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
-async function trpcQuery(path: string, input?: Record<string, unknown>) {
-  const params = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
+async function trpcQuery(path: string, input?: any) {
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
   const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Query failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Request failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
-async function trpcMutate(path: string, input: Record<string, unknown>) {
+async function trpcMutate(path: string, input?: any) {
   const res = await fetch(`/api/trpc/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ json: input !== undefined ? input : {} }),
   });
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Mutation failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Mutation failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
@@ -429,7 +436,7 @@ export function SafetyAuditsClient() {
             fontSize: '14px',
           }}
         >
-          &#10133; Schedule Round
+          ➕ Schedule Round
         </button>
       </div>
 
@@ -736,7 +743,7 @@ export function SafetyAuditsClient() {
             fontSize: '14px',
           }}
         >
-          &#10133; New Template
+          ➕ New Template
         </button>
       </div>
 
@@ -857,7 +864,7 @@ export function SafetyAuditsClient() {
             fontSize: '14px',
           }}
         >
-          &#10133; Schedule Audit
+          ➕ Schedule Audit
         </button>
       </div>
 

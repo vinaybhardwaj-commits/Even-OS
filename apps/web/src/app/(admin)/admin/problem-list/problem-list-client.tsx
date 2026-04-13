@@ -38,10 +38,14 @@ interface Stats {
 }
 
 async function trpcQuery(path: string, input?: any) {
-  const params = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
   const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Request failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
@@ -52,7 +56,7 @@ async function trpcMutate(path: string, input: any) {
     body: JSON.stringify({ json: input }),
   });
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) throw new Error(json.error?.json?.message || json.error?.message || 'Request failed');
   return json.result?.data?.json;
 }
 
@@ -321,7 +325,7 @@ export default function ProblemListClient() {
             <p className="text-gray-600 mt-1">Manage patient conditions and clinical problems</p>
           </div>
           <Link href="/admin" className="px-4 py-2 text-gray-700 hover:text-gray-900 flex items-center gap-2">
-            &#10006; Back
+            ✖ Back
           </Link>
         </div>
 
@@ -418,7 +422,7 @@ export default function ProblemListClient() {
                 onClick={() => setShowModal(true)}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-2 font-medium"
               >
-                &#43; Add Condition
+                + Add Condition
               </button>
             </div>
 
@@ -509,7 +513,7 @@ export default function ProblemListClient() {
                           onClick={() => setDeleteConfirm(condition.id)}
                           className="px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm font-medium transition border border-transparent hover:border-red-200"
                         >
-                          &#128465; Delete
+                          🗑 Delete
                         </button>
                       </div>
                     </div>
@@ -524,13 +528,13 @@ export default function ProblemListClient() {
                             onClick={() => setDeleteConfirm(null)}
                             className="px-3 py-1 text-sm border border-red-200 text-red-600 rounded hover:bg-red-50 transition"
                           >
-                            &#10006; Cancel
+                            ✖ Cancel
                           </button>
                           <button
                             onClick={() => handleDeleteCondition(condition.id)}
                             className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition"
                           >
-                            &#10004; Confirm
+                            ✔ Confirm
                           </button>
                         </div>
                       </div>
@@ -552,7 +556,7 @@ export default function ProblemListClient() {
                   onClick={() => setShowModal(false)}
                   className="text-gray-600 hover:text-gray-900 text-2xl"
                 >
-                  &#10006;
+                  ✖
                 </button>
               </div>
 

@@ -161,11 +161,15 @@ function formatDateOnly(dateString: string): string {
   return date.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-async function trpcQuery(path: string, input?: Record<string, unknown>) {
-  const qs = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
-  const res = await fetch(`/api/trpc/${path}${qs}`);
+async function trpcQuery(path: string, input?: any) {
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
+  const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Request failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
@@ -176,7 +180,7 @@ async function trpcMutate(path: string, input: Record<string, unknown>) {
     body: JSON.stringify({ json: input }),
   });
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) throw new Error(json.error?.json?.message || json.error?.message || 'Request failed');
   return json.result?.data?.json;
 }
 

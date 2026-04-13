@@ -100,35 +100,35 @@ export default async function DashboardPage() {
               <h3 className="text-sm font-semibold text-gray-700 mb-3">Master Data</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <a href="/admin/charge-master" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
-                  <span className="text-2xl">&#8377;</span>
+                  <span className="text-2xl">₹</span>
                   <div>
                     <p className="text-sm font-semibold text-gray-800">Charge Master</p>
                     <p className="text-xs text-gray-500">Prices, procedures, labs</p>
                   </div>
                 </a>
                 <a href="/admin/drug-master" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
-                  <span className="text-2xl">&#128138;</span>
+                  <span className="text-2xl">💊</span>
                   <div>
                     <p className="text-sm font-semibold text-gray-800">Drug Master</p>
                     <p className="text-xs text-gray-500">Medications & formulary</p>
                   </div>
                 </a>
                 <a href="/admin/order-sets" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
-                  <span className="text-2xl">&#128203;</span>
+                  <span className="text-2xl">📋</span>
                   <div>
                     <p className="text-sm font-semibold text-gray-800">Order Sets</p>
                     <p className="text-xs text-gray-500">Reusable order templates</p>
                   </div>
                 </a>
                 <a href="/admin/consent-templates" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
-                  <span className="text-2xl">&#128221;</span>
+                  <span className="text-2xl">📝</span>
                   <div>
                     <p className="text-sm font-semibold text-gray-800">Consent Forms</p>
                     <p className="text-xs text-gray-500">Versioned consent templates</p>
                   </div>
                 </a>
                 <a href="/admin/discharge-templates" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
-                  <span className="text-2xl">&#128196;</span>
+                  <span className="text-2xl">📄</span>
                   <div>
                     <p className="text-sm font-semibold text-gray-800">Discharge Templates</p>
                     <p className="text-xs text-gray-500">Summary field config</p>
@@ -143,245 +143,245 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">Clinical</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <a href="/admin/patients" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
-                <span className="text-2xl">&#128101;</span>
+                <span className="text-2xl">👥</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Patient Registry</p>
                   <p className="text-xs text-gray-500">Register, search & manage</p>
                 </div>
               </a>
               <a href="/admin/dedup" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-yellow-50 hover:border-yellow-200 transition-colors">
-                <span className="text-2xl">&#8596;</span>
+                <span className="text-2xl">↔</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Dedup Queue</p>
                   <p className="text-xs text-gray-500">Review & merge duplicates</p>
                 </div>
               </a>
               <a href="/admin/bed-board" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-green-50 hover:border-green-200 transition-colors">
-                <span className="text-2xl">&#128719;</span>
+                <span className="text-2xl">🛏</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Bed Board</p>
                   <p className="text-xs text-gray-500">Real-time bed grid</p>
                 </div>
               </a>
               <a href="/admin/wristbands" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-purple-50 hover:border-purple-200 transition-colors">
-                <span className="text-2xl">&#9000;</span>
+                <span className="text-2xl">⌨</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Wristbands</p>
                   <p className="text-xs text-gray-500">Print queue & tracking</p>
                 </div>
               </a>
               <a href="/admin/admissions" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-orange-50 hover:border-orange-200 transition-colors">
-                <span className="text-2xl">&#127973;</span>
+                <span className="text-2xl">🏥</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Admissions</p>
                   <p className="text-xs text-gray-500">Admit, checklist & pre-auth</p>
                 </div>
               </a>
               <a href="/admin/transfers" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-cyan-50 hover:border-cyan-200 transition-colors">
-                <span className="text-2xl">&#8644;</span>
+                <span className="text-2xl">⇄</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Transfers</p>
                   <p className="text-xs text-gray-500">Bed & ward transfers</p>
                 </div>
               </a>
               <a href="/admin/discharge" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-rose-50 hover:border-rose-200 transition-colors">
-                <span className="text-2xl">&#10004;</span>
+                <span className="text-2xl">✔</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Discharge</p>
                   <p className="text-xs text-gray-500">Milestones & discharge queue</p>
                 </div>
               </a>
               <a href="/admin/orders" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-teal-50 hover:border-teal-200 transition-colors">
-                <span className="text-2xl">&#128203;</span>
+                <span className="text-2xl">📋</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Orders & Vitals</p>
                   <p className="text-xs text-gray-500">Clinical orders, vitals, notes</p>
                 </div>
               </a>
               <a href="/admin/consents" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-amber-50 hover:border-amber-200 transition-colors">
-                <span className="text-2xl">&#128221;</span>
+                <span className="text-2xl">📝</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Consents & Forms</p>
                   <p className="text-xs text-gray-500">Stage forms, consent tracking</p>
                 </div>
               </a>
               <a href="/admin/billing" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-emerald-50 hover:border-emerald-200 transition-colors">
-                <span className="text-2xl">&#8377;</span>
+                <span className="text-2xl">₹</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Billing</p>
                   <p className="text-xs text-gray-500">Charges, invoices, TPA claims</p>
                 </div>
               </a>
               <a href="/admin/problem-list" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-red-50 hover:border-red-200 transition-colors">
-                <span className="text-2xl">&#128209;</span>
+                <span className="text-2xl">📑</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Problem List</p>
                   <p className="text-xs text-gray-500">Conditions & ICD-10 tracking</p>
                 </div>
               </a>
               <a href="/admin/allergies" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-pink-50 hover:border-pink-200 transition-colors">
-                <span className="text-2xl">&#9888;</span>
+                <span className="text-2xl">⚠</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Allergies</p>
                   <p className="text-xs text-gray-500">Allergy tracking & CDS alerts</p>
                 </div>
               </a>
               <a href="/admin/vitals" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-sky-50 hover:border-sky-200 transition-colors">
-                <span className="text-2xl">&#127777;</span>
+                <span className="text-2xl">🌡</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Vitals & I/O</p>
                   <p className="text-xs text-gray-500">Observations, NEWS2, alerts</p>
                 </div>
               </a>
               <a href="/admin/clinical-notes" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-violet-50 hover:border-violet-200 transition-colors">
-                <span className="text-2xl">&#128221;</span>
+                <span className="text-2xl">📝</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Clinical Notes</p>
                   <p className="text-xs text-gray-500">SOAP, operative, co-sign queue</p>
                 </div>
               </a>
               <a href="/admin/medication-orders" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-rose-50 hover:border-rose-200 transition-colors">
-                <span className="text-2xl">&#128138;</span>
+                <span className="text-2xl">💊</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">CPOE &amp; eMAR</p>
                   <p className="text-xs text-gray-500">Medication orders, labs, CDS</p>
                 </div>
               </a>
               <a href="/admin/care-pathways" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-teal-50 hover:border-teal-200 transition-colors">
-                <span className="text-2xl">&#127919;</span>
+                <span className="text-2xl">🎯</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Care Pathways</p>
                   <p className="text-xs text-gray-500">DAG templates, milestones, escalation</p>
                 </div>
               </a>
               <a href="/admin/billing-v2" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-emerald-50 hover:border-emerald-200 transition-colors">
-                <span className="text-2xl">&#128176;</span>
+                <span className="text-2xl">💰</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Billing V2</p>
                   <p className="text-xs text-gray-500">Accounts, deposits, packages, room charges</p>
                 </div>
               </a>
               <a href="/admin/insurance-claims" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-indigo-50 hover:border-indigo-200 transition-colors">
-                <span className="text-2xl">&#128203;</span>
+                <span className="text-2xl">📋</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Insurance Claims</p>
                   <p className="text-xs text-gray-500">Pre-auth, TPA, deductions, settlement</p>
                 </div>
               </a>
               <a href="/admin/revenue-dashboard" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-emerald-50 hover:border-emerald-200 transition-colors">
-                <span className="text-2xl">&#128200;</span>
+                <span className="text-2xl">📈</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Revenue Dashboard</p>
                   <p className="text-xs text-gray-500">Refunds, invoices, analytics, trends</p>
                 </div>
               </a>
               <a href="/admin/pharmacy" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-green-50 hover:border-green-200 transition-colors">
-                <span className="text-2xl">&#128138;</span>
+                <span className="text-2xl">💊</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Pharmacy</p>
                   <p className="text-xs text-gray-500">Dispensing, inventory, narcotics, POs</p>
                 </div>
               </a>
               <a href="/admin/lab-radiology" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
-                <span className="text-2xl">&#129516;</span>
+                <span className="text-2xl">🧬</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Lab &amp; Radiology</p>
                   <p className="text-xs text-gray-500">Orders, results, specimens, imaging</p>
                 </div>
               </a>
               <a href="/admin/lab-worklist" className="flex items-center gap-3 p-4 bg-indigo-50 rounded-lg border border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300 transition-colors">
-                <span className="text-2xl">&#128218;</span>
+                <span className="text-2xl">📚</span>
                 <div>
                   <p className="text-sm font-semibold text-indigo-800">Lab Worklist</p>
                   <p className="text-xs text-indigo-600">Worklist, specimens, barcode, TAT</p>
                 </div>
               </a>
               <a href="/admin/test-catalog" className="flex items-center gap-3 p-4 bg-cyan-50 rounded-lg border border-cyan-200 hover:bg-cyan-100 hover:border-cyan-300 transition-colors">
-                <span className="text-2xl">&#128214;</span>
+                <span className="text-2xl">📖</span>
                 <div>
                   <p className="text-sm font-semibold text-cyan-800">Test Catalog</p>
                   <p className="text-xs text-cyan-600">Tests, ranges, accession config</p>
                 </div>
               </a>
               <a href="/admin/lab-reports" className="flex items-center gap-3 p-4 bg-emerald-50 rounded-lg border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 transition-colors">
-                <span className="text-2xl">&#128196;</span>
+                <span className="text-2xl">📄</span>
                 <div>
                   <p className="text-sm font-semibold text-emerald-800">Lab Reports</p>
                   <p className="text-xs text-emerald-600">Reports, outsourced labs, PDF</p>
                 </div>
               </a>
               <a href="/admin/culture-histopath" className="flex items-center gap-3 p-4 bg-amber-50 rounded-lg border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-colors">
-                <span className="text-2xl">&#129440;</span>
+                <span className="text-2xl">🦠</span>
                 <div>
                   <p className="text-sm font-semibold text-amber-800">Culture &amp; Histopath</p>
                   <p className="text-xs text-amber-600">C&amp;S, antibiograms, pathology</p>
                 </div>
               </a>
               <a href="/admin/blood-bank" className="flex items-center gap-3 p-4 bg-red-50 rounded-lg border border-red-200 hover:bg-red-100 hover:border-red-300 transition-colors">
-                <span className="text-2xl">&#129656;</span>
+                <span className="text-2xl">🩸</span>
                 <div>
                   <p className="text-sm font-semibold text-red-800">Blood Bank</p>
                   <p className="text-xs text-red-600">Inventory, crossmatch, reactions</p>
                 </div>
               </a>
               <a href="/admin/qc-levey-jennings" className="flex items-center gap-3 p-4 bg-violet-50 rounded-lg border border-violet-200 hover:bg-violet-100 hover:border-violet-300 transition-colors">
-                <span className="text-2xl">&#128200;</span>
+                <span className="text-2xl">📈</span>
                 <div>
                   <p className="text-sm font-semibold text-violet-800">QC & Levey-Jennings</p>
                   <p className="text-xs text-violet-600">Westgard rules, LJ chart, sigma</p>
                 </div>
               </a>
               <a href="/admin/hl7-analyzer" className="flex items-center gap-3 p-4 bg-sky-50 rounded-lg border border-sky-200 hover:bg-sky-100 hover:border-sky-300 transition-colors">
-                <span className="text-2xl">&#128268;</span>
+                <span className="text-2xl">🔌</span>
                 <div>
                   <p className="text-sm font-semibold text-sky-800">HL7 Analyzers</p>
                   <p className="text-xs text-sky-600">Adapters, messages, dead letters</p>
                 </div>
               </a>
               <a href="/admin/ot-management" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
-                <span className="text-2xl">&#129657;</span>
+                <span className="text-2xl">🩹</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">OT Management</p>
                   <p className="text-xs text-gray-500">Scheduling, WHO checklist, anesthesia</p>
                 </div>
               </a>
               <a href="/admin/emar" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
-                <span className="text-2xl">&#128137;</span>
+                <span className="text-2xl">💉</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">eMAR</p>
                   <p className="text-xs text-gray-500">Medication administration, 5 Rights</p>
                 </div>
               </a>
               <a href="/admin/critical-values" className="flex items-center gap-3 p-4 bg-red-50 rounded-lg border border-red-200 hover:bg-red-100 hover:border-red-300 transition-colors">
-                <span className="text-2xl">&#128680;</span>
+                <span className="text-2xl">🚨</span>
                 <div>
                   <p className="text-sm font-semibold text-red-800">Critical Values</p>
                   <p className="text-xs text-red-600">NABH alerts, read-back, escalation</p>
                 </div>
               </a>
               <a href="/admin/incident-reporting" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-red-50 hover:border-red-200 transition-colors">
-                <span className="text-2xl">&#9888;</span>
+                <span className="text-2xl">⚠</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Incident Reporting</p>
                   <p className="text-xs text-gray-500">Adverse events, falls, medication errors</p>
                 </div>
               </a>
               <a href="/admin/rca" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-orange-50 hover:border-orange-200 transition-colors">
-                <span className="text-2xl">&#128269;</span>
+                <span className="text-2xl">🔍</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">RCA Engine</p>
                   <p className="text-xs text-gray-500">Root cause analysis, CAPA tracking</p>
                 </div>
               </a>
               <a href="/admin/infection-surveillance" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-emerald-50 hover:border-emerald-200 transition-colors">
-                <span className="text-2xl">&#129440;</span>
+                <span className="text-2xl">🦠</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Infection Surveillance</p>
                   <p className="text-xs text-gray-500">HAI tracking, antibiotic stewardship</p>
                 </div>
               </a>
               <a href="/admin/safety-audits" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-yellow-50 hover:border-yellow-200 transition-colors">
-                <span className="text-2xl">&#128203;</span>
+                <span className="text-2xl">📋</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Safety &amp; Audits</p>
                   <p className="text-xs text-gray-500">Rounds, audits, complaints, NABH</p>
@@ -395,7 +395,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">Integrations</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <a href="/admin/lsq-sync" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-indigo-50 hover:border-indigo-200 transition-colors">
-                <span className="text-2xl">&#128279;</span>
+                <span className="text-2xl">🔗</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">LSQ Sync</p>
                   <p className="text-xs text-gray-500">LeadSquared CRM import</p>
@@ -410,21 +410,21 @@ export default async function DashboardPage() {
               <h3 className="text-sm font-semibold text-gray-700 mb-3">Governance</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <a href="/admin/gst-rates" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
-                  <span className="text-2xl">&#37;</span>
+                  <span className="text-2xl">%</span>
                   <div>
                     <p className="text-sm font-semibold text-gray-800">GST Rates</p>
                     <p className="text-xs text-gray-500">Tax rates & effective dates</p>
                   </div>
                 </a>
                 <a href="/admin/approval-hierarchies" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
-                  <span className="text-2xl">&#9878;</span>
+                  <span className="text-2xl">⚖</span>
                   <div>
                     <p className="text-sm font-semibold text-gray-800">Approval Hierarchies</p>
                     <p className="text-xs text-gray-500">Thresholds & approvers</p>
                   </div>
                 </a>
                 <a href="/admin/nabh-indicators" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
-                  <span className="text-2xl">&#9733;</span>
+                  <span className="text-2xl">★</span>
                   <div>
                     <p className="text-sm font-semibold text-gray-800">NABH Indicators</p>
                     <p className="text-xs text-gray-500">100 quality metrics</p>

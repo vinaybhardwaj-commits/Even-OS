@@ -1302,10 +1302,10 @@ export default function ClinicalNotesClient() {
               fontWeight: 500,
             }}
           >
-            {tab === 'notes' && `&#128221; Notes`}
-            {tab === 'cosign' && `&#10004; Co-sign Queue`}
-            {tab === 'documents' && `&#128196; Documents`}
-            {tab === 'ai' && `&#128175; AI Draft`}
+            {tab === 'notes' && `📝 Notes`}
+            {tab === 'cosign' && `✔ Co-sign Queue`}
+            {tab === 'documents' && `📄 Documents`}
+            {tab === 'ai' && `💯 AI Draft`}
           </button>
         ))}
       </div>
@@ -1389,7 +1389,7 @@ export default function ClinicalNotesClient() {
                   fontWeight: 500,
                 }}
               >
-                &#43; {item.label}
+                + {item.label}
               </button>
             ))}
           </div>
@@ -1493,7 +1493,7 @@ export default function ClinicalNotesClient() {
               <div style={{ fontSize: '24px', fontWeight: 700, color: '#55ff55' }}>{cosignStats.signed_today}</div>
             </div>
             <div style={{ backgroundColor: '#1a1a2e', border: '1px solid #0f3460', borderRadius: '6px', padding: '12px' }}>
-              <div style={{ fontSize: '11px', color: '#a0a0a0', marginBottom: '4px' }}>OVERDUE (&#62; 4h)</div>
+              <div style={{ fontSize: '11px', color: '#a0a0a0', marginBottom: '4px' }}>OVERDUE (> 4h)</div>
               <div style={{ fontSize: '24px', fontWeight: 700, color: '#ff5555' }}>{cosignStats.overdue}</div>
             </div>
           </div>
@@ -1586,7 +1586,7 @@ export default function ClinicalNotesClient() {
                             alignSelf: 'flex-end',
                           }}
                         >
-                          &#10004; Sign
+                          ✔ Sign
                         </button>
                       </div>
                     </div>
@@ -1638,7 +1638,7 @@ export default function ClinicalNotesClient() {
                 fontWeight: 600,
               }}
             >
-              &#128196; Upload Document
+              📄 Upload Document
             </button>
           </div>
 
@@ -1693,7 +1693,7 @@ export default function ClinicalNotesClient() {
                         <div style={{ color: '#a0a0a0', marginBottom: '2px' }}>Attachment</div>
                         {doc.attachment_url ? (
                           <a href={doc.attachment_url} target="_blank" rel="noopener noreferrer" style={{ color: '#55ff55', textDecoration: 'none' }}>
-                            View &#129390;
+                            View 🥮
                           </a>
                         ) : (
                           <span style={{ color: '#a0a0a0' }}>N/A</span>
@@ -1743,7 +1743,7 @@ export default function ClinicalNotesClient() {
                   fontWeight: 600,
                 }}
               >
-                {aiLoading ? 'Generating...' : '&#128175; Generate Discharge Summary'}
+                {aiLoading ? 'Generating...' : '💯 Generate Discharge Summary'}
               </button>
             </div>
           </div>

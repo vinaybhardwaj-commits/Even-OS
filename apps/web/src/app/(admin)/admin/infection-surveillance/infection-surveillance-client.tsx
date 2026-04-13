@@ -74,22 +74,29 @@ interface SurveillanceStats {
 }
 
 // ─── API Helpers ───────────────────────────────────────────
-async function trpcQuery(path: string, input?: Record<string, unknown>) {
-  const qs = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
-  const res = await fetch(`/api/trpc/${path}${qs}`);
+async function trpcQuery(path: string, input?: any) {
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
+  const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Request failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
-async function trpcMutate(path: string, input: Record<string, unknown>) {
+async function trpcMutate(path: string, input?: any) {
   const res = await fetch(`/api/trpc/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ json: input !== undefined ? input : {} }),
   });
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Mutation failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
@@ -354,7 +361,7 @@ export function InfectionSurveillanceClient() {
       {/* Header */}
       <div style={{ marginBottom: '2rem' }}>
         <h1 style={{ fontSize: '2rem', fontWeight: 'bold', marginBottom: '0.5rem' }}>
-          &#128137; Infection Surveillance & Antibiotic Stewardship
+          💉 Infection Surveillance & Antibiotic Stewardship
         </h1>
         <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Monitor HAIs, manage antibiotic usage, and track resistance patterns</p>
       </div>
@@ -372,7 +379,7 @@ export function InfectionSurveillanceClient() {
             border: '1px solid #dc2626',
           }}
         >
-          &#9888; {error}
+          ⚠ {error}
         </div>
       )}
       {success && (

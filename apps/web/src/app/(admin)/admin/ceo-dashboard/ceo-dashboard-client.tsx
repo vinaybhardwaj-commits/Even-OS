@@ -7,10 +7,14 @@ const HOSPITAL_ID = '00000000-0000-0000-0000-000000000001';
 const REFRESH_INTERVAL = 900000; // 15 minutes
 
 async function trpcQuery(path: string, input?: any) {
-  const params = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
   const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Request failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 

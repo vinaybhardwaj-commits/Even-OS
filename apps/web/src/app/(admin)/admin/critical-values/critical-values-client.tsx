@@ -5,21 +5,29 @@ import { useState, useEffect, useCallback } from 'react';
 // ============================================================
 // tRPC fetch helpers (no @/lib/trpc-client — doesn't exist)
 // ============================================================
-async function trpcQuery(path: string, input?: Record<string, unknown>) {
-  const params = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
+async function trpcQuery(path: string, input?: any) {
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
   const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Request failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
-async function trpcMutate(path: string, input: Record<string, unknown>) {
+async function trpcMutate(path: string, input?: any) {
   const res = await fetch(`/api/trpc/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ json: input !== undefined ? input : {} }),
   });
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Mutation failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Mutation failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
@@ -309,7 +317,7 @@ export default function CriticalValuesClient() {
       <div style={{ background: '#1e293b', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' }}>
         <div>
           <a href="/dashboard" style={{ color: '#64748b', textDecoration: 'none', fontSize: '13px' }}>
-            &#8592; Dashboard
+            ← Dashboard
           </a>
           <h1 style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 700 }}>
             Critical Value Communication
@@ -346,7 +354,7 @@ export default function CriticalValuesClient() {
       {error && (
         <div style={{ background: '#7f1d1d', padding: '10px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ color: '#fca5a5', fontSize: '13px' }}>{error}</span>
-          <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: '16px' }}>&#10005;</button>
+          <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: '16px' }}>✕</button>
         </div>
       )}
 
@@ -399,7 +407,7 @@ export default function CriticalValuesClient() {
 
             {alerts.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px', color: '#64748b' }}>
-                <div style={{ fontSize: '48px', marginBottom: '16px' }}>&#10003;</div>
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>✓</div>
                 <p>No critical value alerts</p>
               </div>
             ) : (
@@ -508,7 +516,7 @@ export default function CriticalValuesClient() {
             </h3>
             {unverified.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px', color: '#64748b' }}>
-                <div style={{ fontSize: '48px', marginBottom: '16px' }}>&#10003;</div>
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>✓</div>
                 <p>All results verified</p>
               </div>
             ) : (
@@ -640,7 +648,7 @@ export default function CriticalValuesClient() {
         {activeTab === 'detail' && selectedAlert && (
           <div>
             <button onClick={() => setActiveTab('active')} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '13px', marginBottom: '16px' }}>
-              &#8592; Back to Alerts
+              ← Back to Alerts
             </button>
 
             {/* Alert Header */}

@@ -41,21 +41,28 @@ interface DedupMatch {
 }
 
 async function trpcQuery(path: string, input?: any) {
-  const params = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
   const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Request failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
-async function trpcMutate(path: string, input: any) {
+async function trpcMutate(path: string, input?: any) {
   const res = await fetch(`/api/trpc/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ json: input !== undefined ? input : {} }),
   });
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Mutation failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
@@ -286,7 +293,7 @@ export function RegisterPatientClient() {
         <div className="max-w-3xl mx-auto px-6 py-8">
           <div className="bg-yellow-50 border border-yellow-200 rounded p-4 mb-6">
             <p className="text-sm text-yellow-800 font-medium">
-              &#9888; We found {dedupMatches.length} existing patient{dedupMatches.length > 1 ? 's' : ''} that may match the person you are registering.
+              ⚠ We found {dedupMatches.length} existing patient{dedupMatches.length > 1 ? 's' : ''} that may match the person you are registering.
               Please review before proceeding.
             </p>
           </div>
@@ -331,7 +338,7 @@ export function RegisterPatientClient() {
               }}
               className="px-6 py-2 bg-yellow-600 text-white rounded font-medium hover:bg-yellow-700 text-sm"
             >
-              Continue Anyway &#8594;
+              Continue Anyway →
             </button>
             <button
               onClick={() => {
@@ -340,7 +347,7 @@ export function RegisterPatientClient() {
               }}
               className="px-6 py-2 bg-gray-200 text-gray-700 rounded font-medium hover:bg-gray-300 text-sm"
             >
-              &#8592; Go Back & Edit
+              ← Go Back & Edit
             </button>
           </div>
         </div>

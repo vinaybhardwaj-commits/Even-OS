@@ -43,22 +43,29 @@ interface TransferRecord {
 }
 
 // ─── tRPC helper ─────────────────────────────────────────
-async function trpcQuery(path: string, input?: Record<string, unknown>) {
-  const qs = input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
-  const res = await fetch(`/api/trpc/${path}${qs}`);
+async function trpcQuery(path: string, input?: any) {
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
+  const res = await fetch(`/api/trpc/${path}${params}`);
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Request failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
-async function trpcMutate(path: string, input: Record<string, unknown>) {
+async function trpcMutate(path: string, input?: any) {
   const res = await fetch(`/api/trpc/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ json: input !== undefined ? input : {} }),
   });
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message || 'Request failed');
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || json.error?.data?.code || 'Mutation failed';
+    throw new Error(msg);
+  }
   return json.result?.data?.json;
 }
 
@@ -213,10 +220,10 @@ export default function TransfersClient() {
                     <td className="px-6 py-3 text-gray-500 text-xs">{formatDate(a.admission_at)}</td>
                     <td className="px-6 py-3 flex gap-2">
                       <button onClick={() => openTransfer(a)} className="px-3 py-1 text-xs bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 font-medium">
-                        &#8644; Transfer
+                        ⇄ Transfer
                       </button>
                       <button onClick={() => viewHistory(a)} className="px-3 py-1 text-xs bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100 font-medium">
-                        &#128337; History
+                        🕑 History
                       </button>
                     </td>
                   </tr>
@@ -236,7 +243,7 @@ export default function TransfersClient() {
                 <h2 className="text-lg font-bold text-gray-900">Transfer Patient</h2>
                 <p className="text-sm text-gray-500">{selectedEncounter.patient_name} ({selectedEncounter.uhid}) — Current bed: <span className="font-mono font-bold">{selectedEncounter.bed_code}</span></p>
               </div>
-              <button onClick={() => setShowTransfer(false)} className="text-gray-400 hover:text-gray-600 text-xl">&#10005;</button>
+              <button onClick={() => setShowTransfer(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
             </div>
 
             <div className="px-6 py-5 space-y-4">
@@ -310,7 +317,7 @@ export default function TransfersClient() {
                 disabled={!selectedBedId || submitting}
                 className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
               >
-                {submitting ? 'Transferring...' : '&#8644; Confirm Transfer'}
+                {submitting ? 'Transferring...' : '⇄ Confirm Transfer'}
               </button>
             </div>
           </div>
@@ -326,7 +333,7 @@ export default function TransfersClient() {
                 <h2 className="text-lg font-bold text-gray-900">Transfer History</h2>
                 <p className="text-sm text-gray-500">{historyEncounter.patient_name} ({historyEncounter.uhid})</p>
               </div>
-              <button onClick={() => setShowHistory(false)} className="text-gray-400 hover:text-gray-600 text-xl">&#10005;</button>
+              <button onClick={() => setShowHistory(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
             </div>
 
             <div className="px-6 py-5">
@@ -340,7 +347,7 @@ export default function TransfersClient() {
                     <div key={t.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                       <div className="flex items-center gap-2 text-sm">
                         <span className="font-mono font-bold text-gray-700">{t.from_bed_code}</span>
-                        <span className="text-gray-400">&#8594;</span>
+                        <span className="text-gray-400">→</span>
                         <span className="font-mono font-bold text-blue-700">{t.to_bed_code}</span>
                         <span className={`ml-auto px-2 py-0.5 rounded-full text-xs font-medium ${
                           t.transfer_type === 'ward' ? 'bg-purple-100 text-purple-700' :
@@ -349,7 +356,7 @@ export default function TransfersClient() {
                         }`}>{t.transfer_type}</span>
                       </div>
                       <p className="text-xs text-gray-500 mt-1">
-                        {t.from_ward_name} &#8594; {t.to_ward_name} &middot; {formatDate(t.transfer_at)} &middot; by {t.transferred_by}
+                        {t.from_ward_name} → {t.to_ward_name} &middot; {formatDate(t.transfer_at)} &middot; by {t.transferred_by}
                       </p>
                       {t.reason && <p className="text-xs text-gray-600 mt-1 italic">{t.reason}</p>}
                     </div>

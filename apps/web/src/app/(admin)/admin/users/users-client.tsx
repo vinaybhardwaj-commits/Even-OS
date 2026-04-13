@@ -66,7 +66,7 @@ export default function UsersClient({ initialUsers, availableRoles, departments,
       body: JSON.stringify({ json: data }),
     });
     const json = await res.json();
-    if (json.error) throw new Error(json.error.message || 'Operation failed');
+    if (json.error) throw new Error(json.error?.json?.message || json.error?.message || 'Operation failed');
     return json.result?.data?.json;
   }
 
