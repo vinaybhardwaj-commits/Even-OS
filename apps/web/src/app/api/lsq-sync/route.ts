@@ -31,12 +31,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get hospital_id (first hospital — single-site for now)
+    // Get hospital_id text key (first hospital — single-site for now)
     const sql = getSql();
     let hospitalId: string | null = null;
     try {
-      const result = await sql`SELECT id FROM hospitals LIMIT 1`;
-      hospitalId = result[0]?.id;
+      const result = await sql`SELECT hospital_id FROM hospitals LIMIT 1`;
+      hospitalId = result[0]?.hospital_id;
     } catch (err: any) {
       if (err.message?.includes('does not exist')) {
         return NextResponse.json({
