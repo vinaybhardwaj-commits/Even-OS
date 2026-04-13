@@ -7,5 +7,5 @@ export default async function TestCockpitPage() {
   if (!user) redirect('/login');
   // Only super_admin can access the test cockpit
   if (user.role !== 'super_admin') redirect('/admin/gm-dashboard');
-  return <TestCockpitClient userName={user.full_name || user.username} />;
+  return <TestCockpitClient userName={user.name || user.email} />;
 }
