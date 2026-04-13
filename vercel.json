@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/lsq-sync",
+      "schedule": "0 * * * *"
+    }
+  ]
+}
