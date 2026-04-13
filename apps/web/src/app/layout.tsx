@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import './globals.css';
+import { CockpitFab } from './(admin)/admin/test-cockpit/cockpit-fab';
 
 export const metadata: Metadata = {
   title: 'Even OS',
@@ -15,6 +17,9 @@ export default function RootLayout({
     <html lang="en">
       <body className="font-sans antialiased bg-gray-50 text-gray-900">
         {children}
+        <Suspense fallback={null}>
+          <CockpitFab />
+        </Suspense>
       </body>
     </html>
   );
