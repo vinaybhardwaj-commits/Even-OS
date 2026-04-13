@@ -41,6 +41,7 @@ import { testCatalogRouter } from './test-catalog';
 import { labReportsRouter } from './lab-reports';
 import { cultureHistopathRouter } from './culture-histopath';
 import { bloodBankRouter } from './blood-bank';
+import { qcLeveyJenningsRouter } from './qc-levey-jennings';
 import { drizzleTestRouter } from './drizzle-test';
 
 export const appRouter = router({
@@ -86,6 +87,7 @@ export const appRouter = router({
   labReports: labReportsRouter,
   cultureHistopath: cultureHistopathRouter,
   bloodBank: bloodBankRouter,
+  qcLeveyJennings: qcLeveyJenningsRouter,
   drizzleTest: drizzleTestRouter,
 });
 

@@ -324,6 +324,13 @@ export default async function DashboardPage() {
                   <p className="text-xs text-red-600">Inventory, crossmatch, reactions</p>
                 </div>
               </a>
+              <a href="/admin/qc-levey-jennings" className="flex items-center gap-3 p-4 bg-violet-50 rounded-lg border border-violet-200 hover:bg-violet-100 hover:border-violet-300 transition-colors">
+                <span className="text-2xl">&#128200;</span>
+                <div>
+                  <p className="text-sm font-semibold text-violet-800">QC & Levey-Jennings</p>
+                  <p className="text-xs text-violet-600">Westgard rules, LJ chart, sigma</p>
+                </div>
+              </a>
               <a href="/admin/ot-management" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors">
                 <span className="text-2xl">&#129657;</span>
                 <div>
@@ -424,7 +431,7 @@ export default async function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-600">Sprint L.6 — Blood Bank (inventory, crossmatch, reactions). 156 tables, ~486 routes.</p>
+              <p className="text-sm text-gray-600">Sprint L.7 — QC &amp; Levey-Jennings (Westgard multi-rule, LJ chart, sigma). 159 tables, ~496 routes.</p>
             </div>
           </div>
         </div>
