@@ -206,6 +206,7 @@ export async function runLsqSync(hospitalId: string, userId: string): Promise<Sy
   // 5. Process leads
   const leads = apiResult.leads;
   let newCount = 0, updated = 0, skipped = 0, errors = 0;
+  let firstError = '';
 
   for (const lead of leads) {
     try {
@@ -326,13 +327,15 @@ export async function runLsqSync(hospitalId: string, userId: string): Promise<Sy
       }
     } catch (err) {
       errors++;
+      const errMsg = err instanceof Error ? err.message : 'Unknown error';
+      if (!firstError) firstError = errMsg;
       await logEvent({
         syncBatchId: syncRun.id,
         syncType: 'admission',
         lsqLeadId: lead.ProspectID || 'unknown',
         eventData: lead,
         syncStatus: 'failure',
-        errorMessage: err instanceof Error ? err.message : 'Unknown error',
+        errorMessage: errMsg,
       });
     }
   }
@@ -361,5 +364,6 @@ export async function runLsqSync(hospitalId: string, userId: string): Promise<Sy
     updated,
     skipped,
     errors,
+    error_message: firstError || undefined,
   };
 }
