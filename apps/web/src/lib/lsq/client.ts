@@ -117,12 +117,12 @@ async function fetchLeadsByStage(stage: string, pageIndex = 1, pageSize = 200): 
 }
 
 /**
- * Fetch leads modified after a given date from LSQ.
- * Fetches OPD WIN + IPD WIN stages (paginated), then filters client-side
- * by ModifiedOn — same strategy as the working Rounds implementation.
+ * Fetch IPD WIN leads modified after a given date from LSQ.
+ * Only syncs IPD WIN stage (admitted patients).
+ * Paginated fetch, then client-side filter by ModifiedOn.
  */
 export async function fetchLeadsModifiedAfter(since: Date): Promise<LsqApiCallResult & { leads?: LsqLead[] }> {
-  const stages = ['OPD WIN', 'IPD WIN'];
+  const stages = ['IPD WIN'];
   const allLeads: LsqLead[] = [];
   let lastResult: LsqApiCallResult | null = null;
 
