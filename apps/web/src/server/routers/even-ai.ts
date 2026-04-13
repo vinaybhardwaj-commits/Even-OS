@@ -16,6 +16,10 @@ import { predictClaimOutcome } from '@/lib/ai/billing/claim-predictor';
 import { analyzeDenial } from '@/lib/ai/billing/denial-analysis';
 import { estimateCost, analyzeMargin } from '@/lib/ai/billing/cost-estimation';
 import { reviewPreAuth } from '@/lib/ai/billing/preauth-review';
+import { generateDischargeSummary } from '@/lib/ai/clinical/discharge-summary';
+import { runClinicalNudgeScan } from '@/lib/ai/clinical/decision-nudges';
+import { generateShiftHandoff, generateAllWardHandoffs } from '@/lib/ai/clinical/shift-handoff';
+import { suggestPathways, analyzePathwayVariance } from '@/lib/ai/clinical/care-pathway-suggest';
 
 // ────────────────────────────────────────────────────────────────────────
 // Lazy SQL Client
@@ -224,6 +228,30 @@ export const runCostEstimationInput = z.object({
 
 export const runPreAuthReviewInput = z.object({
   pre_auth_id: z.string().uuid(),
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// AI.3 CLINICAL INTELLIGENCE INPUTS
+// ════════════════════════════════════════════════════════════════════════
+
+export const runDischargeSummaryInput = z.object({
+  encounter_id: z.string().uuid(),
+});
+
+export const runClinicalScanInput = z.object({
+  // No input needed — scans all admitted encounters
+});
+
+export const runShiftHandoffInput = z.object({
+  ward_name: z.string().optional(), // If omitted, generates for all wards
+});
+
+export const runPathwayAnalysisInput = z.object({
+  encounter_id: z.string().uuid(),
+});
+
+export const runPathwayVarianceInput = z.object({
+  care_plan_id: z.string().uuid(),
 });
 
 // ════════════════════════════════════════════════════════════════════════
@@ -1091,6 +1119,208 @@ export const evenAIRouter = router({
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: `Pre-auth review failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  // ──────────────────────────────────────────────────────────────────
+  // AI.3 CLINICAL INTELLIGENCE ENDPOINTS (5)
+  // ──────────────────────────────────────────────────────────────────
+
+  /**
+   * 22. runDischargeSummary — Generate AI discharge summary draft
+   */
+  runDischargeSummary: protectedProcedure
+    .input(runDischargeSummaryInput)
+    .mutation(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const draft = await generateDischargeSummary({
+          hospital_id: hospitalId,
+          encounter_id: input.encounter_id,
+        });
+        if (!draft) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Could not generate discharge summary — encounter not found or missing data',
+          });
+        }
+        return {
+          success: true,
+          draft: {
+            patient_name: draft.patient_name,
+            uhid: draft.uhid,
+            primary_diagnosis: draft.primary_diagnosis,
+            secondary_diagnoses: draft.secondary_diagnoses,
+            hospital_course: draft.hospital_course,
+            procedures_performed: draft.procedures_performed,
+            medications_at_discharge: draft.medications_at_discharge,
+            discharge_vitals: draft.discharge_vitals,
+            follow_up_instructions: draft.follow_up_instructions,
+            diet_restrictions: draft.diet_restrictions,
+            activity_restrictions: draft.activity_restrictions,
+            pending_results: draft.pending_results,
+            confidence: draft.confidence,
+            source: draft.source,
+          },
+          card_id: draft.card.id,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Discharge summary generation failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 23. runClinicalScan — Run all 7 clinical decision nudge checks
+   */
+  runClinicalScan: adminProcedure
+    .mutation(async () => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const result = await runClinicalNudgeScan(hospitalId);
+        return {
+          success: true,
+          checks_run: result.checks_run,
+          alerts_generated: result.alerts_generated,
+          cards: result.cards.map((c: any) => ({
+            id: c.id,
+            title: c.title,
+            severity: c.severity,
+            category: c.category,
+          })),
+          errors: result.errors,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Clinical scan failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 24. runShiftHandoff — Generate shift handoff briefs
+   */
+  runShiftHandoff: protectedProcedure
+    .input(runShiftHandoffInput)
+    .mutation(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        if (input.ward_name) {
+          const handoff = await generateShiftHandoff({
+            hospital_id: hospitalId,
+            ward_name: input.ward_name,
+          });
+          return {
+            success: true,
+            handoffs: [{
+              ward_name: handoff.ward_name,
+              shift: handoff.shift,
+              patient_count: handoff.patient_count,
+              critical_alerts: handoff.critical_alerts,
+              ward_summary: handoff.ward_summary,
+              patients: handoff.patients.map((p: any) => ({
+                patient_name: p.patient_name,
+                bed_name: p.bed_name,
+                primary_diagnosis: p.primary_diagnosis,
+                news2_score: p.news2_score,
+                news2_trend: p.news2_trend,
+                nursing_alerts: p.nursing_alerts,
+                handoff_narrative: p.handoff_narrative,
+              })),
+            }],
+            card_id: handoff.card.id,
+          };
+        } else {
+          const handoffs = await generateAllWardHandoffs(hospitalId);
+          return {
+            success: true,
+            handoffs: handoffs.map((h: any) => ({
+              ward_name: h.ward_name,
+              shift: h.shift,
+              patient_count: h.patient_count,
+              critical_alerts: h.critical_alerts,
+              ward_summary: h.ward_summary,
+            })),
+            total_wards: handoffs.length,
+          };
+        }
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Shift handoff generation failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 25. runPathwayAnalysis — Suggest pathways or analyze variance
+   */
+  runPathwayAnalysis: protectedProcedure
+    .input(runPathwayAnalysisInput)
+    .mutation(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const analysis = await suggestPathways({
+          hospital_id: hospitalId,
+          encounter_id: input.encounter_id,
+        });
+        return {
+          success: true,
+          has_active_pathway: analysis.has_active_pathway,
+          suggestions: analysis.suggestions,
+          variance_report: analysis.variance_report ? {
+            adherence_pct: analysis.variance_report.adherence_pct,
+            risk_level: analysis.variance_report.risk_level,
+            total_milestones: analysis.variance_report.total_milestones,
+            completed: analysis.variance_report.completed,
+            overdue: analysis.variance_report.overdue,
+            variances: analysis.variance_report.variances.slice(0, 10),
+          } : undefined,
+          recommendations: analysis.recommendations,
+          card_id: analysis.card.id,
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Pathway analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
+      }
+    }),
+
+  /**
+   * 26. runPathwayVariance — Analyze a specific care plan's variance
+   */
+  runPathwayVariance: protectedProcedure
+    .input(runPathwayVarianceInput)
+    .mutation(async ({ input }) => {
+      const hospitalId = await getDefaultHospitalId();
+      try {
+        const report = await analyzePathwayVariance({
+          hospital_id: hospitalId,
+          care_plan_id: input.care_plan_id,
+        });
+        return {
+          success: true,
+          report: {
+            template_name: report.template_name,
+            patient_name: report.patient_name,
+            adherence_pct: report.adherence_pct,
+            risk_level: report.risk_level,
+            total_milestones: report.total_milestones,
+            completed: report.completed,
+            overdue: report.overdue,
+            on_track: report.on_track,
+            variances: report.variances,
+          },
+        };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Pathway variance analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
         });
       }
     }),

@@ -1039,13 +1039,19 @@ function UploadDocumentModal({ isOpen, onClose, onSubmit, loading, patients = []
 // ─── MAIN CLIENT COMPONENT ─────────────────────────────────────
 
 export default function ClinicalNotesClient() {
-  const [activeTab, setActiveTab] = useState<'notes' | 'cosign' | 'documents'>('notes');
+  const [activeTab, setActiveTab] = useState<'notes' | 'cosign' | 'documents' | 'ai'>('notes');
   const [loading, setLoading] = useState(false);
   const [notes, setNotes] = useState<ClinicalNote[]>([]);
   const [cosignQueue, setCosignQueue] = useState<CoSignItem[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+
+  // AI state
+  const [aiDischargeDraft, setAiDischargeDraft] = useState<any>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiEncounterId, setAiEncounterId] = useState('');
 
   const [selectedPatient, setSelectedPatient] = useState('');
   const [noteTypeFilter, setNoteTypeFilter] = useState('');
@@ -1184,6 +1190,37 @@ export default function ClinicalNotesClient() {
     }
   }, [activeTab, selectedPatient, noteTypeFilter]);
 
+  // AI discharge summary generation
+  const handleGenerateDischarge = async () => {
+    if (!aiEncounterId.trim()) {
+      setAiError('Please enter an encounter ID');
+      return;
+    }
+
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const response = await fetch('/api/trpc/evenAI.runDischargeSummary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: { encounter_id: aiEncounterId } }),
+      });
+
+      if (!response.ok) throw new Error('Failed to generate discharge summary');
+      const data = await response.json();
+
+      if (data.result?.data?.json) {
+        setAiDischargeDraft(data.result.data.json);
+      } else {
+        setAiError('No discharge summary generated');
+      }
+    } catch (err: any) {
+      setAiError(err.message || 'Failed to generate discharge summary');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   // Create note
   const handleCreateNote = async (data: any) => {
     setLoading(true);
@@ -1250,16 +1287,16 @@ export default function ClinicalNotesClient() {
 
       {/* Tab Navigation */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', borderBottom: '1px solid #0f3460', paddingBottom: '12px' }}>
-        {(['notes', 'cosign', 'documents'] as const).map((tab) => (
+        {(['notes', 'cosign', 'documents', 'ai'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             style={{
               padding: '8px 16px',
-              backgroundColor: activeTab === tab ? '#1a4a2a' : 'transparent',
+              backgroundColor: activeTab === tab ? (tab === 'ai' ? '#4c1d95' : '#1a4a2a') : 'transparent',
               border: 'none',
               borderRadius: '4px',
-              color: activeTab === tab ? '#55ff55' : '#a0a0a0',
+              color: activeTab === tab ? (tab === 'ai' ? '#e9d5ff' : '#55ff55') : '#a0a0a0',
               cursor: 'pointer',
               fontSize: '13px',
               fontWeight: 500,
@@ -1268,6 +1305,7 @@ export default function ClinicalNotesClient() {
             {tab === 'notes' && `&#128221; Notes`}
             {tab === 'cosign' && `&#10004; Co-sign Queue`}
             {tab === 'documents' && `&#128196; Documents`}
+            {tab === 'ai' && `&#128175; AI Draft`}
           </button>
         ))}
       </div>
@@ -1665,6 +1703,96 @@ export default function ClinicalNotesClient() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 4: AI Draft */}
+      {activeTab === 'ai' && (
+        <div>
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 600, color: '#e9d5ff' }}>Encounter ID</label>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <input
+                type="text"
+                value={aiEncounterId}
+                onChange={(e) => setAiEncounterId(e.target.value)}
+                placeholder="Enter encounter ID..."
+                style={{
+                  flex: 1,
+                  padding: '10px 12px',
+                  backgroundColor: '#1a1a2e',
+                  border: '1px solid #4c1d95',
+                  borderRadius: '4px',
+                  color: '#e0e0e0',
+                  fontSize: '13px',
+                }}
+              />
+              <button
+                onClick={handleGenerateDischarge}
+                disabled={aiLoading}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: aiLoading ? '#6b21a8' : '#7c3aed',
+                  border: 'none',
+                  borderRadius: '4px',
+                  color: '#e9d5ff',
+                  cursor: aiLoading ? 'not-allowed' : 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                }}
+              >
+                {aiLoading ? 'Generating...' : '&#128175; Generate Discharge Summary'}
+              </button>
+            </div>
+          </div>
+
+          {aiError && (
+            <div style={{ padding: '12px', backgroundColor: '#7f1d1d', border: '1px solid #dc2626', borderRadius: '4px', color: '#fca5a5', marginBottom: '16px', fontSize: '13px' }}>
+              {aiError}
+            </div>
+          )}
+
+          {aiDischargeDraft && (
+            <div style={{ backgroundColor: '#1a1a2e', border: '1px solid #4c1d95', borderRadius: '6px', padding: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div>
+                  <div style={{ fontSize: '12px', color: '#a0a0a0', marginBottom: '4px' }}>Patient Name</div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: '#e9d5ff' }}>{aiDischargeDraft.patient_name || 'N/A'}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '12px', color: '#a0a0a0', marginBottom: '4px' }}>Primary Diagnosis</div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: '#e9d5ff' }}>{aiDischargeDraft.primary_diagnosis || 'N/A'}</div>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '12px', color: '#a0a0a0', marginBottom: '8px', fontWeight: 600 }}>Hospital Course</div>
+                <div style={{ fontSize: '13px', color: '#e0e0e0', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+                  {aiDischargeDraft.hospital_course || 'N/A'}
+                </div>
+              </div>
+
+              {aiDischargeDraft.medications && Array.isArray(aiDischargeDraft.medications) && (
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ fontSize: '12px', color: '#a0a0a0', marginBottom: '8px', fontWeight: 600 }}>Medications</div>
+                  <ul style={{ margin: 0, paddingLeft: '20px', color: '#e0e0e0', fontSize: '13px' }}>
+                    {aiDischargeDraft.medications.map((med: string, idx: number) => (
+                      <li key={idx} style={{ marginBottom: '4px' }}>
+                        {med}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '12px', color: '#a0a0a0', marginBottom: '8px', fontWeight: 600 }}>Follow-up Instructions</div>
+                <div style={{ fontSize: '13px', color: '#e0e0e0', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+                  {aiDischargeDraft.follow_up_instructions || 'N/A'}
+                </div>
+              </div>
             </div>
           )}
         </div>

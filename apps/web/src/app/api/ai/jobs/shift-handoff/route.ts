@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
-import { generateFromTemplate } from '@/lib/ai/template-engine';
+import { generateAllWardHandoffs } from '@/lib/ai/clinical/shift-handoff';
 
 let _sql: any = null;
 function getSql() {
@@ -18,116 +18,66 @@ export async function POST(req: NextRequest) {
     }
 
     const sql = getSql();
-    let cardsGenerated = 0;
-    let errors = 0;
 
-    // Get wards from bed board
-    let wards: any[] = [];
+    // Get default hospital ID
+    let hospitalId: string;
     try {
-      wards = await sql`
-        SELECT DISTINCT ward
-        FROM beds
-        WHERE hospital_id = (
-          SELECT hospital_id FROM beds LIMIT 1
-        )
-        ORDER BY ward
-      `;
-    } catch (err: any) {
-      if (err.message?.includes('does not exist')) {
-        const duration_ms = Date.now() - startTime;
+      const hospitals = await sql`SELECT id FROM hospitals LIMIT 1`;
+      if (!hospitals || hospitals.length === 0) {
         return NextResponse.json({
           job: 'shift-handoff',
           status: 'skipped',
           cards_generated: 0,
           errors: 0,
-          duration_ms,
-          details: 'beds table not found',
+          duration_ms: Date.now() - startTime,
+          details: 'No hospitals found',
+        });
+      }
+      hospitalId = hospitals[0].id;
+    } catch (err: any) {
+      if (err.message?.includes('does not exist')) {
+        return NextResponse.json({
+          job: 'shift-handoff',
+          status: 'skipped',
+          cards_generated: 0,
+          errors: 0,
+          duration_ms: Date.now() - startTime,
+          details: 'hospitals table not found',
         });
       }
       throw err;
     }
 
-    const hospitalId = await sql`SELECT DISTINCT hospital_id FROM beds LIMIT 1`.then(
-      (rows: any[]) => rows[0]?.hospital_id
-    );
+    // Generate handoffs for all wards
+    const handoffs = await generateAllWardHandoffs(hospitalId);
 
-    // Generate handoff for each ward
-    for (const ward of wards) {
-      try {
-        // Get active encounters in ward
-        const activeEncounters = await sql`
-          SELECT COUNT(*) as count
-          FROM encounters
-          WHERE hospital_id = ${hospitalId}
-          AND ward = ${ward.ward}
-          AND status = 'admitted'
-        `;
-
-        // Get recent observations
-        const recentObs = await sql`
-          SELECT COUNT(*) as count
-          FROM observations
-          WHERE hospital_id = ${hospitalId}
-          AND created_at > NOW() - INTERVAL '1 hour'
-          AND observation_type IN ('NEWS2', 'VITALS')
-        `;
-
-        // Get pending orders
-        const pendingOrders = await sql`
-          SELECT COUNT(*) as count
-          FROM service_requests
-          WHERE hospital_id = ${hospitalId}
-          AND ward = ${ward.ward}
-          AND status IN ('ordered', 'pending')
-        `;
-
-        const handoffData = {
-          ward: ward.ward,
-          hospital_id: hospitalId,
-          active_patients: activeEncounters[0]?.count || 0,
-          recent_observations: recentObs[0]?.count || 0,
-          pending_orders: pendingOrders[0]?.count || 0,
-        };
-
-        // Generate handoff card
-        const cards = await generateFromTemplate({
-          hospital_id: hospitalId,
-          module: 'clinical',
-          trigger_type: 'shift_handoff',
-          data: handoffData,
-        });
-
-        if (cards && cards.length > 0) {
-          cardsGenerated += cards.length;
-        }
-      } catch (error) {
-        errors++;
-        console.error(`Error generating handoff for ward ${ward.ward}:`, error);
-      }
-    }
+    const totalCards = handoffs.length;
+    const totalPatients = handoffs.reduce((sum, h) => sum + h.patient_count, 0);
+    const criticalAlerts = handoffs.reduce((sum, h) => sum + h.critical_alerts.length, 0);
 
     const duration_ms = Date.now() - startTime;
 
     return NextResponse.json({
       job: 'shift-handoff',
-      status: errors === 0 ? 'completed' : 'partial',
-      cards_generated: cardsGenerated,
-      errors,
+      status: 'completed',
+      cards_generated: totalCards,
+      wards_processed: handoffs.length,
+      total_patients: totalPatients,
+      critical_alerts: criticalAlerts,
+      errors: 0,
       duration_ms,
-      details: `Generated handoffs for ${wards.length} wards`,
+      details: `Generated handoffs for ${handoffs.length} wards covering ${totalPatients} patients`,
     });
-  } catch (error) {
-    const duration_ms = Date.now() - startTime;
-    console.error('Shift handoff job failed:', error);
-
+  } catch (error: any) {
+    console.error('[shift-handoff] Job failed:', error);
     return NextResponse.json(
       {
         job: 'shift-handoff',
-        status: 'skipped',
+        status: 'failed',
         cards_generated: 0,
         errors: 1,
-        duration_ms,
-        details: error instanceof Error ? error.message : 'Unknown error',
+        duration_ms: Date.now() - startTime,
+        details: error?.message || 'Unknown error',
       },
       { status: 500 }
     );

@@ -131,7 +131,7 @@ function getAlertBadgeColor(
 
 // ─── COMPONENT ────────────────────────────────────────────────
 export default function VitalsClient() {
-  const [activeTab, setActiveTab] = useState<'vitals' | 'io' | 'alerts'>(
+  const [activeTab, setActiveTab] = useState<'vitals' | 'io' | 'alerts' | 'ai'>(
     'vitals'
   );
   const [patientSearch, setPatientSearch] = useState('');
@@ -172,6 +172,11 @@ export default function VitalsClient() {
   // Alerts state
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [unacknowledgedCount, setUnacknowledgedCount] = useState(0);
+
+  // AI state
+  const [aiInsights, setAiInsights] = useState<any[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // Search patients
   useEffect(() => {
@@ -413,6 +418,57 @@ export default function VitalsClient() {
     }
   };
 
+  // Run clinical scan
+  const handleRunClinicalScan = async () => {
+    if (!selectedPatient) {
+      setAiError('Please select a patient');
+      return;
+    }
+
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const response = await fetch('/api/trpc/evenAI.runClinicalScan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: { patient_id: selectedPatient.id } }),
+      });
+
+      if (!response.ok) throw new Error('Failed to run clinical scan');
+      const data = await response.json();
+
+      if (data.result?.data?.json) {
+        // Fetch insight cards
+        const cardsRes = await fetch(
+          `/api/trpc/evenAI.getInsightCards?input=${encodeURIComponent(JSON.stringify({ json: { module: 'clinical' } }))}`,
+          { method: 'GET', headers: { 'Content-Type': 'application/json' } }
+        );
+        const cardsData = await cardsRes.json();
+        setAiInsights(cardsData.result?.data?.json || []);
+      } else {
+        setAiError('No insights generated');
+      }
+    } catch (err: any) {
+      setAiError(err.message || 'Failed to run clinical scan');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const getSeverityColor = (severity: string) => {
+    switch (severity?.toLowerCase()) {
+      case 'critical':
+        return { bg: '#7f1d1d', text: '#fca5a5' };
+      case 'high':
+        return { bg: '#7c2d12', text: '#fdba74' };
+      case 'medium':
+        return { bg: '#713f12', text: '#fcd34d' };
+      case 'low':
+      default:
+        return { bg: '#4c1d95', text: '#e9d5ff' };
+    }
+  };
+
   // ─── RENDER ─────────────────────────────────────────────────
 
   return (
@@ -482,21 +538,22 @@ export default function VitalsClient() {
           <>
             {/* Tab Navigation */}
             <div className="flex gap-2 mb-6 bg-white rounded-lg shadow-sm p-1">
-              {['vitals', 'io', 'alerts'].map(tab => (
+              {['vitals', 'io', 'alerts', 'ai'].map(tab => (
                 <button
                   key={tab}
                   onClick={() =>
-                    setActiveTab(tab as 'vitals' | 'io' | 'alerts')
+                    setActiveTab(tab as 'vitals' | 'io' | 'alerts' | 'ai')
                   }
                   className={`flex-1 py-3 px-4 rounded-md font-semibold transition ${
                     activeTab === tab
-                      ? 'bg-indigo-600 text-white'
+                      ? (tab === 'ai' ? 'bg-violet-600 text-white' : 'bg-indigo-600 text-white')
                       : 'text-gray-700 hover:bg-gray-100'
                   }`}
                 >
                   {tab === 'vitals' && '&#127777; Vitals'}
                   {tab === 'io' && '&#128167; Intake/Output'}
                   {tab === 'alerts' && `&#9888; Alerts ${unacknowledgedCount > 0 ? `(${unacknowledgedCount})` : ''}`}
+                  {tab === 'ai' && '&#128175; AI Alerts'}
                 </button>
               ))}
             </div>
@@ -1298,6 +1355,79 @@ export default function VitalsClient() {
             )}
           </>
         )}
+
+            {/* TAB 4: AI ALERTS */}
+            {activeTab === 'ai' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ marginBottom: '12px' }}>
+                  <button
+                    onClick={handleRunClinicalScan}
+                    disabled={aiLoading}
+                    style={{
+                      padding: '12px 24px',
+                      backgroundColor: aiLoading ? '#9333ea' : '#7c3aed',
+                      border: 'none',
+                      borderRadius: '6px',
+                      color: '#e9d5ff',
+                      cursor: aiLoading ? 'not-allowed' : 'pointer',
+                      fontSize: '14px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {aiLoading ? 'Scanning...' : '&#128175; Run Clinical Scan'}
+                  </button>
+                </div>
+
+                {aiError && (
+                  <div style={{ padding: '12px', backgroundColor: '#7f1d1d', border: '1px solid #dc2626', borderRadius: '4px', color: '#fca5a5', fontSize: '13px' }}>
+                    {aiError}
+                  </div>
+                )}
+
+                {aiInsights.length > 0 && (
+                  <div>
+                    <div style={{ marginBottom: '12px', fontSize: '13px', color: '#666' }}>
+                      Found {aiInsights.length} clinical insight{aiInsights.length !== 1 ? 's' : ''}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      {aiInsights.map((card, idx) => {
+                        const colors = getSeverityColor(card.severity);
+                        return (
+                          <div
+                            key={idx}
+                            style={{
+                              backgroundColor: colors.bg,
+                              border: `1px solid ${colors.text}`,
+                              borderRadius: '6px',
+                              padding: '12px',
+                              color: colors.text,
+                            }}
+                          >
+                            <div style={{ fontWeight: 600, marginBottom: '4px', fontSize: '13px' }}>{card.title}</div>
+                            <div style={{ fontSize: '12px', lineHeight: '1.5', marginBottom: '8px' }}>{card.description}</div>
+                            {card.metadata && (
+                              <div style={{ fontSize: '11px', opacity: 0.8 }}>
+                                {Object.entries(card.metadata).map(([key, val]) => (
+                                  <div key={key}>
+                                    {key}: {String(val)}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {aiInsights.length === 0 && !aiLoading && !aiError && (
+                  <div style={{ textAlign: 'center', padding: '40px 20px', color: '#999', fontSize: '13px' }}>
+                    Click "Run Clinical Scan" to analyze vitals for clinical alerts
+                  </div>
+                )}
+              </div>
+            )}
       </div>
     </div>
   );

@@ -1167,7 +1167,56 @@ interface CarePathwaysClientProps {
 }
 
 export function CarePathwaysClient({ user }: CarePathwaysClientProps) {
-  const [activeTab, setActiveTab] = useState<'templates' | 'plans' | 'escalations' | 'variances' | 'reports'>('templates');
+  const [activeTab, setActiveTab] = useState<'templates' | 'plans' | 'escalations' | 'variances' | 'reports' | 'ai'>('templates');
+
+  // AI state
+  const [aiEncounterId, setAiEncounterId] = useState('');
+  const [aiAnalysis, setAiAnalysis] = useState<any>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  // Handle pathway analysis
+  const handleAnalyzePathway = async () => {
+    if (!aiEncounterId.trim()) {
+      setAiError('Please enter an encounter ID');
+      return;
+    }
+
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const response = await fetch('/api/trpc/evenAI.runPathwayAnalysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: { encounter_id: aiEncounterId } }),
+      });
+
+      if (!response.ok) throw new Error('Failed to analyze pathway');
+      const data = await response.json();
+
+      if (data.result?.data?.json) {
+        setAiAnalysis(data.result.data.json);
+      } else {
+        setAiError('No analysis generated');
+      }
+    } catch (err: any) {
+      setAiError(err.message || 'Failed to analyze pathway');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const getRiskColor = (riskLevel: string) => {
+    switch (riskLevel?.toLowerCase()) {
+      case 'high':
+        return { backgroundColor: '#7f1d1d', color: '#fca5a5' };
+      case 'medium':
+        return { backgroundColor: '#7c2d12', color: '#fdba74' };
+      case 'low':
+      default:
+        return { backgroundColor: '#1b4332', color: '#86efac' };
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1187,13 +1236,14 @@ export function CarePathwaysClient({ user }: CarePathwaysClientProps) {
               { id: 'escalations', label: '&#x1F6A8; Escalations' },
               { id: 'variances', label: '&#x26A0; Variances' },
               { id: 'reports', label: '&#x1F4CA; Reports' },
+              { id: 'ai', label: '&#x1F916; AI Analysis' },
             ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`px-4 py-4 border-b-2 font-medium whitespace-nowrap ${
                   activeTab === tab.id
-                    ? 'border-blue-600 text-blue-600'
+                    ? (tab.id === 'ai' ? 'border-violet-600 text-violet-600' : 'border-blue-600 text-blue-600')
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                 }`}
                 dangerouslySetInnerHTML={{ __html: tab.label }}
@@ -1207,6 +1257,125 @@ export function CarePathwaysClient({ user }: CarePathwaysClientProps) {
         {activeTab === 'escalations' && <EscalationsTab user={user} />}
         {activeTab === 'variances' && <VariancesTab user={user} />}
         {activeTab === 'reports' && <ReportsTab user={user} />}
+        {activeTab === 'ai' && (
+          <div className="p-6">
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Encounter ID
+                </label>
+                <div className="flex gap-4">
+                  <input
+                    type="text"
+                    value={aiEncounterId}
+                    onChange={(e) => setAiEncounterId(e.target.value)}
+                    placeholder="Enter encounter ID..."
+                    className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                  <button
+                    onClick={handleAnalyzePathway}
+                    disabled={aiLoading}
+                    className={`px-6 py-2 rounded-lg font-semibold text-white transition ${
+                      aiLoading
+                        ? 'bg-violet-400 cursor-not-allowed'
+                        : 'bg-violet-600 hover:bg-violet-700'
+                    }`}
+                  >
+                    {aiLoading ? 'Analyzing...' : '🤖 Analyze Pathway'}
+                  </button>
+                </div>
+              </div>
+
+              {aiError && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-300 rounded-lg text-red-800 text-sm">
+                  {aiError}
+                </div>
+              )}
+
+              {aiAnalysis && (
+                <div className="space-y-6">
+                  {/* Pathway Suggestions */}
+                  {aiAnalysis.pathway_suggestions && Array.isArray(aiAnalysis.pathway_suggestions) && (
+                    <div className="bg-violet-50 rounded-lg p-4 border border-violet-200">
+                      <h3 className="font-semibold text-violet-900 mb-3">Suggested Pathways</h3>
+                      <div className="space-y-3">
+                        {aiAnalysis.pathway_suggestions.map((suggestion: any, idx: number) => (
+                          <div key={idx} className="bg-white p-3 rounded border border-violet-100">
+                            <div className="flex justify-between items-start mb-2">
+                              <div className="font-medium text-gray-800">{suggestion.name}</div>
+                              <div className="text-sm font-semibold text-violet-600">
+                                {(suggestion.match_score * 100).toFixed(0)}% match
+                              </div>
+                            </div>
+                            {suggestion.reasons && (
+                              <div className="text-sm text-gray-700">
+                                {suggestion.reasons}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Variance Report */}
+                  {aiAnalysis.variance_report && (
+                    <div className="rounded-lg p-4 border" style={{ ...getRiskColor(aiAnalysis.variance_report.risk_level) }}>
+                      <h3 className="font-semibold mb-3">Variance Report</h3>
+                      <div className="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                          <div className="text-sm opacity-80 mb-1">Adherence Rate</div>
+                          <div className="text-2xl font-bold">
+                            {(aiAnalysis.variance_report.adherence_percentage || 0).toFixed(0)}%
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm opacity-80 mb-1">Risk Level</div>
+                          <div className="text-lg font-semibold capitalize">
+                            {aiAnalysis.variance_report.risk_level || 'Low'}
+                          </div>
+                        </div>
+                      </div>
+                      {aiAnalysis.variance_report.overdue_milestones && Array.isArray(aiAnalysis.variance_report.overdue_milestones) && (
+                        <div>
+                          <div className="text-sm opacity-80 mb-2">Overdue Milestones:</div>
+                          <ul className="space-y-1">
+                            {aiAnalysis.variance_report.overdue_milestones.map((milestone: any, idx: number) => (
+                              <li key={idx} className="text-sm">
+                                • {milestone}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Recommendations */}
+                  {aiAnalysis.recommendations && Array.isArray(aiAnalysis.recommendations) && (
+                    <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                      <h3 className="font-semibold text-blue-900 mb-3">Recommendations</h3>
+                      <ul className="space-y-2">
+                        {aiAnalysis.recommendations.map((rec: any, idx: number) => (
+                          <li key={idx} className="flex gap-2 text-sm text-blue-800">
+                            <span className="font-bold">→</span>
+                            <span>{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!aiAnalysis && !aiLoading && !aiError && (
+                <div className="text-center py-12 text-gray-500">
+                  Enter an encounter ID and click analyze to get pathway insights
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
