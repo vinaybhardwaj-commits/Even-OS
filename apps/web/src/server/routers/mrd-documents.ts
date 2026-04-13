@@ -355,7 +355,7 @@ export const mrdDocumentsRouter = router({
   // ─── RETENTION RULES ──────────────────────────────────────
 
   listRetentionRules: adminProcedure
-    .input(z.object({}).optional().default({}))
+    .input(z.object({}))
     .query(async ({ ctx, input }) => {
       return await db.select().from(mrdDocumentRetentionRules).orderBy(mrdDocumentRetentionRules.document_type);
     }),

@@ -26,7 +26,7 @@ export const hardeningRouter = router({
       status: z.string().optional(),
       page: z.number().int().min(0).default(0),
       limit: z.number().int().min(1).max(100).default(20),
-    }).optional().default({}))
+    }))
     .query(async ({ input }) => {
       const offset = input.page * input.limit;
       const conditions: any[] = [];
@@ -123,7 +123,7 @@ export const hardeningRouter = router({
       hours_back: z.number().int().default(24),
       page: z.number().int().min(0).default(0),
       limit: z.number().int().min(1).max(100).default(20),
-    }).optional().default({}))
+    }))
     .query(async ({ input }) => {
       const offset = input.page * input.limit;
       const since = new Date(Date.now() - input.hours_back * 3600 * 1000);
@@ -154,7 +154,7 @@ export const hardeningRouter = router({
   getRateLimitSummary: protectedProcedure
     .input(z.object({
       hours_back: z.number().int().default(24),
-    }).optional().default({}))
+    }))
     .query(async ({ input }) => {
       const since = new Date(Date.now() - input.hours_back * 3600 * 1000);
 
@@ -234,7 +234,7 @@ export const hardeningRouter = router({
       days_back: z.number().int().default(30),
       page: z.number().int().min(0).default(0),
       limit: z.number().int().min(1).max(100).default(20),
-    }).optional().default({}))
+    }))
     .query(async ({ input }) => {
       const offset = input.page * input.limit;
       const since = new Date(Date.now() - input.days_back * 24 * 3600 * 1000);
@@ -270,7 +270,7 @@ export const hardeningRouter = router({
     .input(z.object({
       page: z.number().int().min(0).default(0),
       limit: z.number().int().min(1).max(100).default(20),
-    }).optional().default({}))
+    }))
     .query(async ({ input }) => {
       const offset = input.page * input.limit;
 
@@ -344,7 +344,7 @@ export const hardeningRouter = router({
       test_type: z.string().optional(),
       page: z.number().int().min(0).default(0),
       limit: z.number().int().min(1).max(100).default(20),
-    }).optional().default({}))
+    }))
     .query(async ({ input }) => {
       const offset = input.page * input.limit;
       const conditions: any[] = [];
@@ -408,7 +408,7 @@ export const hardeningRouter = router({
       status: z.string().optional(),
       page: z.number().int().min(0).default(0),
       limit: z.number().int().min(1).max(100).default(20),
-    }).optional().default({}))
+    }))
     .query(async ({ input }) => {
       const offset = input.page * input.limit;
       const conditions: any[] = [];
@@ -460,7 +460,7 @@ export const hardeningRouter = router({
   getComplianceSummary: protectedProcedure
     .input(z.object({
       checklist_type: z.string().optional(),
-    }).optional().default({}))
+    }))
     .query(async ({ input }) => {
       const typeFilter = input.checklist_type
         ? sql`WHERE checklist_type = ${input.checklist_type}`
@@ -507,7 +507,7 @@ export const hardeningRouter = router({
       days_back: z.number().int().default(7),
       page: z.number().int().min(0).default(0),
       limit: z.number().int().min(1).max(100).default(20),
-    }).optional().default({}))
+    }))
     .query(async ({ input }) => {
       const offset = input.page * input.limit;
       const since = new Date(Date.now() - input.days_back * 24 * 3600 * 1000);
@@ -536,7 +536,7 @@ export const hardeningRouter = router({
   captureHealthSnapshot: protectedProcedure
     .input(z.object({
       snapshot_type: z.string().default('hourly'),
-    }).optional().default({}))
+    }))
     .mutation(async ({ ctx, input }) => {
       // Mock values for now — would be replaced with real monitoring data
       const [snapshot] = await db.insert(systemHealthSnapshots)

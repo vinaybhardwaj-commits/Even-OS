@@ -276,11 +276,14 @@ export const integrationsRouter = router({
       if (f.status) { query += ` AND status = $${idx++}`; params.push(f.status); }
       if (f.patient_uhid) { query += ` AND patient_uhid = $${idx++}`; params.push(f.patient_uhid); }
 
-      const countRes = await sql(`SELECT COUNT(*) as total FROM hl7_integration_messages WHERE 1=1${
-        f.message_type ? ` AND message_type = '${f.message_type}'` : ''
-      }${f.direction ? ` AND direction = '${f.direction}'` : ''
-      }${f.status ? ` AND status = '${f.status}'` : ''
-      }${f.patient_uhid ? ` AND patient_uhid = '${f.patient_uhid}'` : ''}`);
+      let countQuery = `SELECT COUNT(*) as total FROM hl7_integration_messages WHERE 1=1`;
+      const countParams: any[] = [];
+      let cIdx = 1;
+      if (f.message_type) { countQuery += ` AND message_type = $${cIdx++}`; countParams.push(f.message_type); }
+      if (f.direction) { countQuery += ` AND direction = $${cIdx++}`; countParams.push(f.direction); }
+      if (f.status) { countQuery += ` AND status = $${cIdx++}`; countParams.push(f.status); }
+      if (f.patient_uhid) { countQuery += ` AND patient_uhid = $${cIdx++}`; countParams.push(f.patient_uhid); }
+      const countRes = await sql(countQuery, countParams);
 
       query += ` ORDER BY created_at DESC LIMIT $${idx++} OFFSET $${idx++}`;
       params.push(f.limit || 50, f.offset || 0);

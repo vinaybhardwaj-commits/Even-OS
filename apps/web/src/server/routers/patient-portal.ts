@@ -1,4 +1,4 @@
-import { router, publicProcedure } from '../trpc';
+import { router, protectedProcedure } from '../trpc';
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import {
@@ -9,7 +9,7 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 
 export const patientPortalRouter = router({
   // Portal Preferences
-  getPreferences: publicProcedure
+  getPreferences: protectedProcedure
     .input(z.object({ patient_id: z.string() }))
     .query(async ({ input }) => {
       const prefs = await db.query.patientPortalPreferences.findFirst({
@@ -18,7 +18,7 @@ export const patientPortalRouter = router({
       return prefs || null;
     }),
 
-  updatePreferences: publicProcedure
+  updatePreferences: protectedProcedure
     .input(z.object({
       patient_id: z.string(),
       language: z.string().optional(),
@@ -44,7 +44,7 @@ export const patientPortalRouter = router({
     }),
 
   // Delegated Users
-  listDelegatedUsers: publicProcedure
+  listDelegatedUsers: protectedProcedure
     .input(z.object({ patient_id: z.string() }))
     .query(async ({ input }) => {
       const users = await db.query.delegatedUsers.findMany({
@@ -53,7 +53,7 @@ export const patientPortalRouter = router({
       return users;
     }),
 
-  addDelegatedUser: publicProcedure
+  addDelegatedUser: protectedProcedure
     .input(z.object({
       patient_id: z.string(),
       delegated_user_name: z.string(),
@@ -76,7 +76,7 @@ export const patientPortalRouter = router({
     }),
 
   // Feedback
-  submitFeedback: publicProcedure
+  submitFeedback: protectedProcedure
     .input(z.object({
       patient_id: z.string().optional(),
       encounter_id: z.string().optional(),
@@ -105,7 +105,7 @@ export const patientPortalRouter = router({
       return result[0];
     }),
 
-  listFeedback: publicProcedure
+  listFeedback: protectedProcedure
     .input(z.object({
       feedback_type: z.string().optional(),
       department: z.string().optional(),
@@ -138,7 +138,7 @@ export const patientPortalRouter = router({
       };
     }),
 
-  respondToFeedback: publicProcedure
+  respondToFeedback: protectedProcedure
     .input(z.object({
       id: z.string(),
       response: z.string(),
@@ -155,7 +155,7 @@ export const patientPortalRouter = router({
       return result[0];
     }),
 
-  getFeedbackSummary: publicProcedure
+  getFeedbackSummary: protectedProcedure
     .query(async () => {
       const totalResult = await db
         .select({ count: sql<number>`count(*)::int` })
@@ -189,7 +189,7 @@ export const patientPortalRouter = router({
     }),
 
   // Payments
-  listPayments: publicProcedure
+  listPayments: protectedProcedure
     .input(z.object({
       patient_id: z.string(),
       page: z.number().default(1),
@@ -214,7 +214,7 @@ export const patientPortalRouter = router({
       };
     }),
 
-  getPaymentSummary: publicProcedure
+  getPaymentSummary: protectedProcedure
     .query(async () => {
       const totalResult = await db
         .select({ sum: sql<string>`sum(amount)::text` })
@@ -242,7 +242,7 @@ export const patientPortalRouter = router({
     }),
 
   // Pre-Admission Forms
-  listForms: publicProcedure
+  listForms: protectedProcedure
     .input(z.object({
       patient_id: z.string(),
       status: z.string().optional(),
@@ -258,7 +258,7 @@ export const patientPortalRouter = router({
       return forms;
     }),
 
-  verifyForm: publicProcedure
+  verifyForm: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
       const result = await db.update(preAdmissionForms)
@@ -273,7 +273,7 @@ export const patientPortalRouter = router({
     }),
 
   // Medication Refills
-  listRefillRequests: publicProcedure
+  listRefillRequests: protectedProcedure
     .input(z.object({
       status: z.string().optional(),
       page: z.number().default(1),
@@ -303,7 +303,7 @@ export const patientPortalRouter = router({
       };
     }),
 
-  reviewRefill: publicProcedure
+  reviewRefill: protectedProcedure
     .input(z.object({
       id: z.string(),
       status: z.enum(['approved', 'denied']),
