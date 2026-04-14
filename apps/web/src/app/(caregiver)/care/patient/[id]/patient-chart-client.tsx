@@ -77,7 +77,7 @@ interface JourneyData {
   next_milestone: string;
 }
 
-type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan' | 'emar';
+type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan' | 'emar' | 'assessments' | 'billing' | 'journey';
 
 interface Props {
   patientId: string;
@@ -100,7 +100,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
       { label: 'Overview', id: 'overview', icon: '📋' },
       { label: 'Vitals & I/O', id: 'vitals', icon: '📊' },
       { label: 'eMAR', id: 'emar', icon: '💊' },
-      { label: 'Assessments', id: 'plan', icon: '✅' },
+      { label: 'Assessments', id: 'assessments', icon: '✅' },
       { label: 'Notes', id: 'notes', icon: '📝' },
       { label: 'Tasks', id: 'orders', icon: '🎯' },
     ];
@@ -114,6 +114,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
       { label: 'Orders', id: 'orders', icon: '📋' },
       { label: 'Notes', id: 'notes', icon: '📝' },
       { label: 'Care Plan', id: 'plan', icon: '🗺️' },
+      { label: 'Journey', id: 'journey', icon: '🗓️' },
     ];
   }
 
@@ -135,7 +136,8 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
   if (billingRoles.includes(role)) {
     return [
       { label: 'Overview', id: 'overview', icon: '📋' },
-      { label: 'Billing & Claims', id: 'orders', icon: '💳' },
+      { label: 'Billing', id: 'billing', icon: '💳' },
+      { label: 'Journey', id: 'journey', icon: '🗓️' },
     ];
   }
 
@@ -3608,17 +3610,810 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
         </div>
       )}
 
-      {/* ── Other Tabs: Coming Soon ───────────────────────────────────────────── */}
-      {activeTab !== 'overview' && activeTab !== 'vitals' && activeTab !== 'labs' && activeTab !== 'orders' && activeTab !== 'notes' && activeTab !== 'emar' && (
-        <div style={{
-          padding: '40px 24px',
-          textAlign: 'center',
-          color: '#666',
-        }}>
-          <p style={{ fontSize: 16, fontWeight: 600 }}>Coming in PC.6–PC.7</p>
-          <p style={{ fontSize: 13, color: '#999', marginTop: 8 }}>
-            This tab will be available in upcoming sprints.
-          </p>
+      {/* ── TAB: ASSESSMENTS ──────────────────────────────────────────────────── */}
+      {activeTab === 'assessments' && (
+        <div style={{ padding: '24px' }}>
+          {['nurse', 'senior_nurse', 'charge_nurse', 'nursing_supervisor', 'nursing_manager', 'ot_nurse'].includes(userRole) ? (
+            <>
+              {/* Assessment Cards */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+                gap: 16,
+                marginBottom: 32,
+              }}>
+                {/* Pain Assessment */}
+                <div style={{
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  padding: 16,
+                  background: '#fafafa',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                    <div>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#002054' }}>Pain Assessment (NRS 0-10)</h3>
+                      <p style={{ fontSize: 12, color: '#666', margin: '4px 0 0 0' }}>Last: 14 Apr 08:00</p>
+                    </div>
+                    <div style={{ background: '#FFA500', color: 'white', padding: '4px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>OVERDUE</div>
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: '#FFA500', marginBottom: 12 }}>6/10</div>
+                  <p style={{ fontSize: 12, color: '#666', margin: '8px 0' }}>Next due: Now</p>
+                  <button style={{
+                    width: '100%',
+                    padding: 10,
+                    background: '#0055FF',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}>
+                    Assess Now
+                  </button>
+                </div>
+
+                {/* Morse Fall Risk Scale */}
+                <div style={{
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  padding: 16,
+                  background: '#fafafa',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                    <div>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#002054' }}>Morse Fall Risk Scale</h3>
+                      <p style={{ fontSize: 12, color: '#666', margin: '4px 0 0 0' }}>Last: 14 Apr 06:00</p>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: '#D32F2F', marginBottom: 8 }}>55 — HIGH RISK</div>
+                  <div style={{ fontSize: 11, color: '#666', background: 'white', padding: 8, borderRadius: 4, marginBottom: 12 }}>
+                    <p style={{ margin: '4px 0' }}>History: 25 • Diagnosis: 15 • Aid: 15 • IV/Heparin: 0 • Gait: 0 • Status: 0</p>
+                  </div>
+                  <p style={{ fontSize: 12, color: '#666', margin: '8px 0' }}>Next due: Every shift</p>
+                  <button style={{
+                    width: '100%',
+                    padding: 10,
+                    background: '#0055FF',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}>
+                    Assess Now
+                  </button>
+                </div>
+
+                {/* Braden Pressure Injury Scale */}
+                <div style={{
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  padding: 16,
+                  background: '#fafafa',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                    <div>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#002054' }}>Braden Pressure Injury</h3>
+                      <p style={{ fontSize: 12, color: '#666', margin: '4px 0 0 0' }}>Last: 13 Apr 20:00</p>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: '#FFA500', marginBottom: 8 }}>16 — MILD RISK</div>
+                  <p style={{ fontSize: 12, color: '#666', margin: '8px 0' }}>Next due: Daily</p>
+                  <button style={{
+                    width: '100%',
+                    padding: 10,
+                    background: '#0055FF',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}>
+                    Assess Now
+                  </button>
+                </div>
+
+                {/* Nutritional Screening */}
+                <div style={{
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  padding: 16,
+                  background: '#fafafa',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                    <div>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#002054' }}>Nutritional Screening</h3>
+                    </div>
+                    <div style={{ fontSize: 18 }}>✅</div>
+                  </div>
+                  <p style={{ fontSize: 12, color: '#666', margin: '8px 0' }}>Status: Completed on admission</p>
+                  <p style={{ fontSize: 12, color: '#666', margin: '8px 0' }}>Result: At risk — dietitian referral made</p>
+                </div>
+
+                {/* Nursing Admission Assessment */}
+                <div style={{
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  padding: 16,
+                  background: '#fafafa',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                    <div>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#002054' }}>Nursing Admission Assessment</h3>
+                    </div>
+                    <div style={{ fontSize: 18 }}>✅</div>
+                  </div>
+                  <p style={{ fontSize: 12, color: '#666', margin: '8px 0' }}>Completed: 11 Apr 09:30</p>
+                </div>
+              </div>
+
+              {/* Assessment History */}
+              <div>
+                <h3 style={{ fontSize: 14, fontWeight: 600, color: '#002054', marginBottom: 12 }}>Assessment History</h3>
+                <div style={{
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  overflowX: 'auto',
+                }}>
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    fontSize: 13,
+                  }}>
+                    <thead>
+                      <tr style={{ background: '#f5f5f5', borderBottom: '1px solid #e0e0e0' }}>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Date</th>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Type</th>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Score</th>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Risk Level</th>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Assessed By</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr style={{ borderBottom: '1px solid #e0e0e0' }}>
+                        <td style={{ padding: '12px', color: '#666' }}>14 Apr 08:00</td>
+                        <td style={{ padding: '12px', color: '#666' }}>Pain (NRS)</td>
+                        <td style={{ padding: '12px', color: '#666' }}>6/10</td>
+                        <td style={{ padding: '12px' }}><span style={{ background: '#FFA500', color: 'white', padding: '2px 8px', borderRadius: 3, fontSize: 11 }}>AMBER</span></td>
+                        <td style={{ padding: '12px', color: '#666' }}>Nurse Priya</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #e0e0e0' }}>
+                        <td style={{ padding: '12px', color: '#666' }}>14 Apr 06:00</td>
+                        <td style={{ padding: '12px', color: '#666' }}>Morse Fall Risk</td>
+                        <td style={{ padding: '12px', color: '#666' }}>55</td>
+                        <td style={{ padding: '12px' }}><span style={{ background: '#D32F2F', color: 'white', padding: '2px 8px', borderRadius: 3, fontSize: 11 }}>HIGH</span></td>
+                        <td style={{ padding: '12px', color: '#666' }}>Nurse Rajesh</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #e0e0e0' }}>
+                        <td style={{ padding: '12px', color: '#666' }}>13 Apr 20:00</td>
+                        <td style={{ padding: '12px', color: '#666' }}>Braden Scale</td>
+                        <td style={{ padding: '12px', color: '#666' }}>16</td>
+                        <td style={{ padding: '12px' }}><span style={{ background: '#FFA500', color: 'white', padding: '2px 8px', borderRadius: 3, fontSize: 11 }}>AMBER</span></td>
+                        <td style={{ padding: '12px', color: '#666' }}>Nurse Priya</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #e0e0e0' }}>
+                        <td style={{ padding: '12px', color: '#666' }}>13 Apr 18:00</td>
+                        <td style={{ padding: '12px', color: '#666' }}>Pain (NRS)</td>
+                        <td style={{ padding: '12px', color: '#666' }}>4/10</td>
+                        <td style={{ padding: '12px' }}><span style={{ background: '#0B8A3E', color: 'white', padding: '2px 8px', borderRadius: 3, fontSize: 11 }}>GREEN</span></td>
+                        <td style={{ padding: '12px', color: '#666' }}>Nurse Rajesh</td>
+                      </tr>
+                      <tr>
+                        <td style={{ padding: '12px', color: '#666' }}>13 Apr 12:00</td>
+                        <td style={{ padding: '12px', color: '#666' }}>Morse Fall Risk</td>
+                        <td style={{ padding: '12px', color: '#666' }}>50</td>
+                        <td style={{ padding: '12px' }}><span style={{ background: '#D32F2F', color: 'white', padding: '2px 8px', borderRadius: 3, fontSize: 11 }}>HIGH</span></td>
+                        <td style={{ padding: '12px', color: '#666' }}>Nurse Priya</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div style={{
+              padding: '40px 24px',
+              textAlign: 'center',
+              color: '#666',
+            }}>
+              <p style={{ fontSize: 16, fontWeight: 600 }}>Assessments</p>
+              <p style={{ fontSize: 13, color: '#999', marginTop: 8 }}>
+                Assessments are managed by nursing staff.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: BILLING ───────────────────────────────────────────────────────── */}
+      {activeTab === 'billing' && (
+        <div style={{ padding: '24px' }}>
+          {['billing_manager', 'billing_executive', 'insurance_coordinator', 'visiting_consultant'].includes(userRole) ? (
+            <>
+              {/* Billing Summary Cards */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: 12,
+                marginBottom: 24,
+              }}>
+                <div style={{
+                  background: '#002054',
+                  color: 'white',
+                  padding: 16,
+                  borderRadius: 8,
+                }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, margin: '0 0 8px 0' }}>Running Bill</p>
+                  <p style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>₹2,45,000</p>
+                </div>
+                <div style={{
+                  background: '#0B8A3E',
+                  color: 'white',
+                  padding: 16,
+                  borderRadius: 8,
+                }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, margin: '0 0 8px 0' }}>Deposit Paid</p>
+                  <p style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>₹50,000</p>
+                </div>
+                <div style={{
+                  background: '#0055FF',
+                  color: 'white',
+                  padding: 16,
+                  borderRadius: 8,
+                }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, margin: '0 0 8px 0' }}>Pre-Auth Approved</p>
+                  <p style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>₹3,00,000</p>
+                  <p style={{ fontSize: 11, margin: '4px 0 0 0' }}>Star Health</p>
+                </div>
+                <div style={{
+                  background: '#0B8A3E',
+                  color: 'white',
+                  padding: 16,
+                  borderRadius: 8,
+                }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, margin: '0 0 8px 0' }}>Balance Available</p>
+                  <p style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>₹1,05,000</p>
+                </div>
+              </div>
+
+              {/* Charge Breakdown */}
+              <div style={{ marginBottom: 24 }}>
+                <h3 style={{ fontSize: 14, fontWeight: 600, color: '#002054', marginBottom: 12 }}>Charge Breakdown</h3>
+                <div style={{
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  overflowX: 'auto',
+                }}>
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    fontSize: 13,
+                  }}>
+                    <tbody>
+                      <tr style={{ borderBottom: '1px solid #e0e0e0' }}>
+                        <td style={{ padding: '12px', color: '#666' }}>Room Charges (3 days × ₹5,000)</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>₹15,000</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #e0e0e0' }}>
+                        <td style={{ padding: '12px', color: '#666' }}>OT Charges (CABG)</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>₹1,20,000</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #e0e0e0' }}>
+                        <td style={{ padding: '12px', color: '#666' }}>Anaesthesia</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>₹35,000</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #e0e0e0' }}>
+                        <td style={{ padding: '12px', color: '#666' }}>Medications</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>₹28,500</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #e0e0e0' }}>
+                        <td style={{ padding: '12px', color: '#666' }}>Lab Investigations</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>₹18,200</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #e0e0e0' }}>
+                        <td style={{ padding: '12px', color: '#666' }}>Consumables & Implants</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>₹22,300</td>
+                      </tr>
+                      <tr style={{ background: '#f5f5f5' }}>
+                        <td style={{ padding: '12px', color: '#666' }}>Professional Fees</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>₹6,000</td>
+                      </tr>
+                      <tr style={{ background: '#f5f5f5', borderTop: '2px solid #002054' }}>
+                        <td style={{ padding: '12px', fontWeight: 600, color: '#002054' }}>Total</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontWeight: 700, color: '#002054', fontSize: 14 }}>₹2,45,000</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Insurance Details */}
+              <div style={{ marginBottom: 24 }}>
+                <h3 style={{ fontSize: 14, fontWeight: 600, color: '#002054', marginBottom: 12 }}>Insurance Details</h3>
+                <div style={{
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  padding: 16,
+                  background: '#fafafa',
+                }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    <div>
+                      <p style={{ fontSize: 12, color: '#666', margin: '0 0 4px 0' }}>TPA</p>
+                      <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Star Health & Allied Insurance</p>
+                    </div>
+                    <div>
+                      <p style={{ fontSize: 12, color: '#666', margin: '0 0 4px 0' }}>Policy #</p>
+                      <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>SH-2024-87654321</p>
+                    </div>
+                    <div>
+                      <p style={{ fontSize: 12, color: '#666', margin: '0 0 4px 0' }}>Pre-Auth Status</p>
+                      <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>✅ Approved ₹3,00,000</p>
+                    </div>
+                    <div>
+                      <p style={{ fontSize: 12, color: '#666', margin: '0 0 4px 0' }}>Enhancement</p>
+                      <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Not Required</p>
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <p style={{ fontSize: 12, color: '#666', margin: '0 0 4px 0' }}>Estimated Shortfall</p>
+                      <p style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#0B8A3E' }}>None (₹1,05,000 headroom)</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment History */}
+              <div>
+                <h3 style={{ fontSize: 14, fontWeight: 600, color: '#002054', marginBottom: 12 }}>Payment History</h3>
+                <div style={{
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  overflowX: 'auto',
+                }}>
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    fontSize: 13,
+                  }}>
+                    <thead>
+                      <tr style={{ background: '#f5f5f5', borderBottom: '1px solid #e0e0e0' }}>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Date</th>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Type</th>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Amount</th>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Method</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td style={{ padding: '12px', color: '#666' }}>11 Apr</td>
+                        <td style={{ padding: '12px', color: '#666' }}>Deposit</td>
+                        <td style={{ padding: '12px', fontWeight: 600 }}>₹50,000</td>
+                        <td style={{ padding: '12px', color: '#666' }}>UPI</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div style={{
+              padding: '40px 24px',
+              textAlign: 'center',
+              color: '#666',
+            }}>
+              <p style={{ fontSize: 16, fontWeight: 600 }}>Billing Information</p>
+              <p style={{ fontSize: 13, color: '#999', marginTop: 8 }}>
+                Billing information is restricted.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: JOURNEY ──────────────────────────────────────────────────────── */}
+      {activeTab === 'journey' && (
+        <div style={{ padding: '24px' }}>
+          {['billing_manager', 'billing_executive', 'insurance_coordinator', 'resident', 'senior_resident', 'intern', 'visiting_consultant', 'hospitalist', 'specialist_cardiologist', 'specialist_neurologist', 'specialist_orthopedic', 'surgeon', 'anaesthetist'].includes(userRole) ? (
+            <>
+              {/* Journey Timeline */}
+              <div style={{ marginBottom: 32 }}>
+                {/* Phase 1 */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '40px 1fr',
+                  gap: 16,
+                  marginBottom: 20,
+                }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    background: '#0B8A3E',
+                    border: '2px solid #0B8A3E',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontSize: 18,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}>✓</div>
+                  <div style={{
+                    border: '1px solid #e0e0e0',
+                    borderLeft: '4px solid #0B8A3E',
+                    borderRadius: 6,
+                    padding: 16,
+                    background: '#f5f5f5',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#002054' }}>Phase 1: Pre-Admission</h3>
+                      <span style={{ fontSize: 11, color: '#0B8A3E', fontWeight: 600 }}>✓ 10 Apr (2 days)</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: '#666', margin: '8px 0 0 0' }}>Financial Counselling ✓ • Estimation Sheet ✓ • OT Slot ✓ • PAC ✓ • Pre-Auth ✓</p>
+                  </div>
+                </div>
+
+                {/* Phase 2 */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '40px 1fr',
+                  gap: 16,
+                  marginBottom: 20,
+                }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    background: '#0B8A3E',
+                    border: '2px solid #0B8A3E',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontSize: 18,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}>✓</div>
+                  <div style={{
+                    border: '1px solid #e0e0e0',
+                    borderLeft: '4px solid #0B8A3E',
+                    borderRadius: 6,
+                    padding: 16,
+                    background: '#f5f5f5',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#002054' }}>Phase 2: Admission</h3>
+                      <span style={{ fontSize: 11, color: '#0B8A3E', fontWeight: 600 }}>✓ 11 Apr 09:45</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: '#666', margin: '8px 0 0 0' }}>Arrival ✓ • UHID ✓ • Demographics ✓ • Advice ✓ • Room ✓ • Consent ✓ • Ward Intimation ✓ • Transport ✓</p>
+                  </div>
+                </div>
+
+                {/* Phase 3 */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '40px 1fr',
+                  gap: 16,
+                  marginBottom: 20,
+                }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    background: '#0B8A3E',
+                    border: '2px solid #0B8A3E',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontSize: 18,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}>✓</div>
+                  <div style={{
+                    border: '1px solid #e0e0e0',
+                    borderLeft: '4px solid #0B8A3E',
+                    borderRadius: 6,
+                    padding: 16,
+                    background: '#f5f5f5',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#002054' }}>Phase 3: Clinical Assessment</h3>
+                      <span style={{ fontSize: 11, color: '#0B8A3E', fontWeight: 600 }}>✓ 11 Apr 12:00</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: '#666', margin: '8px 0 0 0' }}>Nursing Assessment ✓ • Medical Assessment ✓ • Care Plan ✓ • Nursing Board ✓</p>
+                  </div>
+                </div>
+
+                {/* Phase 4 */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '40px 1fr',
+                  gap: 16,
+                  marginBottom: 20,
+                }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    background: '#0B8A3E',
+                    border: '2px solid #0B8A3E',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontSize: 18,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}>✓</div>
+                  <div style={{
+                    border: '1px solid #e0e0e0',
+                    borderLeft: '4px solid #0B8A3E',
+                    borderRadius: 6,
+                    padding: 16,
+                    background: '#f5f5f5',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#002054' }}>Phase 4: Pre-Op</h3>
+                      <span style={{ fontSize: 11, color: '#0B8A3E', fontWeight: 600 }}>✓ 11 Apr 13:30</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: '#666', margin: '8px 0 0 0' }}>Investigations ✓ • PAC Clearance ✓ • Financial Clearance ✓ • Pre-Op Checklist ✓ • OT List ✓</p>
+                  </div>
+                </div>
+
+                {/* Phase 5 */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '40px 1fr',
+                  gap: 16,
+                  marginBottom: 20,
+                }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    background: '#0B8A3E',
+                    border: '2px solid #0B8A3E',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontSize: 18,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}>✓</div>
+                  <div style={{
+                    border: '1px solid #e0e0e0',
+                    borderLeft: '4px solid #0B8A3E',
+                    borderRadius: 6,
+                    padding: 16,
+                    background: '#f5f5f5',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#002054' }}>Phase 5: Intra-Op</h3>
+                      <span style={{ fontSize: 11, color: '#0B8A3E', fontWeight: 600 }}>✓ 11 Apr 18:20</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: '#666', margin: '8px 0 0 0' }}>Patient Receiving ✓ • Anaesthesia ✓ • WHO Time-Out ✓ • CABG ×3 (4h 20min) ✓ • Sign-Out ✓ • Transfer to Recovery ✓</p>
+                  </div>
+                </div>
+
+                {/* Phase 6 - Current */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '40px 1fr',
+                  gap: 16,
+                  marginBottom: 20,
+                }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    background: '#0055FF',
+                    border: '2px solid #0055FF',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontSize: 18,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                    animation: 'pulse 2s infinite',
+                  }}>●</div>
+                  <div style={{
+                    border: '1px solid #e0e0e0',
+                    borderLeft: '4px solid #0055FF',
+                    borderRadius: 6,
+                    padding: 16,
+                    background: '#f0f7ff',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#002054' }}>Phase 6: Post-Op</h3>
+                      <span style={{ fontSize: 11, background: '#0055FF', color: 'white', padding: '2px 8px', borderRadius: 3, fontWeight: 600 }}>IN PROGRESS (Day 3)</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: '#666', margin: '8px 0 0 0' }}>Recovery (Aldrete) ✓ • Ward Transfer ✓ • Post-Op Assessment ✓ • Surgeon Review ✓</p>
+                    <p style={{ fontSize: 12, color: '#0055FF', margin: '8px 0 0 0', fontWeight: 600 }}>Current: Daily monitoring (vitals, meds, physiotherapy)</p>
+                  </div>
+                </div>
+
+                {/* Phase 7 */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '40px 1fr',
+                  gap: 16,
+                  marginBottom: 20,
+                }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    background: '#e0e0e0',
+                    border: '2px solid #e0e0e0',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#666',
+                    fontSize: 18,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}>○</div>
+                  <div style={{
+                    border: '1px solid #e0e0e0',
+                    borderLeft: '4px solid #e0e0e0',
+                    borderRadius: 6,
+                    padding: 16,
+                    background: '#fafafa',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#666' }}>Phase 7: Ward Care</h3>
+                      <span style={{ fontSize: 11, color: '#999', fontWeight: 600 }}>PENDING</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Phase 8 */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '40px 1fr',
+                  gap: 16,
+                  marginBottom: 20,
+                }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    background: '#e0e0e0',
+                    border: '2px solid #e0e0e0',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#666',
+                    fontSize: 18,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}>○</div>
+                  <div style={{
+                    border: '1px solid #e0e0e0',
+                    borderLeft: '4px solid #e0e0e0',
+                    borderRadius: 6,
+                    padding: 16,
+                    background: '#fafafa',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#666' }}>Phase 8: Discharge</h3>
+                      <span style={{ fontSize: 11, color: '#999', fontWeight: 600 }}>PENDING</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Phase 9 */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '40px 1fr',
+                  gap: 16,
+                  marginBottom: 20,
+                }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    background: '#e0e0e0',
+                    border: '2px solid #e0e0e0',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#666',
+                    fontSize: 18,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}>○</div>
+                  <div style={{
+                    border: '1px solid #e0e0e0',
+                    borderLeft: '4px solid #e0e0e0',
+                    borderRadius: 6,
+                    padding: 16,
+                    background: '#fafafa',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: '#666' }}>Phase 9: Billing Closure</h3>
+                      <span style={{ fontSize: 11, color: '#999', fontWeight: 600 }}>PENDING</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons (for IP Coordinator / Billing roles) */}
+              {['billing_manager', 'billing_executive', 'insurance_coordinator'].includes(userRole) && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                  gap: 12,
+                  marginTop: 24,
+                }}>
+                  <button style={{
+                    padding: 12,
+                    background: '#0055FF',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#003DBF')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = '#0055FF')}
+                  >
+                    Advance to Phase 7
+                  </button>
+                  <button style={{
+                    padding: 12,
+                    background: '#D32F2F',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#B71C1C')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = '#D32F2F')}
+                  >
+                    Flag Issue
+                  </button>
+                  <button style={{
+                    padding: 12,
+                    background: '#666',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#555')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = '#666')}
+                  >
+                    Transfer Patient
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{
+              padding: '40px 24px',
+              textAlign: 'center',
+              color: '#666',
+            }}>
+              <p style={{ fontSize: 16, fontWeight: 600 }}>Journey</p>
+              <p style={{ fontSize: 13, color: '#999', marginTop: 8 }}>
+                Journey information is restricted.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
