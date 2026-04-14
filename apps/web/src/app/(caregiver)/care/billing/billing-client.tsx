@@ -52,9 +52,11 @@ export default function BillingClient({ userId, userRole, userName }: Props) {
         trpcQuery('billing.billingStats'),
         trpcQuery('insuranceClaims.claimStats'),
       ]);
-      setPreAuthClaims(Array.isArray(preauth) ? preauth : []);
-      setDischargeQueue(Array.isArray(dq) ? dq : []);
-      setTpaClaims(Array.isArray(tpa) ? tpa : []);
+      setPreAuthClaims(Array.isArray(preauth) ? preauth : (preauth?.items || []));
+      // encounter.dischargeQueue returns { items, ... } or array
+      setDischargeQueue(Array.isArray(dq) ? dq : (dq?.items || []));
+      // billing.listTpaClaims returns { claims, pagination } or array
+      setTpaClaims(Array.isArray(tpa) ? tpa : (tpa?.claims || tpa?.items || []));
       setBillingStats(bstats);
       setClaimStats(cstats);
     } catch (err) {
@@ -198,11 +200,11 @@ export default function BillingClient({ userId, userRole, userName }: Props) {
                       {enc.patient_name || enc.name_full || 'Patient'}
                     </div>
                     <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>
-                      {enc.bed_label || ''} · {enc.ward_name || ''}
-                      · {enc.primary_diagnosis || enc.chief_complaint || 'N/A'}
+                      {enc.bed_label || enc.bed_code || ''} · {enc.ward_name || ''}
+                      · {enc.primary_diagnosis || enc.chief_complaint || enc.discharge_reason || 'N/A'}
                     </div>
                     <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
-                      Discharge initiated {timeAgo(enc.discharge_initiated_at || enc.updated_at)}
+                      Discharge initiated {timeAgo(enc.discharge_initiated_at || enc.ordered_at || enc.updated_at)}
                     </div>
                   </div>
                   <button style={{

@@ -88,9 +88,13 @@ export default function CustomerCareClient({ userId, userRole, userName }: Props
         trpcQuery('encounter.dischargeQueue'),
         trpcQuery('insuranceClaims.claimStats'),
       ]);
-      setEncounters(Array.isArray(enc) ? enc : []);
+      // encounter.listActive returns { items, total, ... } or plain array
+      const encItems = Array.isArray(enc) ? enc : (enc?.items || []);
+      setEncounters(encItems);
       setStats(st);
-      setDischargeQueue(Array.isArray(dq) ? dq : []);
+      // encounter.dischargeQueue returns { items, total, ... } or plain array
+      const dqItems = Array.isArray(dq) ? dq : (dq?.items || [])
+      setDischargeQueue(dqItems);
       setClaims(cl);
     } catch (err) {
       console.error('CC load error:', err);
@@ -109,7 +113,7 @@ export default function CustomerCareClient({ userId, userRole, userName }: Props
   const patientsWithStage = encounters.map(enc => ({
     ...enc,
     stage: mapEncounterToStage(enc),
-    los_days: daysIn(enc.admission_datetime || enc.created_at),
+    los_days: daysIn(enc.admission_datetime || enc.admission_at || enc.created_at),
   }));
 
   // ── Filter ────────────────────────────────────────────────────────────
@@ -159,7 +163,12 @@ export default function CustomerCareClient({ userId, userRole, userName }: Props
       }}>
         {[
           { label: 'Active Patients', value: encounters.length, icon: '👥', color: '#1565c0' },
-          { label: 'Avg LOS', value: stats?.avg_los ? `${Math.round(stats.avg_los)}d` : 'N/A', icon: '📊', color: '#7b1fa2' },
+          { label: 'Avg LOS', value: (() => {
+            const withLos = patientsWithStage.filter(p => p.los_days > 0);
+            if (withLos.length === 0) return 'N/A';
+            const avg = withLos.reduce((s, p) => s + p.los_days, 0) / withLos.length;
+            return `${Math.round(avg)}d`;
+          })(), icon: '📊', color: '#7b1fa2' },
           { label: 'Discharges Today', value: dischargeQueue.length, icon: '🏥', color: '#2e7d32' },
           { label: 'Pending Admits', value: patientsWithStage.filter(p => p.stage === 'pre_adm').length, icon: '📋', color: '#e65100' },
           { label: 'Escalations', value: patientsWithStage.filter(p => p.los_days > 5).length, icon: '⚠️', color: '#c62828' },
@@ -233,7 +242,7 @@ export default function CustomerCareClient({ userId, userRole, userName }: Props
                           {p.patient_name || p.name_full || 'Patient'}
                         </div>
                         <div style={{ color: '#666' }}>
-                          {p.bed_label || p.ward_name || ''}
+                          {p.bed_label || p.bed_code || p.bed_name || p.ward_name || ''}
                         </div>
                         {isLong && (
                           <div style={{ color: '#e65100', fontWeight: 600, marginTop: 2 }}>
@@ -265,7 +274,7 @@ export default function CustomerCareClient({ userId, userRole, userName }: Props
             <div style={{ fontSize: 13 }}>
               <p><strong>Name:</strong> {selectedPatient.patient_name || selectedPatient.name_full}</p>
               <p><strong>UHID:</strong> {selectedPatient.uhid || selectedPatient.patient_uhid || 'N/A'}</p>
-              <p><strong>Bed:</strong> {selectedPatient.bed_label || 'Not assigned'}</p>
+              <p><strong>Bed:</strong> {selectedPatient.bed_label || selectedPatient.bed_code || selectedPatient.bed_name || 'Not assigned'}</p>
               <p><strong>Ward:</strong> {selectedPatient.ward_name || 'N/A'}</p>
               <p><strong>Stage:</strong> <span style={{
                 padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 600,
@@ -274,7 +283,7 @@ export default function CustomerCareClient({ userId, userRole, userName }: Props
               <p><strong>LOS:</strong> {selectedPatient.los_days} day{selectedPatient.los_days !== 1 ? 's' : ''}</p>
               <p><strong>Diagnosis:</strong> {selectedPatient.chief_complaint || selectedPatient.primary_diagnosis || 'N/A'}</p>
               <p><strong>Doctor:</strong> {selectedPatient.attending_doctor_name || 'Not assigned'}</p>
-              <p><strong>Admission:</strong> {selectedPatient.admission_datetime ? new Date(selectedPatient.admission_datetime).toLocaleDateString('en-IN') : 'N/A'}</p>
+              <p><strong>Admission:</strong> {(selectedPatient.admission_datetime || selectedPatient.admission_at) ? new Date(selectedPatient.admission_datetime || selectedPatient.admission_at).toLocaleDateString('en-IN') : 'N/A'}</p>
               {selectedPatient.planned_discharge_date && (
                 <p><strong>Planned D/C:</strong> {new Date(selectedPatient.planned_discharge_date).toLocaleDateString('en-IN')}</p>
               )}
