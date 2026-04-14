@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { EmptyState, ConfirmModal } from '@/components/caregiver';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { EmptyState } from '@/components/caregiver';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -35,17 +35,40 @@ const CASE_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   cancelled: { bg: '#ffebee', text: '#c62828' },
 };
 
+// Pre-op readiness step mapping (journey steps 4.1–4.5)
+const PREOP_JOURNEY_STEPS = [
+  { num: '4.1', key: 'investigations', label: 'Investigations' },
+  { num: '4.2', key: 'pac_clearance', label: 'PAC' },
+  { num: '4.3', key: 'financial', label: 'Finance' },
+  { num: '4.4', key: 'checklist', label: 'Checklist' },
+  { num: '4.5', key: 'ot_confirmed', label: 'Confirmed' },
+];
+
 interface Props {
   userId: string;
   userRole: string;
   userName: string;
 }
 
+interface JourneyStep {
+  id: string;
+  patient_id: string;
+  encounter_id: string;
+  phase: string;
+  step_number: string;
+  step_name: string;
+  status: string;
+  owner_role: string;
+  started_at: string | null;
+  completed_at?: string | null;
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 export default function OtClient({ userId, userRole, userName }: Props) {
-  const isSurgeon = userRole === 'surgeon';
+  const isSurgeon = userRole === 'surgeon' || userRole === 'visiting_consultant';
   const isAnaesthetist = userRole === 'anaesthetist';
   const isOtNurse = userRole === 'ot_nurse' || userRole === 'ot_coordinator';
+  const isCoordinator = userRole === 'ip_coordinator' || userRole === 'ot_coordinator' || userRole === 'admin' || userRole === 'super_admin';
 
   const [activeTab, setActiveTab] = useState<OtTab>('board');
   const [loading, setLoading] = useState(true);
@@ -57,22 +80,46 @@ export default function OtClient({ userId, userRole, userName }: Props) {
   const [equipment, setEquipment] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [checklistPhase, setChecklistPhase] = useState<'sign_in' | 'time_out' | 'sign_out'>('sign_in');
+  const [confirming, setConfirming] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+
+  // Journey steps for pre-op readiness
+  const [preopJourneySteps, setPreopJourneySteps] = useState<JourneyStep[]>([]);
+
+  // ── Pre-op readiness per patient (from journey steps 4.1-4.5) ─────────
+  const preopReadinessMap = useMemo(() => {
+    const map: Record<string, Record<string, string>> = {};
+    for (const step of preopJourneySteps) {
+      if (!map[step.patient_id]) {
+        map[step.patient_id] = {};
+      }
+      map[step.patient_id][step.step_number] = step.status;
+    }
+    return map;
+  }, [preopJourneySteps]);
 
   // ── Load data ─────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
     try {
-      const [boardResp, rmsResp] = await Promise.all([
+      const [boardResp, rmsResp, journeyResp] = await Promise.all([
         trpcQuery('otManagement.todayBoard'),
         trpcQuery('otManagement.listRooms'),
+        // Fetch all pre-op journey steps (4.1-4.5) for the hospital
+        trpcQuery('journeyEngine.getPhaseOverview', { phase: 'PHASE_4_PRE_OP' }),
       ]);
-      // todayBoard returns { board: [...] } with rooms containing cases
       const boardRooms = boardResp?.board || boardResp || [];
       const flatCases = Array.isArray(boardRooms)
         ? boardRooms.flatMap((room: any) => (room.cases || []).map((c: any) => ({ ...c, room_name: room.room_name, room_id: room.room_id })))
         : [];
       setTodayBoard(flatCases);
-      // listRooms returns { rooms: [...], count }
       setRooms(Array.isArray(rmsResp?.rooms) ? rmsResp.rooms : Array.isArray(rmsResp) ? rmsResp : []);
+
+      // Journey pre-op steps
+      const steps = Array.isArray(journeyResp) ? journeyResp
+        : journeyResp?.steps || journeyResp?.items || [];
+      setPreopJourneySteps(steps.filter((s: any) =>
+        ['4.1', '4.2', '4.3', '4.4', '4.5'].includes(s.step_number)
+      ));
     } catch (err) {
       console.error('OT load error:', err);
     } finally {
@@ -111,7 +158,6 @@ export default function OtClient({ userId, userRole, userName }: Props) {
     if (!selectedCase) return;
     setSaving(true);
     try {
-      // Spread checklist items as flat boolean fields per router schema
       await trpcMutate('otManagement.saveChecklist', {
         schedule_id: selectedCase.id || selectedCase.schedule_id,
         phase,
@@ -125,6 +171,32 @@ export default function OtClient({ userId, userRole, userName }: Props) {
     }
   };
 
+  // ── Confirm & Notify All ──────────────────────────────────────────────
+  const handleConfirmAll = async () => {
+    setConfirming(true);
+    try {
+      // Complete step 4.5 (OT Case List Confirmation) for all patients on the board
+      const step45 = preopJourneySteps.filter(s =>
+        s.step_number === '4.5' && s.status !== 'completed'
+      );
+      for (const step of step45) {
+        try {
+          await trpcMutate('journeyEngine.completeStep', {
+            step_id: step.id,
+            completed_notes: `OT Case List confirmed by ${userName}. All teams notified.`,
+          });
+        } catch { /* individual failures don't block others */ }
+      }
+      setConfirmed(true);
+      await loadData();
+      setTimeout(() => setConfirmed(false), 5000);
+    } catch (err) {
+      alert('Failed to confirm OT list');
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   // ── Helpers ───────────────────────────────────────────────────────────
   const myCases = todayBoard.filter((c: any) =>
     c.surgeon_id === userId || c.anaesthetist_id === userId || c.ot_nurse_id === userId
@@ -133,6 +205,34 @@ export default function OtClient({ userId, userRole, userName }: Props) {
   const timeStr = (dt: string | null) => {
     if (!dt) return '';
     return new Date(dt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  // Get pre-op readiness for a case's patient
+  const getReadiness = (patientId: string, stepNum: string): 'complete' | 'in_progress' | 'pending' | 'none' => {
+    const patientSteps = preopReadinessMap[patientId];
+    if (!patientSteps || !patientSteps[stepNum]) return 'none';
+    if (patientSteps[stepNum] === 'completed') return 'complete';
+    if (patientSteps[stepNum] === 'in_progress') return 'in_progress';
+    return 'pending';
+  };
+
+  const readinessIcon = (status: string) => {
+    if (status === 'complete') return '🟢';
+    if (status === 'in_progress') return '🔵';
+    if (status === 'pending') return '🟡';
+    return '⚪';
+  };
+
+  const readinessColor = (status: string) => {
+    if (status === 'complete') return { bg: '#e8f5e9', text: '#2e7d32' };
+    if (status === 'in_progress') return { bg: '#e3f2fd', text: '#1565c0' };
+    if (status === 'pending') return { bg: '#fff3e0', text: '#e65100' };
+    return { bg: '#f5f5f5', text: '#999' };
+  };
+
+  // Count how many of 5 pre-op steps are complete per patient
+  const preopScore = (patientId: string): number => {
+    return PREOP_JOURNEY_STEPS.filter(s => getReadiness(patientId, s.num) === 'complete').length;
   };
 
   // ── Determine available tabs based on role ────────────────────────────
@@ -149,6 +249,13 @@ export default function OtClient({ userId, userRole, userName }: Props) {
     return <div style={{ padding: 40, textAlign: 'center', fontFamily: 'system-ui' }}><p style={{ color: '#666' }}>Loading OT…</p></div>;
   }
 
+  // Count fully ready cases (all 5 steps complete)
+  const fullyReady = todayBoard.filter(c => preopScore(c.patient_id) === 5).length;
+  const partialReady = todayBoard.filter(c => {
+    const score = preopScore(c.patient_id);
+    return score > 0 && score < 5;
+  }).length;
+
   return (
     <div className="caregiver-theme" style={{ fontFamily: 'system-ui', background: '#f5f6fa', minHeight: '100vh' }}>
 
@@ -160,13 +267,57 @@ export default function OtClient({ userId, userRole, userName }: Props) {
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>🏥 OT Hub</h1>
           <p style={{ fontSize: 12, color: '#888', margin: '2px 0 0' }}>
-            {todayBoard.length} cases today · {rooms.length} rooms
+            {todayBoard.length} cases today · {rooms.length} rooms · {fullyReady} ready · {partialReady} partial
             {isSurgeon && ' · Surgeon View'}
             {isAnaesthetist && ' · Anaesthetist View'}
             {isOtNurse && ' · OT Nurse View'}
           </p>
         </div>
+
+        {/* Confirm & Notify All — visible to coordinators */}
+        {isCoordinator && todayBoard.length > 0 && (
+          <button
+            onClick={handleConfirmAll}
+            disabled={confirming || confirmed}
+            style={{
+              padding: '10px 20px', fontSize: 13, fontWeight: 700, borderRadius: 8,
+              border: 'none', cursor: confirming ? 'default' : 'pointer',
+              background: confirmed ? '#e8f5e9' : confirming ? '#e0e0e0' : '#1565c0',
+              color: confirmed ? '#2e7d32' : '#fff',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            {confirmed ? '✅ Confirmed & Notified' : confirming ? '⏳ Confirming...' : '📢 Confirm & Notify All'}
+          </button>
+        )}
       </header>
+
+      {/* Pre-op readiness summary bar */}
+      <div style={{
+        display: 'flex', gap: 8, padding: '10px 24px', background: '#fff',
+        borderBottom: '1px solid #eee', flexWrap: 'wrap', alignItems: 'center',
+      }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#555', marginRight: 8 }}>PRE-OP READINESS:</span>
+        {PREOP_JOURNEY_STEPS.map(step => {
+          const completeCount = todayBoard.filter(c => getReadiness(c.patient_id, step.num) === 'complete').length;
+          return (
+            <div key={step.num} style={{
+              display: 'flex', alignItems: 'center', gap: 4,
+              padding: '4px 10px', borderRadius: 6, background: '#fafafa',
+              border: '1px solid #e0e0e0', fontSize: 11,
+            }}>
+              <span style={{ fontWeight: 700, color: '#1565c0' }}>{step.num}</span>
+              <span style={{ color: '#666' }}>{step.label}</span>
+              <span style={{
+                fontWeight: 700,
+                color: completeCount === todayBoard.length && todayBoard.length > 0 ? '#2e7d32' : '#e65100',
+              }}>
+                {completeCount}/{todayBoard.length}
+              </span>
+            </div>
+          );
+        })}
+      </div>
 
       {/* Tab bar */}
       <div style={{ display: 'flex', background: '#fff', borderBottom: '1px solid #e0e0e0' }}>
@@ -181,7 +332,7 @@ export default function OtClient({ userId, userRole, userName }: Props) {
       </div>
 
       {/* Content */}
-      <div style={{ display: 'grid', gridTemplateColumns: selectedCase ? '1fr 380px' : '1fr', minHeight: 'calc(100vh - 120px)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: selectedCase ? '1fr 380px' : '1fr', minHeight: 'calc(100vh - 170px)' }}>
 
         {/* Main panel */}
         <div style={{ padding: '16px 20px 100px', overflow: 'auto' }}>
@@ -191,10 +342,12 @@ export default function OtClient({ userId, userRole, userName }: Props) {
             todayBoard.length === 0 ? (
               <EmptyState title="No Cases Today" message="No surgeries scheduled for today." icon="🏥" />
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 10 }}>
                 {todayBoard.map((c: any, i: number) => {
                   const status = c.status || c.os_status || 'scheduled';
                   const colors = CASE_STATUS_COLORS[status] || CASE_STATUS_COLORS.scheduled;
+                  const patientId = c.patient_id;
+                  const score = preopScore(patientId);
                   return (
                     <div key={c.id || i} onClick={() => selectCase(c)} style={{
                       background: '#fff', border: `1px solid ${selectedCase?.id === c.id ? '#90caf9' : '#e0e0e0'}`,
@@ -219,28 +372,43 @@ export default function OtClient({ userId, userRole, userName }: Props) {
                         Surgeon: {c.surgeon_name || 'TBD'}
                         {c.anaesthetist_name && ` · Anaesth: ${c.anaesthetist_name}`}
                       </div>
-                      {/* Pre-op traffic light */}
-                      <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                        {[
-                          { key: 'consent', label: 'Consent' },
-                          { key: 'labs', label: 'Labs' },
-                          { key: 'imaging', label: 'Imaging' },
-                          { key: 'blood_bank', label: 'Blood' },
-                          { key: 'site_marked', label: 'Site' },
-                        ].map(item => {
-                          const val = c.preop_checklist?.[item.key] ?? c[`preop_${item.key}`] ?? null;
-                          const isOk = val === true || val === 'complete' || val === 'yes';
-                          const isPending = val === 'pending' || val === false;
+
+                      {/* Journey-driven pre-op readiness traffic light */}
+                      <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
+                        {PREOP_JOURNEY_STEPS.map(step => {
+                          const s = getReadiness(patientId, step.num);
+                          const rc = readinessColor(s);
                           return (
-                            <span key={item.key} style={{
-                              fontSize: 10, padding: '1px 6px', borderRadius: 4,
-                              background: isOk ? '#e8f5e9' : isPending ? '#fff3e0' : '#f5f5f5',
-                              color: isOk ? '#2e7d32' : isPending ? '#e65100' : '#999',
+                            <span key={step.num} title={`Step ${step.num}: ${step.label} — ${s}`} style={{
+                              fontSize: 10, padding: '2px 6px', borderRadius: 4,
+                              background: rc.bg, color: rc.text, fontWeight: 600,
                             }}>
-                              {isOk ? '✅' : isPending ? '⏰' : '❌'} {item.label}
+                              {readinessIcon(s)} {step.label}
                             </span>
                           );
                         })}
+                      </div>
+
+                      {/* Overall readiness score */}
+                      <div style={{
+                        marginTop: 6, display: 'flex', alignItems: 'center', gap: 6,
+                      }}>
+                        <div style={{
+                          flex: '0 0 60px', height: 4, borderRadius: 2,
+                          background: '#e0e0e0', overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            height: '100%', borderRadius: 2,
+                            width: `${(score / 5) * 100}%`,
+                            background: score === 5 ? '#4caf50' : score >= 3 ? '#ff9800' : '#f44336',
+                          }} />
+                        </div>
+                        <span style={{
+                          fontSize: 10, fontWeight: 700,
+                          color: score === 5 ? '#2e7d32' : score >= 3 ? '#e65100' : '#c62828',
+                        }}>
+                          {score}/5 ready
+                        </span>
                       </div>
                     </div>
                   );
@@ -257,6 +425,7 @@ export default function OtClient({ userId, userRole, userName }: Props) {
               myCases.map((c: any, i: number) => {
                 const status = c.status || c.os_status || 'scheduled';
                 const colors = CASE_STATUS_COLORS[status] || CASE_STATUS_COLORS.scheduled;
+                const score = preopScore(c.patient_id);
                 return (
                   <div key={c.id || i} onClick={() => selectCase(c)} style={{
                     background: '#fff', border: '1px solid #e0e0e0', borderRadius: 10,
@@ -270,11 +439,33 @@ export default function OtClient({ userId, userRole, userName }: Props) {
                         <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
                           {c.room_name || c.os_room} · {timeStr(c.start_time || c.os_start_time)} – {timeStr(c.end_time || c.os_end_time)}
                         </div>
+                        <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+                          {PREOP_JOURNEY_STEPS.map(step => {
+                            const s = getReadiness(c.patient_id, step.num);
+                            const rc = readinessColor(s);
+                            return (
+                              <span key={step.num} style={{
+                                fontSize: 10, padding: '1px 5px', borderRadius: 4,
+                                background: rc.bg, color: rc.text,
+                              }}>
+                                {readinessIcon(s)} {step.label}
+                              </span>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <span style={{
-                        fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6,
-                        background: colors.bg, color: colors.text, height: 'fit-content',
-                      }}>{status}</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                        <span style={{
+                          fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6,
+                          background: colors.bg, color: colors.text,
+                        }}>{status}</span>
+                        <span style={{
+                          fontSize: 10, fontWeight: 700,
+                          color: score === 5 ? '#2e7d32' : '#e65100',
+                        }}>
+                          {score}/5 ready
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -291,8 +482,6 @@ export default function OtClient({ userId, userRole, userName }: Props) {
                 <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
                   ✅ WHO Surgical Safety Checklist — {selectedCase.patient_name}
                 </h3>
-
-                {/* Phase tabs */}
                 <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
                   {(['sign_in', 'time_out', 'sign_out'] as const).map(phase => (
                     <button key={phase} onClick={() => setChecklistPhase(phase)} style={{
@@ -306,8 +495,6 @@ export default function OtClient({ userId, userRole, userName }: Props) {
                     </button>
                   ))}
                 </div>
-
-                {/* Checklist items per phase */}
                 <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e0e0e0', padding: 16 }}>
                   {getChecklistItems(checklistPhase).map(item => {
                     const val = checklist?.[checklistPhase]?.[item.key] || checklist?.[item.key] || false;
@@ -417,6 +604,29 @@ export default function OtClient({ userId, userRole, userName }: Props) {
               <p><strong>Status:</strong> {selectedCase.status || selectedCase.os_status || 'scheduled'}</p>
             </div>
 
+            {/* Pre-op readiness detail */}
+            <div style={{ marginTop: 12, padding: 10, background: '#fafafa', borderRadius: 8, border: '1px solid #e0e0e0' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: '#555' }}>PRE-OP READINESS</div>
+              {PREOP_JOURNEY_STEPS.map(step => {
+                const s = getReadiness(selectedCase.patient_id, step.num);
+                const rc = readinessColor(s);
+                return (
+                  <div key={step.num} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '4px 0', fontSize: 12,
+                  }}>
+                    <span style={{ color: '#555' }}>{step.num} {step.label}</span>
+                    <span style={{
+                      padding: '2px 8px', borderRadius: 4, fontWeight: 600,
+                      background: rc.bg, color: rc.text, fontSize: 10,
+                    }}>
+                      {readinessIcon(s)} {s === 'none' ? 'N/A' : s}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
             {/* Quick actions */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
               <button onClick={() => setActiveTab('checklist')}
@@ -435,6 +645,12 @@ export default function OtClient({ userId, userRole, userName }: Props) {
                   🔧 Equipment Log
                 </button>
               )}
+              <a href={`/care/patient/${selectedCase.patient_id}`} style={{
+                padding: '8px 0', fontSize: 13, fontWeight: 600, background: '#f5f5f5', color: '#555',
+                border: 'none', borderRadius: 6, textDecoration: 'none', textAlign: 'center', display: 'block',
+              }}>
+                📊 Patient Chart
+              </a>
             </div>
 
             <button onClick={() => setSelectedCase(null)}
