@@ -19,13 +19,17 @@ interface PatientData {
   id: string;
   uhid: string;
   full_name?: string;
+  name_full?: string;
   name_given?: string;
   name_family?: string;
-  date_of_birth: string;
-  sex: string;
-  phone_number: string;
-  primary_diagnosis: string;
-  [key: string]: any; // Allow additional fields from API
+  date_of_birth?: string;
+  dob?: string;
+  sex?: string;
+  gender?: string;
+  phone_number?: string;
+  phone?: string;
+  primary_diagnosis?: string;
+  [key: string]: any;
 }
 
 interface EncounterData {
@@ -1301,7 +1305,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
     );
   }
 
-  const age = calculateAge(patient.date_of_birth);
+  const age = calculateAge(patient.date_of_birth || patient.dob || '');
   const daysSinceAdmission = encounter ? Math.floor((Date.now() - new Date(encounter.admission_date).getTime()) / (1000 * 60 * 60 * 24)) : 0;
 
   // Organise vitals by type for display
@@ -1340,16 +1344,16 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
             fontSize: 18,
             flexShrink: 0,
           }}>
-            {(patient.full_name || patient.name_given || 'P').charAt(0).toUpperCase()}
+            {(patient.name_full || patient.full_name || patient.name_given || 'P')[0]?.toUpperCase() || 'P'}
           </div>
 
           {/* Patient info */}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
-              {patient.full_name || `${patient.name_given || ''} ${patient.name_family || ''}`.trim() || 'Patient'}
+              {patient.name_full || patient.full_name || `${patient.name_given || ''} ${patient.name_family || ''}`.trim() || 'Patient'}
             </div>
             <div style={{ fontSize: 12, opacity: 0.7, margin: '2px 0 0' }}>
-              UHID: {patient.uhid} · {age}y {patient.sex.toUpperCase()} · {patient.primary_diagnosis}
+              UHID: {patient.uhid} · {age}y {(patient.sex || patient.gender || '').toUpperCase()} · {patient.primary_diagnosis || 'No diagnosis'}
             </div>
           </div>
         </div>
@@ -3319,7 +3323,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               {/* Identity Verification */}
               <div style={{ padding: '12px 16px', background: '#f5f6fa', borderRadius: 8, marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: '#666' }}>Patient Name / UHID</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#002054', marginTop: 4 }}>{patient?.full_name || `${patient?.name_given || ''} ${patient?.name_family || ''}`.trim() || 'Patient'} ({patient?.uhid})</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#002054', marginTop: 4 }}>{patient?.name_full || patient?.full_name || `${patient?.name_given || ''} ${patient?.name_family || ''}`.trim() || 'Patient'} ({patient?.uhid})</div>
               </div>
 
               {/* Drug Details */}
