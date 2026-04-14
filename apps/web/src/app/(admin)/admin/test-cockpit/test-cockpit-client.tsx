@@ -201,6 +201,8 @@ const ROUTE_GROUPS: RouteGroup[] = [
       { name: 'Customer Care', path: '/care/customer-care', desc: '11-stage patient journey Gantt, KPI bar, filters, detail panel', badge: 'SP.1' },
       { name: 'Billing Station', path: '/care/billing', desc: 'Pre-auth queue, discharge billing, TPA claims, daily summary', badge: 'SP.2' },
       { name: 'Templates Admin', path: '/admin/templates', desc: 'Clinical template management, versioning, usage stats, AI suggestions', badge: 'TM.1' },
+      { name: 'Template Library', path: '/care/templates', desc: 'My/Dept/System template library, fork, search, filter', badge: 'TM.2' },
+      { name: 'Template Builder', path: '/care/templates/builder', desc: 'Drag-and-drop field editor, preview mode, 18 field types', badge: 'TM.2' },
     ],
   },
 ];

@@ -6,3 +6,5 @@ export { default as ConfirmModal } from './ConfirmModal';
 export { default as EmptyState } from './EmptyState';
 export { default as BottomTabBar } from './BottomTabBar';
 export { default as AssessmentForms } from './AssessmentForms';
+export { default as TemplatePicker } from './TemplatePicker';
+export { default as TemplateRenderer } from './TemplateRenderer';
