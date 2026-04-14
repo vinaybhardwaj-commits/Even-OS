@@ -15,8 +15,8 @@ const ROLE_HOME_MAP: Record<string, string> = {
   // Nursing group → Nurse Station
   nurse: '/care/nurse',
   senior_nurse: '/care/nurse',
-  charge_nurse: '/care/nurse',
-  nursing_supervisor: '/care/nurse',
+  charge_nurse: '/care/nurse/charge',
+  nursing_supervisor: '/care/nurse/charge',
   nursing_manager: '/care/nurse',
   nursing_assistant: '/care/nurse',
 
@@ -89,7 +89,7 @@ export default async function CaregiverHomePage() {
   const targetRoute = ROLE_HOME_MAP[user.role];
 
   // Auto-redirect to persona home if the route is built
-  const BUILT_ROUTES = ['/care/nurse'];
+  const BUILT_ROUTES = ['/care/nurse', '/care/nurse/charge'];
   if (targetRoute && BUILT_ROUTES.includes(targetRoute)) {
     redirect(targetRoute);
   }

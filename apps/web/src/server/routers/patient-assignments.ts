@@ -2,12 +2,19 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import { db } from '@/lib/db';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import {
   patientAssignments, shiftHandoffs, nursingAssessments,
   patients, encounters, locations, users, shiftInstances, shiftRoster,
 } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { eq, and, sql, desc, asc, inArray, count } from 'drizzle-orm';
+
+let _sqlClient: NeonQueryFunction<false, false> | null = null;
+function getSql() {
+  if (!_sqlClient) _sqlClient = neon(process.env.DATABASE_URL!);
+  return _sqlClient;
+}
 
 // ============================================================
 // PATIENT ASSIGNMENTS — NS.1
@@ -434,5 +441,176 @@ export const patientAssignmentsRouter = router({
         );
 
       return rows;
+    }),
+
+  // ── Escalation feed for charge nurse command center ───────────────────
+
+  escalationFeed: protectedProcedure
+    .input(z.object({
+      ward_id: z.string().uuid(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+      const items: {
+        id: string;
+        type: 'news2' | 'overdue_med' | 'overdue_assessment' | 'pending_cosign';
+        severity: 'critical' | 'warning' | 'info';
+        patient_id: string;
+        patient_name: string;
+        bed_label: string;
+        message: string;
+        timestamp: string;
+      }[] = [];
+
+      try {
+        // 1. NEWS2 ≥ 5 from last 12 hours
+        const news2Rows = await getSql()`
+          SELECT DISTINCT ON (ns.patient_id)
+            ns.id, ns.patient_id, ns.total_score, ns.risk_level, ns.calculated_at,
+            p.name_given || ' ' || COALESCE(p.name_family, '') AS patient_name,
+            COALESCE(pa.bed_label, '') AS bed_label
+          FROM news2_scores ns
+          JOIN patients p ON p.id = ns.patient_id
+          LEFT JOIN patient_assignments pa ON pa.patient_id = ns.patient_id AND pa.status = 'active'
+          JOIN encounters e ON e.id = ns.encounter_id AND e.current_location_id = ${input.ward_id}::uuid
+          WHERE ns.hospital_id = ${hospitalId}
+            AND ns.total_score >= 5
+            AND ns.calculated_at >= NOW() - INTERVAL '12 hours'
+          ORDER BY ns.patient_id, ns.calculated_at DESC;
+        `;
+        for (const r of (news2Rows as any) || []) {
+          items.push({
+            id: `news2_${r.id}`,
+            type: 'news2',
+            severity: r.total_score >= 7 ? 'critical' : 'warning',
+            patient_id: r.patient_id,
+            patient_name: r.patient_name,
+            bed_label: r.bed_label,
+            message: `NEWS2 score ${r.total_score} (${r.risk_level})`,
+            timestamp: r.calculated_at,
+          });
+        }
+
+        // 2. Overdue medications (pending administrations past scheduled time)
+        const overdueMedRows = await getSql()`
+          SELECT
+            ma.id, ma.patient_id, ma.scheduled_datetime,
+            mr.drug_name, mr.dose_quantity, mr.dose_unit,
+            p.name_given || ' ' || COALESCE(p.name_family, '') AS patient_name,
+            COALESCE(pa.bed_label, '') AS bed_label
+          FROM medication_administrations ma
+          JOIN medication_requests mr ON mr.id = ma.medication_request_id
+          JOIN patients p ON p.id = ma.patient_id
+          JOIN encounters e ON e.patient_id = ma.patient_id AND e.status = 'in-progress' AND e.current_location_id = ${input.ward_id}::uuid
+          LEFT JOIN patient_assignments pa ON pa.patient_id = ma.patient_id AND pa.status = 'active'
+          WHERE ma.hospital_id = ${hospitalId}
+            AND ma.status = 'pending'
+            AND ma.scheduled_datetime < NOW()
+            AND ma.scheduled_datetime >= NOW() - INTERVAL '12 hours'
+          ORDER BY ma.scheduled_datetime ASC
+          LIMIT 50;
+        `;
+        for (const r of (overdueMedRows as any) || []) {
+          const mins = Math.round((Date.now() - new Date(r.scheduled_datetime).getTime()) / 60_000);
+          items.push({
+            id: `med_${r.id}`,
+            type: 'overdue_med',
+            severity: mins > 60 ? 'critical' : 'warning',
+            patient_id: r.patient_id,
+            patient_name: r.patient_name,
+            bed_label: r.bed_label,
+            message: `${r.drug_name} ${r.dose_quantity}${r.dose_unit} overdue ${mins}min`,
+            timestamp: r.scheduled_datetime,
+          });
+        }
+
+        // 3. Overdue assessments (Morse Falls q8h, Braden q8h, Pain q4h)
+        const overdueAssessRows = await getSql()`
+          WITH required AS (
+            SELECT unnest(ARRAY['morse_falls', 'braden', 'pain']) AS key,
+                   unnest(ARRAY[8, 8, 4]) AS freq_hours
+          ),
+          latest AS (
+            SELECT DISTINCT ON (na.patient_id, (na.assessment_data->>'_key'))
+              na.patient_id,
+              na.assessment_data->>'_key' AS assess_key,
+              na.created_at
+            FROM nursing_assessments na
+            WHERE na.hospital_id = ${hospitalId}
+            ORDER BY na.patient_id, (na.assessment_data->>'_key'), na.created_at DESC
+          )
+          SELECT
+            r.key, r.freq_hours,
+            e.patient_id,
+            p.name_given || ' ' || COALESCE(p.name_family, '') AS patient_name,
+            COALESCE(pa.bed_label, '') AS bed_label,
+            l.created_at AS last_done
+          FROM encounters e
+          JOIN patients p ON p.id = e.patient_id
+          CROSS JOIN required r
+          LEFT JOIN latest l ON l.patient_id = e.patient_id AND l.assess_key = r.key
+          LEFT JOIN patient_assignments pa ON pa.patient_id = e.patient_id AND pa.status = 'active'
+          WHERE e.hospital_id = ${hospitalId}
+            AND e.status = 'in-progress'
+            AND e.current_location_id = ${input.ward_id}::uuid
+            AND (l.created_at IS NULL OR l.created_at < NOW() - (r.freq_hours || ' hours')::interval)
+          ORDER BY COALESCE(l.created_at, '1970-01-01'::timestamp) ASC
+          LIMIT 50;
+        `;
+        for (const r of (overdueAssessRows as any) || []) {
+          items.push({
+            id: `assess_${r.patient_id}_${r.key}`,
+            type: 'overdue_assessment',
+            severity: 'warning',
+            patient_id: r.patient_id,
+            patient_name: r.patient_name,
+            bed_label: r.bed_label,
+            message: `${r.key.replace(/_/g, ' ')} assessment overdue`,
+            timestamp: r.last_done || new Date().toISOString(),
+          });
+        }
+
+        // 4. Pending co-sign requests
+        const cosignRows = await getSql()`
+          SELECT
+            ci.id, ci.patient_id,
+            p.name_given || ' ' || COALESCE(p.name_family, '') AS patient_name,
+            COALESCE(pa.bed_label, '') AS bed_label,
+            ci.note_type, ci.created_at
+          FROM clinical_impressions ci
+          JOIN patients p ON p.id = ci.patient_id
+          JOIN encounters e ON e.id = ci.encounter_id AND e.current_location_id = ${input.ward_id}::uuid
+          LEFT JOIN patient_assignments pa ON pa.patient_id = ci.patient_id AND pa.status = 'active'
+          WHERE ci.hospital_id = ${hospitalId}
+            AND ci.status = 'ready_for_review'
+            AND ci.created_at >= NOW() - INTERVAL '24 hours'
+          ORDER BY ci.created_at ASC
+          LIMIT 20;
+        `;
+        for (const r of (cosignRows as any) || []) {
+          items.push({
+            id: `cosign_${r.id}`,
+            type: 'pending_cosign',
+            severity: 'info',
+            patient_id: r.patient_id,
+            patient_name: r.patient_name,
+            bed_label: r.bed_label,
+            message: `${r.note_type.replace(/_/g, ' ')} pending co-sign`,
+            timestamp: r.created_at,
+          });
+        }
+      } catch (e) {
+        // Non-fatal — return whatever we've collected
+        console.error('Escalation feed error:', e);
+      }
+
+      // Sort: critical first, then by timestamp desc
+      items.sort((a, b) => {
+        const sevOrder = { critical: 0, warning: 1, info: 2 };
+        if (sevOrder[a.severity] !== sevOrder[b.severity]) return sevOrder[a.severity] - sevOrder[b.severity];
+        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+      });
+
+      return items;
     }),
 });
