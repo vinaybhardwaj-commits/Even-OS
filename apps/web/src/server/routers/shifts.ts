@@ -684,6 +684,397 @@ export const shiftsRouter = router({
       return rows;
     }),
 
+  // ── Leave Requests ──────────────────────────────────────────────────────
+
+  /**
+   * Submit a leave request (any authenticated user).
+   */
+  submitLeave: protectedProcedure
+    .input(z.object({
+      leave_type: z.enum(['sick', 'casual', 'privilege', 'emergency', 'compensatory', 'maternity', 'other']),
+      start_date: z.string(),
+      end_date: z.string(),
+      reason: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const [request] = await db.insert(leaveRequests).values({
+        hospital_id: ctx.user.hospital_id,
+        user_id: ctx.user.sub,
+        leave_type: input.leave_type,
+        start_date: input.start_date,
+        end_date: input.end_date,
+        reason: input.reason,
+        status: 'pending',
+      }).returning();
+
+      await writeAuditLog(ctx.user, {
+        action: 'INSERT',
+        table_name: 'leave_requests',
+        row_id: request.id,
+        new_values: { ...input, user_id: ctx.user.sub },
+        reason: `Leave request submitted: ${input.leave_type} ${input.start_date} to ${input.end_date}`,
+      });
+
+      return { id: request.id, success: true };
+    }),
+
+  /**
+   * List leave requests (admin: all, user: own).
+   */
+  listLeaveRequests: protectedProcedure
+    .input(z.object({
+      status: z.enum(['pending', 'approved', 'denied', 'cancelled', 'all']).default('all'),
+      user_id: z.string().uuid().optional(),
+    }).optional().default({}))
+    .query(async ({ ctx, input }) => {
+      const conditions = [eq(leaveRequests.hospital_id, ctx.user.hospital_id)];
+
+      // Non-admins can only see their own
+      const adminRoles = ['super_admin', 'hospital_admin'];
+      if (!adminRoles.includes(ctx.user.role)) {
+        conditions.push(eq(leaveRequests.user_id, ctx.user.sub));
+      } else if (input.user_id) {
+        conditions.push(eq(leaveRequests.user_id, input.user_id));
+      }
+
+      if (input.status && input.status !== 'all') {
+        conditions.push(eq(leaveRequests.status, input.status));
+      }
+
+      const rows = await db.select({
+        id: leaveRequests.id,
+        user_id: leaveRequests.user_id,
+        leave_type: leaveRequests.leave_type,
+        start_date: leaveRequests.start_date,
+        end_date: leaveRequests.end_date,
+        reason: leaveRequests.reason,
+        status: leaveRequests.status,
+        denial_reason: leaveRequests.denial_reason,
+        created_at: leaveRequests.created_at,
+        approved_at: leaveRequests.approved_at,
+        user_name: users.full_name,
+        user_email: users.email,
+      })
+        .from(leaveRequests)
+        .innerJoin(users, eq(leaveRequests.user_id, users.id))
+        .where(and(...conditions))
+        .orderBy(desc(leaveRequests.created_at))
+        .limit(100);
+
+      return rows;
+    }),
+
+  /**
+   * Approve or deny a leave request (admin only).
+   */
+  reviewLeave: adminProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      action: z.enum(['approve', 'deny']),
+      denial_reason: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const [request] = await db.select()
+        .from(leaveRequests)
+        .where(and(
+          eq(leaveRequests.id, input.id),
+          eq(leaveRequests.hospital_id, ctx.user.hospital_id),
+        ))
+        .limit(1);
+
+      if (!request) throw new TRPCError({ code: 'NOT_FOUND', message: 'Leave request not found' });
+      if (request.status !== 'pending') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Can only review pending requests' });
+      }
+
+      const newStatus = input.action === 'approve' ? 'approved' : 'denied';
+      const setValues: Record<string, any> = {
+        status: newStatus,
+        approved_by: ctx.user.sub,
+        approved_at: new Date(),
+        updated_at: new Date(),
+      };
+      if (input.denial_reason) setValues.denial_reason = input.denial_reason;
+
+      await db.update(leaveRequests).set(setValues).where(eq(leaveRequests.id, input.id));
+
+      // If approved, mark rostered shifts as absent
+      if (input.action === 'approve') {
+        const affectedInstances = await db.select({ id: shiftInstances.id })
+          .from(shiftInstances)
+          .where(and(
+            eq(shiftInstances.hospital_id, ctx.user.hospital_id),
+            gte(shiftInstances.shift_date, request.start_date),
+            lte(shiftInstances.shift_date, request.end_date),
+          ));
+
+        if (affectedInstances.length > 0) {
+          await db.update(shiftRoster)
+            .set({ status: 'absent', updated_at: new Date(), notes: `On ${request.leave_type} leave` })
+            .where(and(
+              eq(shiftRoster.user_id, request.user_id),
+              inArray(shiftRoster.shift_instance_id, affectedInstances.map(i => i.id)),
+              inArray(shiftRoster.status, ['scheduled', 'confirmed']),
+            ));
+        }
+      }
+
+      await writeAuditLog(ctx.user, {
+        action: 'UPDATE',
+        table_name: 'leave_requests',
+        row_id: input.id,
+        old_values: { status: 'pending' },
+        new_values: { status: newStatus, denial_reason: input.denial_reason },
+        reason: `Leave request ${newStatus} by admin`,
+      });
+
+      return { success: true, status: newStatus };
+    }),
+
+  // ── Shift Swaps ────────────────────────────────────────────────────────
+
+  /**
+   * Request a shift swap.
+   */
+  requestSwap: protectedProcedure
+    .input(z.object({
+      shift_instance_id: z.string().uuid(),
+      target_user_id: z.string().uuid(),
+      swap_shift_instance_id: z.string().uuid(),
+      reason: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify requesting user is rostered on the source shift
+      const [myRoster] = await db.select({ id: shiftRoster.id })
+        .from(shiftRoster)
+        .where(and(
+          eq(shiftRoster.shift_instance_id, input.shift_instance_id),
+          eq(shiftRoster.user_id, ctx.user.sub),
+          inArray(shiftRoster.status, ['scheduled', 'confirmed']),
+        ))
+        .limit(1);
+
+      if (!myRoster) throw new TRPCError({ code: 'BAD_REQUEST', message: 'You are not rostered on this shift' });
+
+      // Verify target user is rostered on the swap shift
+      const [targetRoster] = await db.select({ id: shiftRoster.id })
+        .from(shiftRoster)
+        .where(and(
+          eq(shiftRoster.shift_instance_id, input.swap_shift_instance_id),
+          eq(shiftRoster.user_id, input.target_user_id),
+          inArray(shiftRoster.status, ['scheduled', 'confirmed']),
+        ))
+        .limit(1);
+
+      if (!targetRoster) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Target user is not rostered on the swap shift' });
+
+      const [swap] = await db.insert(shiftSwaps).values({
+        hospital_id: ctx.user.hospital_id,
+        requesting_user_id: ctx.user.sub,
+        target_user_id: input.target_user_id,
+        shift_instance_id: input.shift_instance_id,
+        swap_shift_instance_id: input.swap_shift_instance_id,
+        reason: input.reason,
+        status: 'pending_target',
+      }).returning();
+
+      await writeAuditLog(ctx.user, {
+        action: 'INSERT',
+        table_name: 'shift_swaps',
+        row_id: swap.id,
+        new_values: input,
+        reason: 'Shift swap requested',
+      });
+
+      return { id: swap.id, success: true };
+    }),
+
+  /**
+   * List swap requests (admin: all pending, user: own).
+   */
+  listSwaps: protectedProcedure
+    .input(z.object({
+      status: z.enum(['pending_target', 'pending_approval', 'approved', 'denied', 'cancelled', 'all']).default('all'),
+    }).optional().default({}))
+    .query(async ({ ctx, input }) => {
+      const conditions = [eq(shiftSwaps.hospital_id, ctx.user.hospital_id)];
+
+      const adminRoles = ['super_admin', 'hospital_admin'];
+      if (!adminRoles.includes(ctx.user.role)) {
+        // Non-admins see swaps they're involved in
+        conditions.push(
+          sql`(${shiftSwaps.requesting_user_id} = ${ctx.user.sub} OR ${shiftSwaps.target_user_id} = ${ctx.user.sub})`
+        );
+      }
+
+      if (input.status && input.status !== 'all') {
+        conditions.push(eq(shiftSwaps.status, input.status));
+      }
+
+      const rows = await db.select({
+        id: shiftSwaps.id,
+        requesting_user_id: shiftSwaps.requesting_user_id,
+        target_user_id: shiftSwaps.target_user_id,
+        shift_instance_id: shiftSwaps.shift_instance_id,
+        swap_shift_instance_id: shiftSwaps.swap_shift_instance_id,
+        reason: shiftSwaps.reason,
+        status: shiftSwaps.status,
+        denial_reason: shiftSwaps.denial_reason,
+        created_at: shiftSwaps.created_at,
+      })
+        .from(shiftSwaps)
+        .where(and(...conditions))
+        .orderBy(desc(shiftSwaps.created_at))
+        .limit(100);
+
+      return rows;
+    }),
+
+  /**
+   * Respond to a swap (target user confirms, or admin approves/denies).
+   */
+  reviewSwap: protectedProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      action: z.enum(['confirm', 'approve', 'deny', 'cancel']),
+      denial_reason: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const [swap] = await db.select()
+        .from(shiftSwaps)
+        .where(and(
+          eq(shiftSwaps.id, input.id),
+          eq(shiftSwaps.hospital_id, ctx.user.hospital_id),
+        ))
+        .limit(1);
+
+      if (!swap) throw new TRPCError({ code: 'NOT_FOUND', message: 'Swap request not found' });
+
+      const adminRoles = ['super_admin', 'hospital_admin'];
+      const isAdmin = adminRoles.includes(ctx.user.role);
+
+      if (input.action === 'confirm') {
+        // Target user confirms
+        if (swap.target_user_id !== ctx.user.sub) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the target user can confirm' });
+        }
+        if (swap.status !== 'pending_target') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Swap is not awaiting target confirmation' });
+        }
+        await db.update(shiftSwaps)
+          .set({ status: 'pending_approval', target_confirmed_at: new Date(), updated_at: new Date() })
+          .where(eq(shiftSwaps.id, input.id));
+      } else if (input.action === 'approve') {
+        if (!isAdmin) throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can approve swaps' });
+        if (swap.status !== 'pending_approval') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Swap must be confirmed by target first' });
+        }
+
+        // Atomic swap: update both roster entries
+        await db.update(shiftRoster)
+          .set({ status: 'swapped', updated_at: new Date() })
+          .where(and(
+            eq(shiftRoster.shift_instance_id, swap.shift_instance_id),
+            eq(shiftRoster.user_id, swap.requesting_user_id),
+          ));
+
+        await db.update(shiftRoster)
+          .set({ status: 'swapped', updated_at: new Date() })
+          .where(and(
+            eq(shiftRoster.shift_instance_id, swap.swap_shift_instance_id),
+            eq(shiftRoster.user_id, swap.target_user_id),
+          ));
+
+        // Create new roster entries for swapped positions
+        await db.insert(shiftRoster).values([
+          {
+            shift_instance_id: swap.shift_instance_id,
+            user_id: swap.target_user_id,
+            role_during_shift: 'nurse',
+            assigned_by: ctx.user.sub,
+            notes: 'Swapped via swap request',
+          },
+          {
+            shift_instance_id: swap.swap_shift_instance_id,
+            user_id: swap.requesting_user_id,
+            role_during_shift: 'nurse',
+            assigned_by: ctx.user.sub,
+            notes: 'Swapped via swap request',
+          },
+        ]).onConflictDoNothing();
+
+        await db.update(shiftSwaps)
+          .set({ status: 'approved', approved_by: ctx.user.sub, approved_at: new Date(), updated_at: new Date() })
+          .where(eq(shiftSwaps.id, input.id));
+      } else if (input.action === 'deny') {
+        if (!isAdmin) throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can deny swaps' });
+        await db.update(shiftSwaps)
+          .set({ status: 'denied', denial_reason: input.denial_reason, approved_by: ctx.user.sub, approved_at: new Date(), updated_at: new Date() })
+          .where(eq(shiftSwaps.id, input.id));
+      } else if (input.action === 'cancel') {
+        // Either party or admin can cancel
+        if (swap.requesting_user_id !== ctx.user.sub && swap.target_user_id !== ctx.user.sub && !isAdmin) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Cannot cancel this swap' });
+        }
+        await db.update(shiftSwaps)
+          .set({ status: 'cancelled', updated_at: new Date() })
+          .where(eq(shiftSwaps.id, input.id));
+      }
+
+      await writeAuditLog(ctx.user, {
+        action: 'UPDATE',
+        table_name: 'shift_swaps',
+        row_id: input.id,
+        old_values: { status: swap.status },
+        new_values: { action: input.action },
+        reason: `Swap ${input.action}ed`,
+      });
+
+      return { success: true };
+    }),
+
+  // ── Overtime Log ───────────────────────────────────────────────────────
+
+  /**
+   * List overtime entries (admin only).
+   */
+  listOvertime: adminProcedure
+    .input(z.object({
+      flagged_only: z.boolean().default(false),
+      user_id: z.string().uuid().optional(),
+    }).optional().default({}))
+    .query(async ({ ctx, input }) => {
+      const conditions = [eq(overtimeLog.hospital_id, ctx.user.hospital_id)];
+
+      if (input.flagged_only) {
+        conditions.push(eq(overtimeLog.is_flagged, true));
+      }
+      if (input.user_id) {
+        conditions.push(eq(overtimeLog.user_id, input.user_id));
+      }
+
+      const rows = await db.select({
+        id: overtimeLog.id,
+        user_id: overtimeLog.user_id,
+        period_start: overtimeLog.period_start,
+        period_end: overtimeLog.period_end,
+        scheduled_hours: overtimeLog.scheduled_hours,
+        actual_hours: overtimeLog.actual_hours,
+        overtime_hours: overtimeLog.overtime_hours,
+        consecutive_shifts: overtimeLog.consecutive_shifts,
+        is_flagged: overtimeLog.is_flagged,
+        flag_reason: overtimeLog.flag_reason,
+        user_name: users.full_name,
+      })
+        .from(overtimeLog)
+        .innerJoin(users, eq(overtimeLog.user_id, users.id))
+        .where(and(...conditions))
+        .orderBy(desc(overtimeLog.period_start))
+        .limit(100);
+
+      return rows;
+    }),
+
   // ── Stats ──────────────────────────────────────────────────────────────
 
   /**

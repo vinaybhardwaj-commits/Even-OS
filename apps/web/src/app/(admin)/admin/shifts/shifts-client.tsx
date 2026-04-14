@@ -91,7 +91,7 @@ interface Stats {
 }
 
 // ── Tab type ──────────────────────────────────────────────────────────────
-type TabKey = 'templates' | 'daily' | 'monthly' | 'staffing';
+type TabKey = 'templates' | 'daily' | 'monthly' | 'staffing' | 'leave' | 'swaps';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function formatTime(t: string) {
@@ -164,6 +164,22 @@ export default function ShiftsClient() {
     ward_type: 'general' as string, role: 'nurse', min_ratio: 0.5, optimal_ratio: 0.33,
     amber_threshold_pct: 20, notes: '',
   });
+
+  // Leave & swap data
+  const [leaveRequests, setLeaveRequests] = useState<Array<{
+    id: string; user_id: string; leave_type: string; start_date: string; end_date: string;
+    reason: string | null; status: string; denial_reason: string | null; created_at: string;
+    user_name: string; user_email: string;
+  }>>([]);
+  const [swapRequests, setSwapRequests] = useState<Array<{
+    id: string; requesting_user_id: string; target_user_id: string;
+    shift_instance_id: string; swap_shift_instance_id: string;
+    reason: string | null; status: string; denial_reason: string | null; created_at: string;
+  }>>([]);
+  const [leaveFilter, setLeaveFilter] = useState('pending');
+  const [swapFilter, setSwapFilter] = useState('all');
+  const [showDenyModal, setShowDenyModal] = useState<{ type: 'leave' | 'swap'; id: string } | null>(null);
+  const [denyReason, setDenyReason] = useState('');
 
   // ── Load data ───────────────────────────────────────────────────────────
   const loadCore = useCallback(async () => {
@@ -325,6 +341,60 @@ export default function ShiftsClient() {
     }
   }
 
+  // ── Leave & swap loading ─────────────────────────────────────────────
+  useEffect(() => {
+    if (tab === 'leave') {
+      trpcQuery('shifts.listLeaveRequests', { status: leaveFilter })
+        .then(data => setLeaveRequests(data || []))
+        .catch(e => setError(e.message));
+    }
+  }, [tab, leaveFilter]);
+
+  useEffect(() => {
+    if (tab === 'swaps') {
+      trpcQuery('shifts.listSwaps', { status: swapFilter })
+        .then(data => setSwapRequests(data || []))
+        .catch(e => setError(e.message));
+    }
+  }, [tab, swapFilter]);
+
+  async function reviewLeave(id: string, action: 'approve' | 'deny') {
+    try {
+      if (action === 'deny' && !denyReason) {
+        setShowDenyModal({ type: 'leave', id });
+        return;
+      }
+      await trpcMutate('shifts.reviewLeave', { id, action, denial_reason: denyReason || undefined });
+      setSuccess(`Leave request ${action}d`);
+      setShowDenyModal(null);
+      setDenyReason('');
+      // Reload
+      const data = await trpcQuery('shifts.listLeaveRequests', { status: leaveFilter });
+      setLeaveRequests(data || []);
+      await loadCore();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }
+
+  async function reviewSwap(id: string, action: 'approve' | 'deny' | 'cancel') {
+    try {
+      if (action === 'deny' && !denyReason) {
+        setShowDenyModal({ type: 'swap', id });
+        return;
+      }
+      await trpcMutate('shifts.reviewSwap', { id, action, denial_reason: denyReason || undefined });
+      setSuccess(`Swap request ${action}ed`);
+      setShowDenyModal(null);
+      setDenyReason('');
+      const data = await trpcQuery('shifts.listSwaps', { status: swapFilter });
+      setSwapRequests(data || []);
+      await loadCore();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }
+
   // ── Monthly calendar data ──────────────────────────────────────────────
   const [monthInstances, setMonthInstances] = useState<ShiftInstance[]>([]);
 
@@ -413,6 +483,8 @@ export default function ShiftsClient() {
             { key: 'daily' as TabKey, label: 'Daily Roster' },
             { key: 'monthly' as TabKey, label: 'Monthly Calendar' },
             { key: 'staffing' as TabKey, label: 'Staffing Targets' },
+            { key: 'leave' as TabKey, label: 'Leave Requests' },
+            { key: 'swaps' as TabKey, label: 'Shift Swaps' },
           ]).map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
@@ -781,9 +853,182 @@ export default function ShiftsClient() {
             )}
           </div>
         )}
+        {/* ── Leave Requests Tab ──────────────────────────────────────── */}
+        {tab === 'leave' && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-800">Leave Requests</h2>
+              <div className="flex gap-2">
+                {(['pending', 'approved', 'denied', 'all'] as const).map(s => (
+                  <button key={s} onClick={() => setLeaveFilter(s)}
+                    className={`px-3 py-1.5 text-xs rounded-lg ${
+                      leaveFilter === s ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}>{s}</button>
+                ))}
+              </div>
+            </div>
+
+            {leaveRequests.length === 0 ? (
+              <div className="bg-white rounded-xl border p-12 text-center text-gray-400">
+                No leave requests matching filter.
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-left text-gray-500 text-xs uppercase tracking-wider">
+                      <th className="px-4 py-3">Staff</th>
+                      <th className="px-4 py-3">Type</th>
+                      <th className="px-4 py-3">Dates</th>
+                      <th className="px-4 py-3">Reason</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leaveRequests.map(lr => (
+                      <tr key={lr.id} className="border-t">
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-gray-800">{lr.user_name}</div>
+                          <div className="text-xs text-gray-400">{lr.user_email}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-xs capitalize">
+                            {lr.leave_type}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {lr.start_date} → {lr.end_date}
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 max-w-[200px] truncate">
+                          {lr.reason || '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                            lr.status === 'approved' ? 'bg-green-100 text-green-700' :
+                            lr.status === 'denied' ? 'bg-red-100 text-red-700' :
+                            lr.status === 'cancelled' ? 'bg-gray-100 text-gray-500' :
+                            'bg-amber-100 text-amber-700'
+                          }`}>{lr.status}</span>
+                          {lr.denial_reason && (
+                            <div className="text-xs text-red-400 mt-1">{lr.denial_reason}</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {lr.status === 'pending' && (
+                            <div className="flex gap-1">
+                              <button onClick={() => reviewLeave(lr.id, 'approve')}
+                                className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700">
+                                Approve
+                              </button>
+                              <button onClick={() => reviewLeave(lr.id, 'deny')}
+                                className="px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">
+                                Deny
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Shift Swaps Tab ─────────────────────────────────────────── */}
+        {tab === 'swaps' && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-800">Shift Swap Requests</h2>
+              <div className="flex gap-2">
+                {(['all', 'pending_target', 'pending_approval', 'approved', 'denied'] as const).map(s => (
+                  <button key={s} onClick={() => setSwapFilter(s)}
+                    className={`px-3 py-1.5 text-xs rounded-lg ${
+                      swapFilter === s ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}>{s.replace('_', ' ')}</button>
+                ))}
+              </div>
+            </div>
+
+            {swapRequests.length === 0 ? (
+              <div className="bg-white rounded-xl border p-12 text-center text-gray-400">
+                No swap requests matching filter.
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-left text-gray-500 text-xs uppercase tracking-wider">
+                      <th className="px-4 py-3">Requester</th>
+                      <th className="px-4 py-3">Target</th>
+                      <th className="px-4 py-3">Reason</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {swapRequests.map(sw => (
+                      <tr key={sw.id} className="border-t">
+                        <td className="px-4 py-3 text-gray-800 text-xs font-mono">{sw.requesting_user_id.slice(0, 8)}…</td>
+                        <td className="px-4 py-3 text-gray-800 text-xs font-mono">{sw.target_user_id.slice(0, 8)}…</td>
+                        <td className="px-4 py-3 text-gray-500 max-w-[200px] truncate">{sw.reason || '—'}</td>
+                        <td className="px-4 py-3">
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                            sw.status === 'approved' ? 'bg-green-100 text-green-700' :
+                            sw.status === 'denied' ? 'bg-red-100 text-red-700' :
+                            sw.status === 'cancelled' ? 'bg-gray-100 text-gray-500' :
+                            'bg-amber-100 text-amber-700'
+                          }`}>{sw.status.replace('_', ' ')}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {sw.status === 'pending_approval' && (
+                            <div className="flex gap-1">
+                              <button onClick={() => reviewSwap(sw.id, 'approve')}
+                                className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700">Approve</button>
+                              <button onClick={() => reviewSwap(sw.id, 'deny')}
+                                className="px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">Deny</button>
+                            </div>
+                          )}
+                          {(sw.status === 'pending_target' || sw.status === 'pending_approval') && (
+                            <button onClick={() => reviewSwap(sw.id, 'cancel')}
+                              className="px-2 py-1 bg-gray-200 text-gray-600 rounded text-xs hover:bg-gray-300 ml-1">Cancel</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
 
       {/* ── Modals ──────────────────────────────────────────────────────── */}
+
+      {/* Deny Reason Modal */}
+      {showDenyModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+            <h3 className="text-lg font-bold text-gray-800 mb-4">Reason for Denial</h3>
+            <textarea value={denyReason} onChange={e => setDenyReason(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm h-24" placeholder="Provide a reason..." />
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => { setShowDenyModal(null); setDenyReason(''); }}
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm">Cancel</button>
+              <button onClick={() => {
+                if (showDenyModal.type === 'leave') reviewLeave(showDenyModal.id, 'deny');
+                else reviewSwap(showDenyModal.id, 'deny');
+              }}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700"
+                disabled={!denyReason.trim()}>Deny</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Template Modal */}
       {showTemplateModal && (
