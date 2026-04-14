@@ -192,6 +192,7 @@ const ROUTE_GROUPS: RouteGroup[] = [
       { name: 'Shift Handoff', path: '/care/nurse/handoff', desc: 'SBAR handoff write/read/ward summary, auto-populate, print', badge: 'NS.6' },
       { name: 'Worksheet', path: '/care/nurse/worksheet', desc: 'Phone pocket view: patient × task grid with status icons', badge: 'NS.6' },
       { name: 'Doctor Home', path: '/care/doctor', desc: 'Acuity-sorted patients, context panel, sidebar (new admits/co-sign/labs/DC)', badge: 'DV.1' },
+      { name: 'Rounds View', path: '/care/doctor/rounds', desc: 'Rich patient cards, key labs, vitals, orders, companion quick notes', badge: 'DV.2' },
     ],
   },
 ];
