@@ -846,7 +846,7 @@ function BedsideNotes({ patientId, encounterId }: { patientId: string; encounter
 
   const load = useCallback(async () => {
     try {
-      const data = await trpcQuery('clinicalNotes.list', { patient_id: patientId, encounter_id: encounterId });
+      const data = await trpcQuery('clinicalNotes.listNotes', { patient_id: patientId, encounter_id: encounterId });
       setNotes(Array.isArray(data) ? data.slice(0, 20) : []);
     } catch { /* ignore */ } finally { setLoading(false); }
   }, [patientId, encounterId]);
@@ -857,11 +857,11 @@ function BedsideNotes({ patientId, encounterId }: { patientId: string; encounter
     if (!newNote.trim()) return;
     setSaving(true);
     try {
-      await trpcMutate('clinicalNotes.create', {
+      await trpcMutate('clinicalNotes.createNursing', {
         patient_id: patientId,
         encounter_id: encounterId,
-        note_type: 'nursing_note',
-        content: newNote.trim(),
+        shift_summary: newNote.trim(),
+        pain_assessment: 'N/A',
       });
       setNewNote('');
       await load();

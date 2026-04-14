@@ -136,8 +136,8 @@ export default function RoundsClient({ userId, userRole, userName }: Props) {
       await trpcMutate('clinicalNotes.createNursing', {
         patient_id: patient.patient_id,
         encounter_id: patient.encounter_id,
-        note_type: 'consultant_companion',
-        content: `[Rounds Companion] ${companionText.trim()}`,
+        shift_summary: `[Rounds Companion] ${companionText.trim()}`,
+        pain_assessment: 'N/A — companion note',
       });
       setSaveSuccess(patient.encounter_id);
       setCompanionText('');

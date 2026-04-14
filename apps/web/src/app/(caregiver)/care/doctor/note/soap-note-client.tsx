@@ -215,18 +215,14 @@ export default function SoapNoteClient({ userId, userRole, userName }: Props) {
     }
     setSaving(true);
     try {
-      const content = [
-        draft.subjective.trim() && `S: ${draft.subjective.trim()}`,
-        draft.objective.trim() && `O: ${draft.objective.trim()}`,
-        draft.assessment.trim() && `A: ${draft.assessment.trim()}`,
-        draft.plan.trim() && `P: ${draft.plan.trim()}`,
-      ].filter(Boolean).join('\n\n');
-
       await trpcMutate('clinicalNotes.createSoap', {
         patient_id: currentPatient.patient_id,
         encounter_id: currentPatient.encounter_id,
-        note_type: 'soap_note',
-        content,
+        subjective: draft.subjective.trim() || 'N/A',
+        objective: draft.objective.trim() || 'N/A',
+        assessment: draft.assessment.trim() || 'N/A',
+        plan: draft.plan.trim() || 'N/A',
+        required_signer_id: userId,
       });
 
       setSavedNotes(prev => new Set(prev).add(currentPatient.encounter_id));

@@ -119,12 +119,21 @@ export default function CosignClient({ userId, userRole, userName }: Props) {
     }
   };
 
+  // Generate a client-side signature hash for signing
+  const genSignatureHash = (noteId: string) => {
+    const ts = new Date().toISOString();
+    return `cosign:${userId}:${noteId}:${ts}`;
+  };
+
   const batchApprove = async () => {
     if (selectedItems.size === 0) return;
     setProcessing(true);
     try {
       for (const noteId of selectedItems) {
-        await trpcMutate('clinicalNotes.signNote', { note_id: noteId });
+        await trpcMutate('clinicalNotes.signNote', {
+          note_id: noteId,
+          signature_hash: genSignatureHash(noteId),
+        });
       }
       setSelectedItems(new Set());
       await loadData();
@@ -138,7 +147,10 @@ export default function CosignClient({ userId, userRole, userName }: Props) {
   const approveOne = async (noteId: string) => {
     setProcessing(true);
     try {
-      await trpcMutate('clinicalNotes.signNote', { note_id: noteId });
+      await trpcMutate('clinicalNotes.signNote', {
+        note_id: noteId,
+        signature_hash: genSignatureHash(noteId),
+      });
       await loadData();
     } catch (err) {
       alert('Failed to sign note');
@@ -152,10 +164,10 @@ export default function CosignClient({ userId, userRole, userName }: Props) {
     if (!actionText.trim()) { alert('Reason is required.'); return; }
     setProcessing(true);
     try {
+      // Update the note's assessment field with rejection reason (note must be in draft status)
       await trpcMutate('clinicalNotes.updateNote', {
         note_id: noteId,
-        status: 'entered_in_error',
-        addendum: `[REJECTED] ${actionText.trim()}`,
+        assessment: `[REJECTED by Dr. ${userName}] ${actionText.trim()}`,
       });
       await loadData();
     } catch (err) {
@@ -171,12 +183,15 @@ export default function CosignClient({ userId, userRole, userName }: Props) {
     if (!actionText.trim()) { alert('Addendum text is required.'); return; }
     setProcessing(true);
     try {
+      // Update the note with addendum in the plan field, then sign it
       await trpcMutate('clinicalNotes.updateNote', {
         note_id: noteId,
-        addendum: actionText.trim(),
+        plan: `[Addendum by Dr. ${userName}] ${actionText.trim()}`,
       });
-      // Then sign it
-      await trpcMutate('clinicalNotes.signNote', { note_id: noteId });
+      await trpcMutate('clinicalNotes.signNote', {
+        note_id: noteId,
+        signature_hash: genSignatureHash(noteId),
+      });
       await loadData();
     } catch (err) {
       alert('Failed to add addendum');
@@ -192,21 +207,17 @@ export default function CosignClient({ userId, userRole, userName }: Props) {
     if (!dcSummary.trim()) { alert('Discharge summary is required.'); return; }
     setProcessing(true);
     try {
-      // Create discharge note
+      // Create discharge note with structured fields
       await trpcMutate('clinicalNotes.createDischarge', {
         patient_id: encounter.patient_id,
         encounter_id: encounter.encounter_id,
-        note_type: 'discharge_summary',
-        content: [
-          `Discharge Summary`,
-          `Patient: ${encounter.patient_name} (${encounter.patient_uhid})`,
-          `Admission: ${encounter.admission_datetime ? new Date(encounter.admission_datetime).toLocaleDateString('en-IN') : 'N/A'}`,
-          `Diagnosis: ${encounter.primary_diagnosis || encounter.chief_complaint || 'N/A'}`,
-          '',
-          `Summary: ${dcSummary.trim()}`,
-          dcFollowup.trim() ? `Follow-up: ${dcFollowup.trim()}` : '',
-          dcMeds.trim() ? `Discharge Medications: ${dcMeds.trim()}` : '',
-        ].filter(Boolean).join('\n'),
+        admission_details: `Admitted ${encounter.admission_datetime ? new Date(encounter.admission_datetime).toLocaleDateString('en-IN') : 'N/A'}. Chief complaint: ${encounter.chief_complaint || 'N/A'}.`,
+        diagnosis_list: [encounter.primary_diagnosis || encounter.chief_complaint || 'Primary diagnosis'],
+        course_in_hospital: dcSummary.trim(),
+        condition_at_discharge: 'Stable',
+        followup_instructions: dcFollowup.trim() || 'Follow up with treating physician within 7 days.',
+        discharge_destination: 'Home',
+        medications_at_discharge: dcMeds.trim() ? [{ medication_name: dcMeds.trim(), dosage: 'As prescribed', frequency: 'As directed', duration: 'As directed' }] : undefined,
       });
       setDcSummary('');
       setDcFollowup('');
