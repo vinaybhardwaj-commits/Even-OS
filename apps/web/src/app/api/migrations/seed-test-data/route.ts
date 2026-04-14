@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 
     // Get user IDs
     const usersResult = await sql`
-      SELECT id, email, role FROM users WHERE hospital_id = ${hospitalId} AND email IN (
+      SELECT id, email, roles FROM users WHERE hospital_id = ${hospitalId} AND email IN (
         'charge.nurse@even.in', 'nurse.a@even.in', 'nurse.b@even.in',
         'dr.patel@even.in', 'test.nurse@even.in'
       )
