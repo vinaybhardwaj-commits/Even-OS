@@ -94,6 +94,8 @@ function formatTime(d: Date): string {
 }
 
 // ── Component ────────────────────────────────────────────────
+const CHARGE_ROLES = ['charge_nurse', 'nursing_supervisor', 'hospital_admin', 'admin', 'super_admin'];
+
 export default function NurseHomeClient({
   userId, userName, userRole,
 }: {
@@ -183,12 +185,14 @@ export default function NurseHomeClient({
           }}>
             💊 eMAR
           </Link>
-          <Link href="/care/nurse/charge" style={{
-            padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '600',
-            background: '#f3f4f6', color: '#374151', textDecoration: 'none', border: '1px solid #e5e7eb',
-          }}>
-            👩‍⚕️ Charge Nurse
-          </Link>
+          {CHARGE_ROLES.includes(userRole) && (
+            <Link href="/care/nurse/charge" style={{
+              padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '600',
+              background: '#f3f4f6', color: '#374151', textDecoration: 'none', border: '1px solid #e5e7eb',
+            }}>
+              👩‍⚕️ Charge Nurse
+            </Link>
+          )}
         </div>
       </div>
 
