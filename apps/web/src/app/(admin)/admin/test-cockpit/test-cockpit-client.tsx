@@ -198,6 +198,8 @@ const ROUTE_GROUPS: RouteGroup[] = [
       { name: 'Pharmacy Station', path: '/care/pharmacy', desc: 'Verification queue, dispensing, inventory, narcotics register', badge: 'DP.1' },
       { name: 'Lab Station', path: '/care/lab', desc: 'Worklist (STAT/routine), specimen pipeline, results, critical values', badge: 'DP.2' },
       { name: 'OT Hub', path: '/care/ot', desc: 'Board, WHO checklist, anaesthesia, equipment — role-based views', badge: 'DP.3-4' },
+      { name: 'Customer Care', path: '/care/customer-care', desc: '11-stage patient journey Gantt, KPI bar, filters, detail panel', badge: 'SP.1' },
+      { name: 'Billing Station', path: '/care/billing', desc: 'Pre-auth queue, discharge billing, TPA claims, daily summary', badge: 'SP.2' },
     ],
   },
 ];
