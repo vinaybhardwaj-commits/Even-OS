@@ -31,3 +31,4 @@ export * from './30-patient-portal';
 export * from './31-shifts';
 export * from './32-nursing';
 export * from './33-templates';
+export * from './34-journey';
