@@ -1,17 +1,16 @@
 import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import NurseStationClient from './nurse-station-client';
+import NurseHomeClient from './nurse-home-client';
 
-export default async function NurseStationPage() {
+export default async function NurseHomePage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
 
   return (
-    <NurseStationClient
+    <NurseHomeClient
       userId={user.sub}
       userName={user.name}
       userRole={user.role}
-      hospitalId={user.hospital_id}
     />
   );
 }

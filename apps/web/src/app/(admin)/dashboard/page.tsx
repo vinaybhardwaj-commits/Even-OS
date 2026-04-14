@@ -1,9 +1,35 @@
 import { getCurrentUser } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 
+// Map clinical roles to their caregiver home routes
+const CAREGIVER_REDIRECTS: Record<string, string> = {
+  nurse: '/care/nurse',
+  charge_nurse: '/care/nurse',
+  nursing_supervisor: '/care/nurse',
+  staff_nurse: '/care/nurse',
+  ot_nurse: '/care/nurse',
+  resident: '/care/doctor',
+  senior_resident: '/care/doctor',
+  intern: '/care/doctor',
+  hospitalist: '/care/doctor',
+  visiting_consultant: '/care/doctor',
+  surgeon: '/care/doctor',
+  anaesthetist: '/care/doctor',
+  pharmacist: '/care/pharmacy',
+  lab_technician: '/care/lab',
+  radiologist: '/care/lab',
+  receptionist: '/care/customer-care',
+  ip_coordinator: '/care/customer-care',
+  billing_executive: '/care/billing',
+};
+
 export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
+
+  // Redirect clinical roles to caregiver views
+  const caregiverRoute = CAREGIVER_REDIRECTS[user.role];
+  if (caregiverRoute) redirect(caregiverRoute);
 
   const isAdmin = ['super_admin', 'hospital_admin'].includes(user.role);
 
