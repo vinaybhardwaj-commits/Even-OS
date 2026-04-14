@@ -18,11 +18,14 @@ async function trpcQuery(path: string, input?: any) {
 interface PatientData {
   id: string;
   uhid: string;
-  full_name: string;
+  full_name?: string;
+  name_given?: string;
+  name_family?: string;
   date_of_birth: string;
   sex: string;
   phone_number: string;
   primary_diagnosis: string;
+  [key: string]: any; // Allow additional fields from API
 }
 
 interface EncounterData {
@@ -1337,13 +1340,13 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
             fontSize: 18,
             flexShrink: 0,
           }}>
-            {patient.full_name.charAt(0).toUpperCase()}
+            {(patient.full_name || patient.name_given || 'P').charAt(0).toUpperCase()}
           </div>
 
           {/* Patient info */}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
-              {patient.full_name}
+              {patient.full_name || `${patient.name_given || ''} ${patient.name_family || ''}`.trim() || 'Patient'}
             </div>
             <div style={{ fontSize: 12, opacity: 0.7, margin: '2px 0 0' }}>
               UHID: {patient.uhid} · {age}y {patient.sex.toUpperCase()} · {patient.primary_diagnosis}
@@ -3316,7 +3319,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               {/* Identity Verification */}
               <div style={{ padding: '12px 16px', background: '#f5f6fa', borderRadius: 8, marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: '#666' }}>Patient Name / UHID</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#002054', marginTop: 4 }}>{patient?.full_name} ({patient?.uhid})</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#002054', marginTop: 4 }}>{patient?.full_name || `${patient?.name_given || ''} ${patient?.name_family || ''}`.trim() || 'Patient'} ({patient?.uhid})</div>
               </div>
 
               {/* Drug Details */}
