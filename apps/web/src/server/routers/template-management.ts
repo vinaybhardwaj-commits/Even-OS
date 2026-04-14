@@ -392,6 +392,8 @@ export const templateManagementRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const newStatus = input.action === 'accept' ? 'accepted' : 'rejected';
+
+      // Update suggestion status
       await getSql()`
         UPDATE clinical_template_ai_suggestions SET
           ctas_status = ${newStatus},
@@ -399,6 +401,48 @@ export const templateManagementRouter = router({
           ctas_reviewed_at = NOW()
         WHERE id = ${input.id};
       `;
+
+      // If accepted, auto-apply the suggestion to the template
+      if (input.action === 'accept') {
+        const suggRows = await getSql()`
+          SELECT ctas_template_id, ctas_suggestion_type, ctas_suggestion_data
+          FROM clinical_template_ai_suggestions WHERE id = ${input.id}
+        `;
+        const sugg = (suggRows as any[])?.[0];
+        if (sugg) {
+          const tplRows = await getSql()`
+            SELECT template_fields, template_version FROM clinical_templates WHERE id = ${sugg.ctas_template_id}
+          `;
+          const tpl = (tplRows as any[])?.[0];
+          if (tpl) {
+            let fields = tpl.template_fields || [];
+            const data = sugg.ctas_suggestion_data || {};
+            const newVersion = (tpl.template_version || 1) + 1;
+
+            if (sugg.ctas_suggestion_type === 'field_removal') {
+              // Mark field as optional instead of removing
+              fields = fields.map((f: any) => f.id === data.field_id ? { ...f, required: false } : f);
+            }
+            // For default_change, we flag it but don't auto-change defaults (needs manual review)
+
+            // Create new version
+            await getSql()`
+              UPDATE clinical_templates SET
+                template_fields = ${JSON.stringify(fields)}::jsonb,
+                template_version = ${newVersion},
+                template_updated_at = NOW()
+              WHERE id = ${sugg.ctas_template_id}
+            `;
+            await getSql()`
+              INSERT INTO clinical_template_versions (id, ctv_template_id, ctv_version_number, ctv_fields, ctv_change_summary, ctv_changed_by)
+              VALUES (gen_random_uuid(), ${sugg.ctas_template_id}, ${newVersion}, ${JSON.stringify(fields)}::jsonb,
+                ${'AI suggestion accepted: ' + sugg.ctas_suggestion_type + ' for ' + (data.field_label || 'field')},
+                ${ctx.user.sub}::uuid)
+            `;
+          }
+        }
+      }
+
       return { success: true, status: newStatus };
     }),
 
@@ -509,5 +553,50 @@ export const templateManagementRouter = router({
       });
 
       return { defaults, ai_generated: true };
+    }),
+
+  // ── Template analytics (per template) ─────────────────────────────────
+  templateAnalytics: protectedProcedure
+    .input(z.object({ template_id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const [usage, fieldStats, timeStats] = await Promise.all([
+        // Usage over last 30 days
+        getSql()`
+          SELECT DATE(ctul_created_at) AS day, COUNT(*)::int AS uses
+          FROM clinical_template_usage_log
+          WHERE ctul_template_id = ${input.template_id}
+            AND ctul_created_at >= NOW() - INTERVAL '30 days'
+          GROUP BY DATE(ctul_created_at)
+          ORDER BY day
+        `,
+        // Most modified fields
+        getSql()`
+          SELECT field_id, COUNT(*)::int AS modify_count
+          FROM clinical_template_usage_log,
+               LATERAL jsonb_array_elements_text(ctul_fields_modified) AS field_id
+          WHERE ctul_template_id = ${input.template_id}
+          GROUP BY field_id
+          ORDER BY modify_count DESC
+          LIMIT 10
+        `,
+        // Completion time distribution
+        getSql()`
+          SELECT
+            COUNT(*)::int AS total_uses,
+            ROUND(AVG(ctul_completion_time_seconds))::int AS avg_seconds,
+            MIN(ctul_completion_time_seconds)::int AS min_seconds,
+            MAX(ctul_completion_time_seconds)::int AS max_seconds,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ctul_completion_time_seconds)::int AS median_seconds
+          FROM clinical_template_usage_log
+          WHERE ctul_template_id = ${input.template_id}
+            AND ctul_completion_time_seconds > 0
+        `,
+      ]);
+
+      return {
+        daily_usage: usage as any[],
+        most_modified_fields: fieldStats as any[],
+        completion_time: (timeStats as any[])?.[0] || {},
+      };
     }),
 });
