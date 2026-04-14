@@ -1,3 +1,44 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── Caregiver Light Clinical Theme ──────────────────────────────────── */
+/* High-contrast, clean theme optimized for clinical environments.       */
+/* Scoped to .caregiver-theme class (applied by CaregiverShell).         */
+/* Does NOT affect admin dark theme (bg-blue-900 headers, etc.)          */
+
+.caregiver-theme {
+  --care-bg: #F8FAFC;             /* slate-50 — gentle off-white */
+  --care-surface: #FFFFFF;         /* white cards */
+  --care-surface-hover: #F1F5F9;   /* slate-100 */
+  --care-border: #E2E8F0;          /* slate-200 */
+  --care-border-strong: #CBD5E1;   /* slate-300 */
+
+  --care-text: #0F172A;            /* slate-900 */
+  --care-text-secondary: #475569;  /* slate-600 */
+  --care-text-muted: #94A3B8;      /* slate-400 */
+
+  --care-primary: #0055FF;         /* even-blue */
+  --care-primary-light: #E8F0FE;   /* even-light */
+  --care-success: #059669;         /* emerald-600 */
+  --care-warning: #D97706;         /* amber-600 */
+  --care-danger: #DC2626;          /* red-600 */
+  --care-info: #0284C7;            /* sky-600 */
+
+  /* Shift indicator colors */
+  --shift-morning: #22C55E;        /* green-500 */
+  --shift-evening: #F59E0B;        /* amber-500 */
+  --shift-night: #6366F1;          /* indigo-500 */
+  --shift-general: #3B82F6;        /* blue-500 */
+
+  /* Spacing for top bar */
+  --care-topbar-h: 48px;
+  --care-bottombar-h: 56px;        /* phone bottom tab bar */
+}
+
+/* Utility: phone-safe bottom padding when bottom bar is visible */
+@media (max-width: 767px) {
+  .caregiver-theme .care-content-padded {
+    padding-bottom: calc(var(--care-bottombar-h) + 8px);
+  }
+}

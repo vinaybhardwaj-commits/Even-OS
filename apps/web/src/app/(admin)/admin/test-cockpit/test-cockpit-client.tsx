@@ -178,6 +178,15 @@ const ROUTE_GROUPS: RouteGroup[] = [
       { name: 'MRD Documents', path: '/admin/mrd-documents', desc: 'Medical Records Department — document browser' },
     ],
   },
+  {
+    title: 'Caregiver Views',
+    icon: '\u{1F469}\u{200D}\u{2695}\u{FE0F}', // 👩‍⚕️
+    color: 'bg-emerald-500',
+    routes: [
+      { name: 'Caregiver Home', path: '/care/home', desc: 'Role-based home with quick actions', badge: 'Light theme' },
+      { name: 'My Schedule', path: '/care/schedule', desc: 'Weekly shift schedule and leave requests' },
+    ],
+  },
 ];
 
 // ─── Component ──────────────────────────────────────────────────────────────
