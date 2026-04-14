@@ -37,16 +37,17 @@ export async function POST(req: NextRequest) {
     ];
 
     for (const u of testUsers) {
+      const rolesArr = `{${u.role}}`;
       await sql`
-        INSERT INTO users (hospital_id, email, full_name, role, department, password_hash, status, must_change_password)
-        VALUES (${hospitalId}, ${u.email}, ${u.name}, ${u.role}, ${u.dept}, ${testPasswordHash}, 'active', true)
-        ON CONFLICT (email) DO UPDATE SET role = ${u.role}, full_name = ${u.name}, department = ${u.dept}
+        INSERT INTO users (hospital_id, email, full_name, roles, department, password_hash, status, must_change_password)
+        VALUES (${hospitalId}, ${u.email}, ${u.name}, ${rolesArr}::text[], ${u.dept}, ${testPasswordHash}, 'active', true)
+        ON CONFLICT (email, hospital_id) DO UPDATE SET roles = ${rolesArr}::text[], full_name = ${u.name}, department = ${u.dept}
       `;
     }
     results.push(`✅ 7 test users created/updated`);
 
     // Also update test.nurse to charge_nurse so V can test
-    await sql`UPDATE users SET role = 'charge_nurse' WHERE email = 'test.nurse@even.in'`;
+    await sql`UPDATE users SET roles = '{charge_nurse}'::text[] WHERE email = 'test.nurse@even.in' AND hospital_id = ${hospitalId}`;
     results.push(`✅ test.nurse@even.in promoted to charge_nurse`);
 
     // Get user IDs
