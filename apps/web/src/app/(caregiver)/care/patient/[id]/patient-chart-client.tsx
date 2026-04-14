@@ -509,6 +509,667 @@ function LabPanel({ title, timestamp, isOpen, onToggle, tests }: LabPanelProps) 
   );
 }
 
+// ── Notes Tab Component ────────────────────────────────────────────────────
+interface NotesTabProps {
+  userRole: string;
+  userName: string;
+  onNoteSaved: () => void;
+}
+
+function NotesTab({ userRole, userName, onNoteSaved }: NotesTabProps) {
+  const doctorRoles = ['resident', 'senior_resident', 'intern', 'visiting_consultant', 'hospitalist', 'specialist_cardiologist', 'specialist_neurologist', 'specialist_orthopedic', 'surgeon', 'anaesthetist'];
+  const nurseRoles = ['nurse', 'senior_nurse', 'charge_nurse', 'nursing_supervisor', 'nursing_manager', 'ot_nurse'];
+  const isDoctor = doctorRoles.includes(userRole);
+  const isNurse = nurseRoles.includes(userRole);
+
+  // SOAP form state
+  const [subjective, setSubjective] = useState('');
+  const [objective, setObjective] = useState(
+    'Vitals (08:00): BP 142/88, HR 108↑, SpO₂ 89%↓, Temp 37.8°C, RR 22, Pain 6/10.\n' +
+    'NEWS2: 8 (↑ from 5 yesterday).\n' +
+    'Labs (06:00): Hb 10.2↓ (ref 13-17), Cr 1.8↑ (ref 0.7-1.3), INR 2.8↑ (ref 0.8-1.2).\n' +
+    'I/O (24h): Intake 1,850 mL, Output 1,420 mL, Net +430 mL.\n' +
+    'Wound: [describe].'
+  );
+  const [assessment, setAssessment] = useState('');
+  const [plan, setPlan] = useState('');
+  const [noteType, setNoteType] = useState('General');
+  const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
+
+  // Sample notes data
+  const sampleNotes = [
+    {
+      id: '1',
+      author: 'Dr. Sharma',
+      role: 'Cardiology',
+      time: '14 Apr 07:30',
+      type: 'SOAP',
+      badge: 'SOAP',
+      badgeColor: '#0055FF',
+      content: 'S: Reports reduced chest discomfort, pain 4/10 from 6/10 yesterday. Tolerated liquids.\nO: BP 142/88, HR 108, SpO₂ 89%, T 37.8. NEWS2 8. Hb 10.2, Cr 1.8, INR 2.8...\nA: POD-3 post CABG. SpO₂ dropping, tachycardia. Cr rising — possible contrast nephropathy.\nP: Increase O₂, hold Enoxaparin if INR >3, nephrology consult, repeat CBC+RFT AM.',
+      signed: true,
+    },
+    {
+      id: '2',
+      author: 'Nurse Priya',
+      role: 'Nursing',
+      time: '14 Apr 06:00',
+      type: 'Nursing',
+      badge: 'Nursing',
+      badgeColor: '#0B8A3E',
+      content: 'Shift handoff: Patient cooperative, wound dressing clean, drain output 150mL overnight. Pain managed with Morphine 2mg at 04:00. Blood sugar 145mg/dL fasting.',
+      signed: false,
+    },
+    {
+      id: '3',
+      author: 'Dr. Priya Mehta',
+      role: 'RMO',
+      time: '13 Apr 20:00',
+      type: 'Progress',
+      badge: 'Progress',
+      badgeColor: '#0055FF',
+      content: 'Evening review. Vitals stable. SpO₂ maintained at 93% on 2L O₂. Pain controlled...',
+      signed: true,
+    },
+    {
+      id: '4',
+      author: 'Nurse Meera',
+      role: 'Nursing',
+      time: '13 Apr 18:00',
+      type: 'Wound Care',
+      badge: 'Wound Care',
+      badgeColor: '#D97706',
+      content: 'Sternotomy wound: clean, no erythema, no discharge. Drain site intact. Dressing changed.',
+      signed: false,
+    },
+    {
+      id: '5',
+      author: 'Physiotherapist',
+      role: 'Rehab',
+      time: '13 Apr 14:00',
+      type: 'Session',
+      badge: 'Physio',
+      badgeColor: '#9333EA',
+      content: 'Session 2: Mobilized to chair for 15 min. Breathing exercises demonstrated. Tolerated well.',
+      signed: null,
+    },
+    {
+      id: '6',
+      author: 'Dr. Sharma',
+      role: 'Cardiology',
+      time: '13 Apr 08:00',
+      type: 'SOAP',
+      badge: 'SOAP',
+      badgeColor: '#0055FF',
+      content: 'S: Reports chest discomfort, pain 6/10... [expandable]',
+      signed: true,
+    },
+  ];
+
+  const quickChips = {
+    s: ['Pain improved', 'Nausea', 'SOB', 'Tolerated diet', 'Slept well', 'Fever resolved'],
+    a: ['Improving', 'Stable', 'Deteriorating', 'New concern', 'Ready for discharge'],
+    p: ['Continue current Rx', 'Modify Rx', 'Order labs', 'DC tomorrow', 'Consult ___', 'Step down O₂'],
+  };
+
+  const handleQuickChip = (field: 'subjective' | 'assessment' | 'plan', text: string) => {
+    if (field === 'subjective') {
+      setSubjective((s) => (s ? s + ' ' + text : text));
+    } else if (field === 'assessment') {
+      setAssessment((a) => (a ? a + ' ' + text : text));
+    } else {
+      setPlan((p) => (p ? p + ' ' + text : text));
+    }
+  };
+
+  const handleSaveNote = () => {
+    if (isDoctor) {
+      if (!subjective.trim() || !assessment.trim() || !plan.trim()) {
+        alert('Please fill in all SOAP sections');
+        return;
+      }
+    }
+    alert('Note saved successfully');
+    setSubjective('');
+    setObjective(
+      'Vitals (08:00): BP 142/88, HR 108↑, SpO₂ 89%↓, Temp 37.8°C, RR 22, Pain 6/10.\n' +
+      'NEWS2: 8 (↑ from 5 yesterday).\n' +
+      'Labs (06:00): Hb 10.2↓ (ref 13-17), Cr 1.8↑ (ref 0.7-1.3), INR 2.8↑ (ref 0.8-1.2).\n' +
+      'I/O (24h): Intake 1,850 mL, Output 1,420 mL, Net +430 mL.\n' +
+      'Wound: [describe].'
+    );
+    setAssessment('');
+    setPlan('');
+  };
+
+  const toggleNoteExpanded = (noteId: string) => {
+    const updated = new Set(expandedNotes);
+    if (updated.has(noteId)) {
+      updated.delete(noteId);
+    } else {
+      updated.add(noteId);
+    }
+    setExpandedNotes(updated);
+  };
+
+  return (
+    <div style={{ padding: '24px', background: '#f5f6fa', minHeight: '100vh', paddingBottom: 100 }}>
+      {/* ── Write Section ────────────────────────────────────────────────────── */}
+      <div style={{
+        background: 'white',
+        borderRadius: 12,
+        padding: 24,
+        marginBottom: 24,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+      }}>
+        <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 20px', textTransform: 'uppercase', color: '#666' }}>
+          Write Note
+        </h3>
+
+        {isDoctor ? (
+          <>
+            {/* SOAP Sections */}
+            <div style={{ display: 'grid', gap: 16, marginBottom: 20 }}>
+              {/* Subjective */}
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 8 }}>
+                  S (Subjective)
+                </label>
+                <textarea
+                  value={subjective}
+                  onChange={(e) => setSubjective(e.target.value)}
+                  placeholder="Patient's symptoms, complaints..."
+                  style={{
+                    width: '100%',
+                    minHeight: 80,
+                    padding: 12,
+                    border: '1px solid #e0e0e0',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontFamily: 'inherit',
+                    resize: 'none',
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  {quickChips.s.map((chip) => (
+                    <button
+                      key={chip}
+                      onClick={() => handleQuickChip('subjective', chip)}
+                      style={{
+                        padding: '6px 12px',
+                        background: '#EFF6FF',
+                        border: '1px solid #0055FF',
+                        borderRadius: 6,
+                        color: '#0055FF',
+                        fontSize: 12,
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#0055FF';
+                        e.currentTarget.style.color = 'white';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = '#EFF6FF';
+                        e.currentTarget.style.color = '#0055FF';
+                      }}
+                    >
+                      [+] {chip}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Objective */}
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 8 }}>
+                  O (Objective) — Auto-populated from vitals & labs
+                </label>
+                <textarea
+                  value={objective}
+                  onChange={(e) => setObjective(e.target.value)}
+                  style={{
+                    width: '100%',
+                    minHeight: 120,
+                    padding: 12,
+                    border: '1px solid #e0e0e0',
+                    borderRadius: 8,
+                    fontSize: 12,
+                    fontFamily: "'SF Mono', Menlo, monospace",
+                    resize: 'none',
+                    background: '#FAFAFA',
+                  }}
+                />
+              </div>
+
+              {/* Assessment */}
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 8 }}>
+                  A (Assessment)
+                </label>
+                <textarea
+                  value={assessment}
+                  onChange={(e) => setAssessment(e.target.value)}
+                  placeholder="Clinical impression..."
+                  style={{
+                    width: '100%',
+                    minHeight: 80,
+                    padding: 12,
+                    border: '1px solid #e0e0e0',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontFamily: 'inherit',
+                    resize: 'none',
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  {quickChips.a.map((chip) => (
+                    <button
+                      key={chip}
+                      onClick={() => handleQuickChip('assessment', chip)}
+                      style={{
+                        padding: '6px 12px',
+                        background: '#EFF6FF',
+                        border: '1px solid #0055FF',
+                        borderRadius: 6,
+                        color: '#0055FF',
+                        fontSize: 12,
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#0055FF';
+                        e.currentTarget.style.color = 'white';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = '#EFF6FF';
+                        e.currentTarget.style.color = '#0055FF';
+                      }}
+                    >
+                      [+] {chip}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Plan */}
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 8 }}>
+                  P (Plan)
+                </label>
+                <textarea
+                  value={plan}
+                  onChange={(e) => setPlan(e.target.value)}
+                  placeholder="Treatment plan..."
+                  style={{
+                    width: '100%',
+                    minHeight: 80,
+                    padding: 12,
+                    border: '1px solid #e0e0e0',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontFamily: 'inherit',
+                    resize: 'none',
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  {quickChips.p.map((chip) => (
+                    <button
+                      key={chip}
+                      onClick={() => handleQuickChip('plan', chip)}
+                      style={{
+                        padding: '6px 12px',
+                        background: '#EFF6FF',
+                        border: '1px solid #0055FF',
+                        borderRadius: 6,
+                        color: '#0055FF',
+                        fontSize: 12,
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#0055FF';
+                        e.currentTarget.style.color = 'white';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = '#EFF6FF';
+                        e.currentTarget.style.color = '#0055FF';
+                      }}
+                    >
+                      [+] {chip}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Buttons */}
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => {
+                  setSubjective('');
+                  setAssessment('');
+                  setPlan('');
+                }}
+                style={{
+                  padding: '10px 20px',
+                  background: 'white',
+                  border: '2px solid #999',
+                  color: '#333',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#F5F5F5';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'white';
+                }}
+              >
+                Clear Draft
+              </button>
+              <button
+                onClick={handleSaveNote}
+                style={{
+                  padding: '10px 20px',
+                  background: '#0055FF',
+                  border: 'none',
+                  color: 'white',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#003DBF';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#0055FF';
+                }}
+              >
+                Submit & Sign
+              </button>
+            </div>
+          </>
+        ) : isNurse ? (
+          <>
+            {/* Nursing Note Form */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 8 }}>
+                Note Type
+              </label>
+              <select
+                value={noteType}
+                onChange={(e) => setNoteType(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                }}
+              >
+                <option>General</option>
+                <option>Wound Care</option>
+                <option>Fall Event</option>
+                <option>Patient Education</option>
+                <option>Family Communication</option>
+                <option>Pain Reassessment</option>
+              </select>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 8 }}>
+                Note
+              </label>
+              <textarea
+                value={subjective}
+                onChange={(e) => setSubjective(e.target.value)}
+                placeholder="Write your nursing note..."
+                style={{
+                  width: '100%',
+                  minHeight: 120,
+                  padding: 12,
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                  resize: 'none',
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                onClick={handleSaveNote}
+                style={{
+                  padding: '10px 20px',
+                  background: '#0055FF',
+                  border: 'none',
+                  color: 'white',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#003DBF';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#0055FF';
+                }}
+              >
+                Save Note
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Quick Note for Other Roles */}
+            <div style={{ marginBottom: 16 }}>
+              <textarea
+                value={subjective}
+                onChange={(e) => setSubjective(e.target.value)}
+                placeholder="Write a note..."
+                style={{
+                  width: '100%',
+                  minHeight: 100,
+                  padding: 12,
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                  resize: 'none',
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                onClick={handleSaveNote}
+                style={{
+                  padding: '10px 20px',
+                  background: '#0055FF',
+                  border: 'none',
+                  color: 'white',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#003DBF';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#0055FF';
+                }}
+              >
+                Save Note
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ── Notes Timeline ────────────────────────────────────────────────────── */}
+      <div style={{
+        background: 'white',
+        borderRadius: 12,
+        padding: 24,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+      }}>
+        <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 20px', textTransform: 'uppercase', color: '#666' }}>
+          Notes Timeline
+        </h3>
+
+        <div style={{ display: 'grid', gap: 16 }}>
+          {sampleNotes.map((note) => {
+            const isExpanded = expandedNotes.has(note.id);
+            const contentLines = note.content.split('\n');
+            const shouldShowReadMore = contentLines.length > 3;
+            const displayContent = isExpanded ? note.content : contentLines.slice(0, 3).join('\n');
+
+            return (
+              <div
+                key={note.id}
+                style={{
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  padding: 16,
+                  background: '#FAFAFA',
+                }}
+              >
+                {/* Header */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13, color: '#333' }}>
+                      {note.author}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#999' }}>
+                      ({note.role})
+                    </span>
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        padding: '2px 8px',
+                        background: note.badgeColor,
+                        color: 'white',
+                        borderRadius: 4,
+                        fontSize: 10,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {note.badge}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#999', marginLeft: 'auto' }}>
+                      {note.time}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#999' }}>
+                    {note.signed === true && '✅ Signed'}
+                    {note.signed === false && '⏳ Awaiting co-sign'}
+                    {note.signed === null && 'N/A'}
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div style={{
+                  fontSize: 12,
+                  color: '#333',
+                  lineHeight: 1.6,
+                  whiteSpace: 'pre-wrap',
+                  marginBottom: 12,
+                  fontFamily: note.type === 'SOAP' ? "'SF Mono', Menlo, monospace" : 'inherit',
+                }}>
+                  {displayContent}
+                  {shouldShowReadMore && !isExpanded && ' ...'}
+                </div>
+
+                {/* Footer Actions */}
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
+                  {shouldShowReadMore && (
+                    <button
+                      onClick={() => toggleNoteExpanded(note.id)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#0055FF',
+                        fontSize: 12,
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        padding: 0,
+                      }}
+                    >
+                      {isExpanded ? 'Show less' : 'Read more'}
+                    </button>
+                  )}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {note.signed === false && isDoctor && (
+                      <>
+                        <button
+                          style={{
+                            padding: '6px 12px',
+                            background: '#0055FF',
+                            border: 'none',
+                            color: 'white',
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = '#003DBF';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = '#0055FF';
+                          }}
+                        >
+                          Co-Sign
+                        </button>
+                        <button
+                          style={{
+                            padding: '6px 12px',
+                            background: '#FEE2E2',
+                            border: '1px solid #DC2626',
+                            color: '#DC2626',
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = '#DC2626';
+                            e.currentTarget.style.color = 'white';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = '#FEE2E2';
+                            e.currentTarget.style.color = '#DC2626';
+                          }}
+                        >
+                          Request Revision
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ──────────────────────────────────────────────────────────
 export default function PatientChartClient({ patientId, userId, userRole, userName, hospitalId }: Props) {
   const [activeTab, setActiveTab] = useState<PatientTab>('overview');
@@ -2373,14 +3034,19 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
         </div>
       )}
 
+      {/* ── Notes Tab ────────────────────────────────────────────────────────────── */}
+      {activeTab === 'notes' && (
+        <NotesTab userRole={userRole} userName={userName} onNoteSaved={loadData} />
+      )}
+
       {/* ── Other Tabs: Coming Soon ───────────────────────────────────────────── */}
-      {activeTab !== 'overview' && activeTab !== 'vitals' && activeTab !== 'labs' && activeTab !== 'orders' && (
+      {activeTab !== 'overview' && activeTab !== 'vitals' && activeTab !== 'labs' && activeTab !== 'orders' && activeTab !== 'notes' && (
         <div style={{
           padding: '40px 24px',
           textAlign: 'center',
           color: '#666',
         }}>
-          <p style={{ fontSize: 16, fontWeight: 600 }}>Coming in PC.4–PC.7</p>
+          <p style={{ fontSize: 16, fontWeight: 600 }}>Coming in PC.6–PC.7</p>
           <p style={{ fontSize: 13, color: '#999', marginTop: 8 }}>
             This tab will be available in upcoming sprints.
           </p>
