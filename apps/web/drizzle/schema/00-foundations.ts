@@ -20,7 +20,8 @@ export const userRoleEnum = pgEnum('user_role', [
   'lab_director', 'senior_lab_technician', 'lab_technician', 'phlebotomist', 'lab_manager',
   'chief_radiologist', 'senior_radiologist', 'radiologist', 'radiology_technician',
   'billing_manager', 'billing_executive', 'insurance_coordinator', 'financial_analyst', 'accounts_manager',
-  'receptionist', 'security_personnel', 'housekeeping_supervisor',
+  'receptionist', 'ip_coordinator', 'security_personnel', 'housekeeping_supervisor',
+  'surgeon', 'anaesthetist', 'ot_nurse',
   'staff',
 ]);
 
