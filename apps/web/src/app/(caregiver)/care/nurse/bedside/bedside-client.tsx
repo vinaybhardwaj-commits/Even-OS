@@ -791,9 +791,12 @@ export default function BedsideClient({
           />
         )}
 
-        {/* ═══ NOTES TAB (placeholder) ═══ */}
-        {activeTab === 'notes' && (
-          <EmptyState title="Clinical Notes" message="Shift notes and documentation will be available in NS.5." icon="📝" />
+        {/* ═══ NOTES TAB ═══ */}
+        {activeTab === 'notes' && currentPatient && (
+          <BedsideNotes
+            patientId={currentPatient.assignment.patient_id}
+            encounterId={currentPatient.assignment.encounter_id}
+          />
         )}
 
         {/* ═══ HISTORY TAB (placeholder) ═══ */}
@@ -830,6 +833,89 @@ const REFUSE_REASONS = [
   'Patient refused', 'Patient vomiting', 'Patient absent from ward',
   'Patient NPO', 'Patient sleeping (non-critical)', 'Other',
 ];
+
+// ── Bedside Notes sub-component ─────────────────────────────────────────────
+function BedsideNotes({ patientId, encounterId }: { patientId: string; encounterId: string }) {
+  const [notes, setNotes] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newNote, setNewNote] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await trpcQuery('clinicalNotes.list', { patient_id: patientId, encounter_id: encounterId });
+      setNotes(Array.isArray(data) ? data.slice(0, 20) : []);
+    } catch { /* ignore */ } finally { setLoading(false); }
+  }, [patientId, encounterId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const saveNote = async () => {
+    if (!newNote.trim()) return;
+    setSaving(true);
+    try {
+      await trpcMutate('clinicalNotes.create', {
+        patient_id: patientId,
+        encounter_id: encounterId,
+        note_type: 'nursing_note',
+        content: newNote.trim(),
+      });
+      setNewNote('');
+      await load();
+    } catch (err) {
+      alert('Failed to save note');
+    } finally { setSaving(false); }
+  };
+
+  if (loading) return <p style={{ padding: 20, textAlign: 'center', color: '#888' }}>Loading notes…</p>;
+
+  return (
+    <div style={{ padding: 16 }}>
+      {/* Quick add */}
+      <div style={{ marginBottom: 16 }}>
+        <textarea
+          value={newNote}
+          onChange={e => setNewNote(e.target.value)}
+          placeholder="Add a nursing note…"
+          rows={3}
+          style={{
+            width: '100%', padding: 10, fontSize: 14, borderRadius: 8,
+            border: '1px solid #d0d0d0', resize: 'vertical', fontFamily: 'system-ui',
+          }}
+        />
+        <button
+          onClick={saveNote}
+          disabled={saving || !newNote.trim()}
+          style={{
+            marginTop: 6, padding: '8px 20px', fontSize: 14, fontWeight: 600,
+            background: saving || !newNote.trim() ? '#ccc' : '#1565c0',
+            color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer',
+          }}
+        >
+          {saving ? 'Saving…' : 'Save Note'}
+        </button>
+      </div>
+
+      {/* Notes list */}
+      {notes.length === 0 ? (
+        <EmptyState title="No Notes Yet" message="Add the first nursing note for this patient." icon="📝" />
+      ) : (
+        notes.map((n: any, i: number) => (
+          <div key={n.id || i} style={{
+            background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8,
+            padding: 12, marginBottom: 8,
+          }}>
+            <div style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>{n.content || n.text || ''}</div>
+            <div style={{ fontSize: 11, color: '#888', marginTop: 6 }}>
+              {n.author_name || 'Unknown'} · {n.created_at ? new Date(n.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : ''}
+              {n.note_type && <span style={{ marginLeft: 8, textTransform: 'capitalize' }}>{n.note_type.replace(/_/g, ' ')}</span>}
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
 
 function BedsideMeds({ encounterId, patientId, patientName }: { encounterId: string; patientId: string; patientName: string }) {
   const [schedule, setSchedule] = useState<any[]>([]);
