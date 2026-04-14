@@ -29,3 +29,4 @@ export * from './28-mrd-documents';
 export * from './29-hardening';
 export * from './30-patient-portal';
 export * from './31-shifts';
+export * from './32-nursing';

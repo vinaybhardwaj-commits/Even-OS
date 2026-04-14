@@ -185,6 +185,7 @@ const ROUTE_GROUPS: RouteGroup[] = [
     routes: [
       { name: 'Caregiver Home', path: '/care/home', desc: 'Role-based home with quick actions', badge: 'Light theme' },
       { name: 'My Schedule', path: '/care/schedule', desc: 'Weekly shift schedule and leave requests' },
+      { name: 'Nurse Station', path: '/care/nurse', desc: 'Patient assignments, ward grid, task sidebar', badge: 'NS.1' },
     ],
   },
 ];

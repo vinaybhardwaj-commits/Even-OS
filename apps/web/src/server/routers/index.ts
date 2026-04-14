@@ -52,6 +52,7 @@ import { patientPortalRouter } from './patient-portal';
 import { evenAIRouter } from './even-ai';
 import { rolesRouter } from './roles';
 import { shiftsRouter } from './shifts';
+import { patientAssignmentsRouter } from './patient-assignments';
 
 export const appRouter = router({
   auth: authRouter,
@@ -107,6 +108,7 @@ export const appRouter = router({
   evenAI: evenAIRouter,
   roles: rolesRouter,
   shifts: shiftsRouter,
+  patientAssignments: patientAssignmentsRouter,
 });
 
 export type AppRouter = typeof appRouter;
