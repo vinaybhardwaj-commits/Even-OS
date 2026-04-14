@@ -11,6 +11,8 @@
  */
 
 import { useState, useEffect } from 'react';
+import ActionableMessage from './ActionableMessage';
+import { createActionsForMessage } from '@/lib/chat-actions';
 
 interface Channel {
   group: string;
@@ -27,6 +29,9 @@ interface Message {
   text: string;
   time: string;
   type: 'escalation' | 'update' | 'journey_step' | 'chat';
+  /** Action context for actionable messages */
+  action_type?: string;
+  action_context?: Record<string, string>;
 }
 
 interface ChatPanelProps {
@@ -52,12 +57,14 @@ const SAMPLE_CHANNELS: Channel[] = [
 ];
 
 const SAMPLE_MESSAGES: Message[] = [
-  { id: '1', sender: 'Even OS', is_system: true, text: '🔔 NEWS2 Escalation: Score 8 for Rajesh Kumar (Bed 3A-04). SpO₂ dropping to 89%. RMO notified.', time: '08:45', type: 'escalation' },
+  { id: '1', sender: 'Even OS', is_system: true, text: '🔔 NEWS2 Escalation: Score 8 for Rajesh Kumar (Bed 3A-04). SpO₂ dropping to 89%. RMO notified.', time: '08:45', type: 'escalation', action_type: 'critical_value', action_context: { patient_id: 'p001', step_id: 's001' } },
   { id: '2', sender: 'Nurse Priya', text: '💊 Metoprolol 25mg PO given to Rajesh Kumar at 08:00', time: '08:00', type: 'update' },
   { id: '3', sender: 'Dr. Sharma', text: 'Rounds complete for Ward 3A. Rajesh Kumar SpO₂ dropping — increasing O₂ to 4L. Monitor closely.', time: '07:30', type: 'chat' },
   { id: '4', sender: 'Even OS', is_system: true, text: '🔄 Shift Handoff: Night → Day shift. SBAR completed for all 6 patients.', time: '06:00', type: 'update' },
   { id: '5', sender: 'Charge Nurse Mary', text: 'Day shift assignments posted. Priya: beds 3A-01 to 3A-06. Deepa: beds 3A-07 to 3A-12.', time: '06:05', type: 'chat' },
-  { id: '6', sender: 'Even OS', is_system: true, text: '✅ Step 2.7 Complete — Ward Intimation. New patient Amit Singh → Bed 3A-08. Assign nurse.', time: '05:30', type: 'journey_step' },
+  { id: '6', sender: 'Even OS', is_system: true, text: '✅ Step 2.7 Complete — Ward Intimation. New patient Amit Singh → Bed 3A-08. Assign nurse.', time: '05:30', type: 'journey_step', action_type: 'ward_intimation', action_context: { patient_id: 'p002', step_id: 's002' } },
+  { id: '7', sender: 'Even OS', is_system: true, text: '💊 Overdue: Metoprolol 50mg for Rajesh Kumar was due at 14:00. 45 min overdue.', time: '14:45', type: 'escalation', action_type: 'overdue_med', action_context: { patient_id: 'p001' } },
+  { id: '8', sender: 'Even OS', is_system: true, text: '🚪 Patient Exit: Priya Sharma has left the hospital. Terminal cleaning required for Bed 3A-02.', time: '15:30', type: 'journey_step', action_type: 'patient_exit', action_context: { patient_id: 'p003', step_id: 's003' } },
 ];
 
 export default function ChatPanel({ isOpen, onClose, userId, userRole, userName }: ChatPanelProps) {
@@ -288,6 +295,14 @@ export default function ChatPanel({ isOpen, onClose, userId, userRole, userName 
                     )}
                     {msg.type !== 'chat' && <div style={{ height: 4 }} />}
                     {msg.text}
+                    {/* Actionable buttons */}
+                    {msg.action_type && msg.action_context && (
+                      <ActionableMessage
+                        actions={createActionsForMessage(msg.action_type, msg.action_context)}
+                        userName={userName}
+                        onNavigate={(url) => { window.location.href = url; }}
+                      />
+                    )}
                   </div>
                 </div>
               ))}
