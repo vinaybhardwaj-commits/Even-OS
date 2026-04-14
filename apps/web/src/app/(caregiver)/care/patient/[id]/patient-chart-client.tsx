@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AlertBanner } from '@/components/caregiver';
+import DischargeChecklist from '@/components/discharge/DischargeChecklist';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -4015,6 +4016,14 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
       {/* ── TAB: JOURNEY ──────────────────────────────────────────────────────── */}
       {activeTab === 'journey' && (
         <div style={{ padding: '24px' }}>
+          {/* Discharge Checklist — shows only when discharge has been initiated */}
+          <DischargeChecklist
+            patientId={patientId}
+            encounterId={encounter?.id}
+            userRole={userRole}
+            userName={userName}
+          />
+
           {['billing_manager', 'billing_executive', 'insurance_coordinator', 'resident', 'senior_resident', 'intern', 'visiting_consultant', 'hospitalist', 'specialist_cardiologist', 'specialist_neurologist', 'specialist_orthopedic', 'surgeon', 'anaesthetist'].includes(userRole) ? (
             <>
               {/* Journey Timeline */}
