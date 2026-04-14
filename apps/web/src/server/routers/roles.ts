@@ -373,6 +373,7 @@ export const rolesRouter = router({
     .input(z.object({
       id: z.string().uuid(),
       description: z.string().optional(),
+      role_group: z.enum(['clinical', 'nursing', 'admin', 'billing', 'pharmacy', 'lab', 'radiology', 'support', 'executive', 'system']).optional(),
       session_timeout_minutes: z.number().min(30).max(1440).optional(),
       is_active: z.boolean().optional(),
     }))
@@ -387,6 +388,7 @@ export const rolesRouter = router({
 
       const setValues: Record<string, any> = { updated_at: new Date() };
       if (input.description !== undefined) setValues.description = input.description;
+      if (input.role_group !== undefined) setValues.role_group = input.role_group;
       if (input.session_timeout_minutes !== undefined) setValues.session_timeout_minutes = input.session_timeout_minutes;
       if (input.is_active !== undefined) setValues.is_active = input.is_active;
 
@@ -659,6 +661,7 @@ export const rolesRouter = router({
       description: template.description,
       role_group: template.role_group,
       session_timeout_minutes: template.session_timeout_minutes,
+      permissions: template.permissions,
       permission_count: template.permissions.length,
     }));
   }),

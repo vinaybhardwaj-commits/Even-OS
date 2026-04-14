@@ -37,8 +37,8 @@ interface Role {
 }
 
 interface RoleDetail extends Role {
-  permissions: { id: string; resource: string; action: string }[];
-  assigned_users: { id: string; full_name: string; email: string }[];
+  permissions: { id: string; resource: string; action: string; description: string | null }[];
+  users: { id: string; full_name: string; email: string; department: string | null }[];
   created_at: string;
   updated_at: string;
 }
@@ -485,6 +485,12 @@ export default function RolesClient() {
                           </button>
                         </>
                       )}
+                      <a
+                        href={`/admin/roles/permissions?role_id=${selectedRole.id}`}
+                        className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded text-xs font-medium hover:bg-emerald-200 transition-colors inline-block"
+                      >
+                        Edit Permissions
+                      </a>
                       <button
                         onClick={() => { setCloneTarget(selectedRole); setCloneName(selectedRole.name + '_copy'); }}
                         className="px-3 py-1.5 bg-purple-100 text-purple-700 rounded text-xs font-medium hover:bg-purple-200 transition-colors"
@@ -509,7 +515,7 @@ export default function RolesClient() {
                       </div>
                       <div>
                         <p className="text-xs text-gray-400 uppercase">Users</p>
-                        <p className="text-xl font-bold text-gray-800">{selectedRole.assigned_users.length}</p>
+                        <p className="text-xl font-bold text-gray-800">{selectedRole.users.length}</p>
                       </div>
                       <div>
                         <p className="text-xs text-gray-400 uppercase">Timeout</p>
@@ -548,13 +554,13 @@ export default function RolesClient() {
                     {/* Assigned Users */}
                     <div className="px-5 py-3 max-h-48 overflow-y-auto">
                       <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                        Assigned Users ({selectedRole.assigned_users.length})
+                        Assigned Users ({selectedRole.users.length})
                       </h4>
-                      {selectedRole.assigned_users.length === 0 ? (
+                      {selectedRole.users.length === 0 ? (
                         <p className="text-sm text-gray-400">No users have this role</p>
                       ) : (
                         <div className="space-y-1">
-                          {selectedRole.assigned_users.map(u => (
+                          {selectedRole.users.map(u => (
                             <div key={u.id} className="flex items-center gap-2 text-sm">
                               <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs flex items-center justify-center font-medium">
                                 {(u.full_name || u.email)[0].toUpperCase()}
