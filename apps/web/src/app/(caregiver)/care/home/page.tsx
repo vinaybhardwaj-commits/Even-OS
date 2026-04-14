@@ -89,7 +89,7 @@ export default async function CaregiverHomePage() {
   const targetRoute = ROLE_HOME_MAP[user.role];
 
   // Auto-redirect to persona home if the route is built
-  const BUILT_ROUTES = ['/care/nurse', '/care/nurse/charge', '/care/nurse/bedside', '/care/nurse/emar', '/care/nurse/handoff', '/care/nurse/worksheet'];
+  const BUILT_ROUTES = ['/care/nurse', '/care/nurse/charge', '/care/nurse/bedside', '/care/nurse/emar', '/care/nurse/handoff', '/care/nurse/worksheet', '/care/doctor'];
   if (targetRoute && BUILT_ROUTES.includes(targetRoute)) {
     redirect(targetRoute);
   }
