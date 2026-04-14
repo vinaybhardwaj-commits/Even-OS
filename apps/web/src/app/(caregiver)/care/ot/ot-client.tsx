@@ -61,12 +61,18 @@ export default function OtClient({ userId, userRole, userName }: Props) {
   // ── Load data ─────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
     try {
-      const [board, rms] = await Promise.all([
+      const [boardResp, rmsResp] = await Promise.all([
         trpcQuery('otManagement.todayBoard'),
         trpcQuery('otManagement.listRooms'),
       ]);
-      setTodayBoard(Array.isArray(board) ? board : []);
-      setRooms(Array.isArray(rms) ? rms : []);
+      // todayBoard returns { board: [...] } with rooms containing cases
+      const boardRooms = boardResp?.board || boardResp || [];
+      const flatCases = Array.isArray(boardRooms)
+        ? boardRooms.flatMap((room: any) => (room.cases || []).map((c: any) => ({ ...c, room_name: room.room_name, room_id: room.room_id })))
+        : [];
+      setTodayBoard(flatCases);
+      // listRooms returns { rooms: [...], count }
+      setRooms(Array.isArray(rmsResp?.rooms) ? rmsResp.rooms : Array.isArray(rmsResp) ? rmsResp : []);
     } catch (err) {
       console.error('OT load error:', err);
     } finally {
@@ -86,11 +92,14 @@ export default function OtClient({ userId, userRole, userName }: Props) {
     const caseId = c.id || c.schedule_id;
     if (!caseId) return;
     try {
-      const [cl, an, eq] = await Promise.all([
-        trpcQuery('otManagement.getChecklist', { schedule_id: caseId }),
+      const [clSignIn, clTimeOut, clSignOut, an, eq] = await Promise.all([
+        trpcQuery('otManagement.getChecklist', { schedule_id: caseId, phase: 'sign_in' }),
+        trpcQuery('otManagement.getChecklist', { schedule_id: caseId, phase: 'time_out' }),
+        trpcQuery('otManagement.getChecklist', { schedule_id: caseId, phase: 'sign_out' }),
         trpcQuery('otManagement.getAnesthesiaRecord', { schedule_id: caseId }),
         trpcQuery('otManagement.listEquipmentLog', { schedule_id: caseId }),
       ]);
+      const cl = { sign_in: clSignIn, time_out: clTimeOut, sign_out: clSignOut };
       setChecklist(cl);
       setAnaesthesia(an);
       setEquipment(Array.isArray(eq) ? eq : []);
@@ -102,10 +111,11 @@ export default function OtClient({ userId, userRole, userName }: Props) {
     if (!selectedCase) return;
     setSaving(true);
     try {
+      // Spread checklist items as flat boolean fields per router schema
       await trpcMutate('otManagement.saveChecklist', {
         schedule_id: selectedCase.id || selectedCase.schedule_id,
         phase,
-        items: data,
+        ...data,
       });
       await selectCase(selectedCase);
     } catch (err) {
@@ -336,19 +346,19 @@ export default function OtClient({ userId, userRole, userName }: Props) {
                 {anaesthesia ? (
                   <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e0e0e0', padding: 16 }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
-                      <div><strong>ASA Grade:</strong> {anaesthesia.asa_grade || 'Not assessed'}</div>
+                      <div><strong>ASA Class:</strong> {anaesthesia.ar_asa_class || anaesthesia.asa_grade || 'Not assessed'}</div>
                       <div><strong>Airway:</strong> {anaesthesia.airway_assessment || 'N/A'}</div>
-                      <div><strong>Mallampati:</strong> {anaesthesia.mallampati_score || 'N/A'}</div>
-                      <div><strong>Technique:</strong> {anaesthesia.planned_technique || 'N/A'}</div>
+                      <div><strong>Anaesthesia Type:</strong> {anaesthesia.ar_anesthesia_type || anaesthesia.planned_technique || 'N/A'}</div>
+                      <div><strong>Fasting Hours:</strong> {anaesthesia.fasting_hours ?? 'N/A'}</div>
                       <div><strong>Aldrete Score:</strong> {anaesthesia.aldrete_score ?? 'Not scored'}</div>
-                      <div><strong>Recovery Status:</strong> {anaesthesia.recovery_status || 'N/A'}</div>
+                      <div><strong>Recovery Status:</strong> {anaesthesia.ar_recovery_status || anaesthesia.recovery_status || 'N/A'}</div>
                     </div>
-                    {anaesthesia.drugs_administered && (
+                    {(anaesthesia.agents_used || anaesthesia.drugs_administered) && (
                       <div style={{ marginTop: 12 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Drugs Administered:</div>
-                        {(Array.isArray(anaesthesia.drugs_administered) ? anaesthesia.drugs_administered : []).map((d: any, i: number) => (
+                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Agents Used:</div>
+                        {(Array.isArray(anaesthesia.agents_used || anaesthesia.drugs_administered) ? (anaesthesia.agents_used || anaesthesia.drugs_administered) : []).map((d: any, i: number) => (
                           <div key={i} style={{ fontSize: 12, color: '#555', padding: '2px 0' }}>
-                            {d.drug || d.name || d} — {d.dose || ''} {d.route || ''}
+                            {d.drug || d.agent || d.name || d} — {d.dose || ''} {d.route || ''}
                           </div>
                         ))}
                       </div>

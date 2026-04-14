@@ -51,19 +51,19 @@ export default function PharmacyClient({ userId, userRole, userName }: Props) {
   // ── Load data ─────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
     try {
-      const [pending, dispensing, inv, al, narcs, st] = await Promise.all([
-        trpcQuery('pharmacy.pendingDispensing'),
-        trpcQuery('pharmacy.listDispensingRecords', { limit: 50 }),
-        trpcQuery('pharmacy.listInventory', { limit: 50 }),
-        trpcQuery('pharmacy.listAlerts', { limit: 20 }),
-        trpcQuery('pharmacy.narcoticsBalance'),
+      const [pending, dispensing, inv, al, narcsReport, st] = await Promise.all([
+        trpcQuery('pharmacy.pendingDispensing', {}),
+        trpcQuery('pharmacy.listDispensingRecords', {}),
+        trpcQuery('pharmacy.listInventory', {}),
+        trpcQuery('pharmacy.listAlerts', { resolved_only: false }),
+        trpcQuery('pharmacy.narcoticsReport'),
         trpcQuery('pharmacy.pharmacyStats'),
       ]);
       setPendingOrders(Array.isArray(pending) ? pending : []);
       setDispensingQueue(Array.isArray(dispensing) ? dispensing : []);
       setInventory(Array.isArray(inv) ? inv : []);
       setAlerts(Array.isArray(al) ? al : []);
-      setNarcoticsData(Array.isArray(narcs) ? narcs : []);
+      setNarcoticsData(Array.isArray(narcsReport) ? narcsReport : []);
       setStats(st);
     } catch (err) {
       console.error('Pharmacy load error:', err);
@@ -84,11 +84,9 @@ export default function PharmacyClient({ userId, userRole, userName }: Props) {
     try {
       await trpcMutate('pharmacy.dispenseMedication', {
         medication_order_id: order.id,
-        drug_id: order.mo_drug_id || order.drug_id,
-        patient_id: order.mo_patient_id || order.patient_id,
-        encounter_id: order.mo_encounter_id || order.encounter_id,
-        quantity: order.mo_quantity || 1,
-        notes: `Verified and dispensed by ${userName}`,
+        dr_inventory_id: order.pi_id || order.inventory_id || order.id,
+        quantity_dispensed: order.mo_quantity || 1,
+        dr_notes: `Verified and dispensed by ${userName}`,
       });
       setActionModal(null);
       await loadData();
@@ -105,9 +103,8 @@ export default function PharmacyClient({ userId, userRole, userName }: Props) {
     try {
       // Use returnMedication to log a rejection
       await trpcMutate('pharmacy.returnMedication', {
-        dispensing_record_id: order.id,
-        reason: `[REJECTED] ${actionText.trim()}`,
-        quantity: order.mo_quantity || 1,
+        dr_id: order.id,
+        quantity_returned: order.mo_quantity || 1,
       });
       setActionModal(null);
       setActionText('');

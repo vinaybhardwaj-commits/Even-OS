@@ -81,7 +81,10 @@ export default function LabClient({ userId, userRole, userName }: Props) {
   const collectSpecimen = async (orderId: string) => {
     setSaving(true);
     try {
-      await trpcMutate('labRadiology.collectSpecimen', { order_id: orderId });
+      await trpcMutate('labRadiology.collectSpecimen', {
+        sp_order_id: orderId,
+        sp_collected_by: userId,
+      });
       await loadData();
     } catch (err) { alert('Failed to collect specimen'); }
     finally { setSaving(false); }
@@ -90,7 +93,10 @@ export default function LabClient({ userId, userRole, userName }: Props) {
   const receiveSpecimen = async (orderId: string) => {
     setSaving(true);
     try {
-      await trpcMutate('labRadiology.receiveSpecimen', { order_id: orderId });
+      await trpcMutate('labRadiology.receiveSpecimen', {
+        sp_order_id: orderId,
+        sp_received_by: userId,
+      });
       await loadData();
     } catch (err) { alert('Failed to receive specimen'); }
     finally { setSaving(false); }
