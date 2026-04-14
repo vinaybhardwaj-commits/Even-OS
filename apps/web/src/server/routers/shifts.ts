@@ -530,6 +530,7 @@ export const shiftsRouter = router({
         .innerJoin(shiftTemplates, eq(shiftInstances.template_id, shiftTemplates.id))
         .where(and(
           eq(shiftRoster.user_id, ctx.user.sub),
+          eq(shiftInstances.hospital_id, ctx.user.hospital_id),
           eq(shiftInstances.shift_date, today),
           inArray(shiftRoster.status, ['scheduled', 'confirmed']),
           inArray(shiftInstances.status, ['planned', 'active']),
@@ -570,6 +571,7 @@ export const shiftsRouter = router({
         .innerJoin(shiftTemplates, eq(shiftInstances.template_id, shiftTemplates.id))
         .where(and(
           eq(shiftRoster.user_id, ctx.user.sub),
+          eq(shiftInstances.hospital_id, ctx.user.hospital_id),
           gte(shiftInstances.shift_date, input.start_date),
           lte(shiftInstances.shift_date, input.end_date),
           inArray(shiftRoster.status, ['scheduled', 'confirmed', 'swapped']),
