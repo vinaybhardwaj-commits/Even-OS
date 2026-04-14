@@ -30,3 +30,4 @@ export * from './29-hardening';
 export * from './30-patient-portal';
 export * from './31-shifts';
 export * from './32-nursing';
+export * from './33-templates';

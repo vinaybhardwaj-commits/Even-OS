@@ -56,6 +56,7 @@ import { patientAssignmentsRouter } from './patient-assignments';
 import { nursingAssessmentsRouter } from './nursing-assessments';
 import { shiftHandoffsRouter } from './shift-handoffs';
 import { doctorDashboardRouter } from './doctor-dashboard';
+import { templateManagementRouter } from './template-management';
 
 export const appRouter = router({
   auth: authRouter,
@@ -115,6 +116,7 @@ export const appRouter = router({
   nursingAssessments: nursingAssessmentsRouter,
   shiftHandoffs: shiftHandoffsRouter,
   doctorDashboard: doctorDashboardRouter,
+  templateManagement: templateManagementRouter,
 });
 
 export type AppRouter = typeof appRouter;
