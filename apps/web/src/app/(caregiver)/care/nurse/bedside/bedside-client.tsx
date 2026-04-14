@@ -227,7 +227,7 @@ export default function BedsideClient({
   // Load recent vitals for current patient
   const loadRecentVitals = useCallback(async () => {
     if (!currentPatient) return;
-    const data = await trpcQuery('observations.latestVitals', {
+    const data = await trpcQuery('observations.getLatestVitals', {
       patient_id: currentPatient.assignment.patient_id,
       encounter_id: currentPatient.assignment.encounter_id,
     });
@@ -237,7 +237,7 @@ export default function BedsideClient({
   // Load recent I/O for current patient
   const loadRecentIO = useCallback(async () => {
     if (!currentPatient) return;
-    const data = await trpcQuery('observations.ioBalance', {
+    const data = await trpcQuery('observations.getIntakeOutputBalance', {
       patient_id: currentPatient.assignment.patient_id,
       encounter_id: currentPatient.assignment.encounter_id,
     });
@@ -309,12 +309,13 @@ export default function BedsideClient({
     if (!currentPatient || !ioEntry.amount) return;
     setIOSaving(true);
     try {
-      await trpcMutate('observations.recordIO', {
+      await trpcMutate('observations.createIntakeOutput', {
         patient_id: currentPatient.assignment.patient_id,
         encounter_id: currentPatient.assignment.encounter_id,
-        io_type: ioEntry.type,
-        value: parseFloat(ioEntry.amount),
-        notes: ioEntry.notes || undefined,
+        observation_type: ioEntry.type,
+        value_quantity: parseFloat(ioEntry.amount),
+        effective_datetime: new Date().toISOString(),
+        io_notes: ioEntry.notes || undefined,
       });
       setIOEntry({ type: 'intake_iv', amount: '', notes: '' });
       await loadRecentIO();

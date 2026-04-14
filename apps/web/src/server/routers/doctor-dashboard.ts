@@ -70,8 +70,8 @@ export const doctorDashboardRouter = router({
         ) n2 ON true
         LEFT JOIN LATERAL (
           SELECT COUNT(*)::int AS allergy_count
-          FROM allergies
-          WHERE patient_id = e.patient_id AND hospital_id = ${hospitalId} AND status = 'active'
+          FROM allergy_intolerances
+          WHERE patient_id = e.patient_id AND hospital_id = ${hospitalId} AND is_deleted = false
         ) al ON true
         WHERE e.hospital_id = ${hospitalId}
           AND e.status IN ('in_progress', 'admitted')
@@ -128,15 +128,16 @@ export const doctorDashboardRouter = router({
         `,
         // Recent lab results (last 5 orders)
         getSql()`
-          SELECT lo.id AS order_id, lo.test_name, lo.status AS order_status, lo.ordered_at,
-                 lr.test_code, lr.result_value, lr.result_unit, lr.reference_range,
-                 lr.is_abnormal, lr.is_critical, lr.resulted_at
+          SELECT lo.id AS order_id, lo.lo_panel_name AS test_name, lo.lo_status AS order_status, lo.lo_ordered_at AS ordered_at,
+                 lr.lr_test_code AS test_code, COALESCE(lr.value_numeric::text, lr.value_text) AS result_value,
+                 lr.lr_unit AS result_unit, lr.lr_ref_range_text AS reference_range,
+                 (lr.lr_flag != 'normal') AS is_abnormal, lr.lr_is_critical AS is_critical, lr.lr_resulted_at AS resulted_at
           FROM lab_orders lo
-          LEFT JOIN lab_results lr ON lr.order_id = lo.id
+          LEFT JOIN lab_results lr ON lr.lr_order_id = lo.id
           WHERE lo.hospital_id = ${hospitalId}
-            AND lo.patient_id = ${input.patient_id}::uuid
-            AND lo.encounter_id = ${input.encounter_id}::uuid
-          ORDER BY lo.ordered_at DESC
+            AND lo.lo_patient_id = ${input.patient_id}::uuid
+            AND lo.lo_encounter_id = ${input.encounter_id}::uuid
+          ORDER BY lo.lo_ordered_at DESC
           LIMIT 20
         `,
         // Active medication orders
@@ -154,7 +155,7 @@ export const doctorDashboardRouter = router({
         getSql()`
           SELECT ci.id, ci.note_type, ci.status, ci.created_at,
                  u.full_name AS author_name,
-                 LEFT(ci.text_content, 200) AS excerpt
+                 LEFT(ci.free_text_content, 200) AS excerpt
           FROM clinical_impressions ci
           LEFT JOIN users u ON u.id = ci.author_id
           WHERE ci.hospital_id = ${hospitalId}
@@ -165,7 +166,7 @@ export const doctorDashboardRouter = router({
         `,
         // Active problems
         getSql()`
-          SELECT id, code_display, clinical_status, severity, onset_date
+          SELECT id, condition_name AS code_display, clinical_status, severity, onset_date
           FROM conditions
           WHERE hospital_id = ${hospitalId}
             AND patient_id = ${input.patient_id}::uuid
@@ -174,11 +175,12 @@ export const doctorDashboardRouter = router({
         `,
         // Allergies
         getSql()`
-          SELECT id, substance, reaction_type, severity, status
-          FROM allergies
+          SELECT id, substance, reaction AS reaction_type, severity, allergy_verification_status AS status
+          FROM allergy_intolerances
           WHERE hospital_id = ${hospitalId}
             AND patient_id = ${input.patient_id}::uuid
-            AND status = 'active'
+            AND allergy_verification_status != 'entered-in-error'
+            AND is_deleted = false
         `,
       ]);
 

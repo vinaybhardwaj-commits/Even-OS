@@ -133,6 +133,7 @@ interface CdsAlert {
 interface Props {
   userId: string;
   userRole: string;
+  userName?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
