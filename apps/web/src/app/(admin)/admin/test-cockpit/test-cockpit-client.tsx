@@ -195,6 +195,9 @@ const ROUTE_GROUPS: RouteGroup[] = [
       { name: 'Rounds View', path: '/care/doctor/rounds', desc: 'Rich patient cards, key labs, vitals, orders, companion quick notes', badge: 'DV.2' },
       { name: 'SOAP Notes', path: '/care/doctor/note', desc: 'SOAP form with auto-populated O, quick-insert chips, post-rounds batch mode', badge: 'DV.3' },
       { name: 'Co-Sign + Discharge', path: '/care/doctor/cosign', desc: 'Batch co-sign approval, reject/addendum, discharge summary form', badge: 'DV.4' },
+      { name: 'Pharmacy Station', path: '/care/pharmacy', desc: 'Verification queue, dispensing, inventory, narcotics register', badge: 'DP.1' },
+      { name: 'Lab Station', path: '/care/lab', desc: 'Worklist (STAT/routine), specimen pipeline, results, critical values', badge: 'DP.2' },
+      { name: 'OT Hub', path: '/care/ot', desc: 'Board, WHO checklist, anaesthesia, equipment — role-based views', badge: 'DP.3-4' },
     ],
   },
 ];
