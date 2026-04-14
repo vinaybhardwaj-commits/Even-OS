@@ -513,6 +513,7 @@ function LabPanel({ title, timestamp, isOpen, onToggle, tests }: LabPanelProps) 
 export default function PatientChartClient({ patientId, userId, userRole, userName, hospitalId }: Props) {
   const [activeTab, setActiveTab] = useState<PatientTab>('overview');
   const [loading, setLoading] = useState(true);
+  const [orderPanel, setOrderPanel] = useState<'none' | 'medication' | 'labs' | 'imaging' | 'consult'>('none');
 
   const [patient, setPatient] = useState<PatientData | null>(null);
   const [encounter, setEncounter] = useState<EncounterData | null>(null);
@@ -589,6 +590,17 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
     const iv = setInterval(loadData, 60_000);
     return () => clearInterval(iv);
   }, [loadData]);
+
+  // ── Escape key handler for closing order panels ───────────────────────────
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOrderPanel('none');
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, []);
 
   // ── Event handlers ───────────────────────────────────────────────────────
   const handleActionClick = (label: string) => {
@@ -2134,8 +2146,235 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
         </div>
       )}
 
+      {/* ── Orders Tab (Doctor Roles Only) ──────────────────────────────────── */}
+      {activeTab === 'orders' && (
+        <div style={{ padding: '24px', background: '#f5f6fa', minHeight: '100vh', paddingBottom: 100 }}>
+          {/* Doctor role check */}
+          {!['resident', 'senior_resident', 'intern', 'visiting_consultant', 'hospitalist', 'specialist_cardiologist', 'specialist_neurologist', 'specialist_orthopedic', 'surgeon', 'anaesthetist'].includes(userRole) ? (
+            <div style={{
+              padding: '40px 24px',
+              textAlign: 'center',
+              color: '#666',
+            }}>
+              <p style={{ fontSize: 16, fontWeight: 600 }}>Orders are managed by doctors</p>
+              <p style={{ fontSize: 13, color: '#999', marginTop: 8 }}>
+                Your role does not have permission to place orders. Please contact a doctor or specialist.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Quick Order Buttons */}
+              <div style={{
+                background: 'white',
+                borderRadius: 12,
+                padding: 20,
+                marginBottom: 24,
+                boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+              }}>
+                <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 16px', textTransform: 'uppercase', color: '#666' }}>
+                  Place New Order
+                </h3>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))',
+                  gap: 12,
+                }}>
+                  <button
+                    onClick={() => setOrderPanel('labs')}
+                    style={{
+                      height: 48,
+                      padding: '8px 16px',
+                      background: 'white',
+                      border: '2px solid #0055FF',
+                      color: '#0055FF',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      transition: 'all 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#EFF6FF';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'white';
+                    }}
+                  >
+                    <span style={{ fontSize: 18 }}>🔬</span> Order Labs
+                  </button>
+                  <button
+                    onClick={() => setOrderPanel('medication')}
+                    style={{
+                      height: 48,
+                      padding: '8px 16px',
+                      background: 'white',
+                      border: '2px solid #0055FF',
+                      color: '#0055FF',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      transition: 'all 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#EFF6FF';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'white';
+                    }}
+                  >
+                    <span style={{ fontSize: 18 }}>💊</span> Prescribe Med
+                  </button>
+                  <button
+                    onClick={() => setOrderPanel('imaging')}
+                    style={{
+                      height: 48,
+                      padding: '8px 16px',
+                      background: 'white',
+                      border: '2px solid #0055FF',
+                      color: '#0055FF',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      transition: 'all 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#EFF6FF';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'white';
+                    }}
+                  >
+                    <span style={{ fontSize: 18 }}>📡</span> Order Imaging
+                  </button>
+                  <button
+                    onClick={() => setOrderPanel('consult')}
+                    style={{
+                      height: 48,
+                      padding: '8px 16px',
+                      background: 'white',
+                      border: '2px solid #0055FF',
+                      color: '#0055FF',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      transition: 'all 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#EFF6FF';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'white';
+                    }}
+                  >
+                    <span style={{ fontSize: 18 }}>🏥</span> Request Consult
+                  </button>
+                </div>
+              </div>
+
+              {/* Active Orders Table */}
+              <div style={{
+                background: 'white',
+                borderRadius: 12,
+                padding: 20,
+                boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+              }}>
+                <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 16px', textTransform: 'uppercase', color: '#666' }}>
+                  Active Orders
+                </h3>
+                <div style={{
+                  overflowX: 'auto',
+                  borderRadius: 8,
+                  border: '1px solid #e0e0e0',
+                }}>
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    fontSize: 13,
+                  }}>
+                    <thead>
+                      <tr style={{ background: '#f9f9f9', borderBottom: '1px solid #e0e0e0' }}>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Date</th>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Order</th>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Type</th>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Status</th>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Priority</th>
+                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Ordered By</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { date: '14 Apr 07:30', order: 'CBC + RFT + Coag', type: 'Lab', status: 'Pending', priority: 'Routine', orderedBy: 'Dr. Sharma' },
+                        { date: '13 Apr 08:00', order: 'Chest X-Ray PA', type: 'Imaging', status: 'Completed', priority: 'Routine', orderedBy: 'Dr. Priya' },
+                        { date: '12 Apr 14:00', order: 'Enoxaparin 40mg SC OD', type: 'Medication', status: 'Active', priority: 'Routine', orderedBy: 'Dr. Sharma' },
+                        { date: '12 Apr 14:00', order: 'Metoprolol 25mg PO BD', type: 'Medication', status: 'Active', priority: 'Routine', orderedBy: 'Dr. Sharma' },
+                        { date: '12 Apr 14:00', order: 'Clopidogrel 75mg PO OD', type: 'Medication', status: 'Active', priority: 'Routine', orderedBy: 'Dr. Sharma' },
+                        { date: '11 Apr 18:00', order: 'Cardiology Consult', type: 'Consult', status: 'Completed', priority: 'Routine', orderedBy: 'Dr. Priya' },
+                      ].map((row, idx) => {
+                        let statusBg = '#EFF6FF';
+                        let statusColor = '#0055FF';
+                        if (row.status === 'Active') {
+                          statusBg = '#ECFDF5';
+                          statusColor = '#0B8A3E';
+                        } else if (row.status === 'Completed') {
+                          statusBg = '#F3F4F6';
+                          statusColor = '#666';
+                        } else if (row.status === 'Cancelled') {
+                          statusBg = '#FEE2E2';
+                          statusColor = '#DC2626';
+                        }
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid #e0e0e0' }}>
+                            <td style={{ padding: '12px', color: '#666' }}>{row.date}</td>
+                            <td style={{ padding: '12px', color: '#333', fontWeight: 500 }}>{row.order}</td>
+                            <td style={{ padding: '12px', color: '#666' }}>{row.type}</td>
+                            <td style={{ padding: '12px' }}>
+                              <span style={{
+                                display: 'inline-block',
+                                padding: '4px 8px',
+                                borderRadius: 4,
+                                background: statusBg,
+                                color: statusColor,
+                                fontWeight: 500,
+                                fontSize: 12,
+                              }}>
+                                {row.status}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px', color: '#666' }}>{row.priority}</td>
+                            <td style={{ padding: '12px', color: '#666' }}>{row.orderedBy}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* ── Other Tabs: Coming Soon ───────────────────────────────────────────── */}
-      {activeTab !== 'overview' && activeTab !== 'vitals' && activeTab !== 'labs' && (
+      {activeTab !== 'overview' && activeTab !== 'vitals' && activeTab !== 'labs' && activeTab !== 'orders' && (
         <div style={{
           padding: '40px 24px',
           textAlign: 'center',
@@ -2192,6 +2431,1036 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
           </button>
         ))}
       </div>
+
+      {/* ── SLIDE-IN PANELS FOR ORDERS ──────────────────────────────────────── */}
+
+      {/* Backdrop Overlay */}
+      {orderPanel !== 'none' && (
+        <div
+          onClick={() => setOrderPanel('none')}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.3)',
+            zIndex: 999,
+          }}
+        />
+      )}
+
+      {/* Medication Panel */}
+      {orderPanel === 'medication' && (
+        <div style={{
+          position: 'fixed',
+          right: 0,
+          top: 0,
+          width: 420,
+          height: '100vh',
+          background: 'white',
+          boxShadow: '-4px 0 20px rgba(0,0,0,0.1)',
+          zIndex: 1000,
+          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '20px',
+            borderBottom: '1px solid #e0e0e0',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexShrink: 0,
+          }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: '#002054' }}>Prescribe Medication</h2>
+            <button
+              onClick={() => setOrderPanel('none')}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: 24,
+                cursor: 'pointer',
+                color: '#666',
+                padding: 0,
+                width: 32,
+                height: 32,
+              }}
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Form */}
+          <div style={{
+            padding: '20px',
+            flex: 1,
+            overflowY: 'auto',
+          }}>
+            {/* Drug Name */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Drug Name
+              </label>
+              <input
+                type="text"
+                placeholder="Search drug name..."
+                style={{
+                  width: '100%',
+                  height: 40,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                }}
+              />
+            </div>
+
+            {/* Dose */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Dose
+              </label>
+              <input
+                type="text"
+                placeholder="e.g., 25mg, 500mg"
+                style={{
+                  width: '100%',
+                  height: 40,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                }}
+              />
+            </div>
+
+            {/* Route */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Route
+              </label>
+              <select
+                style={{
+                  width: '100%',
+                  height: 40,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                }}
+              >
+                <option>PO</option>
+                <option>IV</option>
+                <option>SC</option>
+                <option>IM</option>
+                <option>PR</option>
+                <option>Topical</option>
+                <option>Inhaled</option>
+                <option>Sublingual</option>
+              </select>
+            </div>
+
+            {/* Frequency */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Frequency
+              </label>
+              <select
+                style={{
+                  width: '100%',
+                  height: 40,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                }}
+              >
+                <option>OD</option>
+                <option>BD</option>
+                <option>TDS</option>
+                <option>QDS</option>
+                <option>Q4H</option>
+                <option>Q6H</option>
+                <option>Q8H</option>
+                <option>Q12H</option>
+                <option>PRN</option>
+                <option>STAT</option>
+                <option>Once</option>
+              </select>
+            </div>
+
+            {/* Duration */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Duration
+              </label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="text"
+                  placeholder="e.g., 5 days, 2 weeks"
+                  style={{
+                    flex: 1,
+                    height: 40,
+                    padding: '8px 12px',
+                    fontSize: 13,
+                    border: '1px solid #d0d0d0',
+                    borderRadius: 6,
+                    boxSizing: 'border-box',
+                    fontFamily: 'system-ui',
+                  }}
+                />
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12, color: '#333', cursor: 'pointer' }}>
+                <input type="checkbox" style={{ cursor: 'pointer' }} />
+                Until discharge
+              </label>
+            </div>
+
+            {/* PRN Instructions */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                PRN Instructions (if applicable)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g., for pain &gt; 5"
+                style={{
+                  width: '100%',
+                  height: 40,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                }}
+              />
+            </div>
+
+            {/* Start */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Start
+              </label>
+              <select
+                style={{
+                  width: '100%',
+                  height: 40,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                }}
+              >
+                <option>Now</option>
+                <option>Next dose time</option>
+                <option>Tomorrow</option>
+              </select>
+            </div>
+
+            {/* Special Instructions */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Special Instructions
+              </label>
+              <textarea
+                placeholder="Any special instructions..."
+                style={{
+                  width: '100%',
+                  minHeight: 80,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                  resize: 'vertical',
+                }}
+              />
+            </div>
+
+            {/* Safety Checks */}
+            <div style={{ marginBottom: 20 }}>
+              <h4 style={{ fontSize: 12, fontWeight: 700, margin: '0 0 12px', color: '#333' }}>Safety Checks</h4>
+
+              {/* Allergy Warning */}
+              <div style={{
+                padding: 12,
+                background: '#FEE2E2',
+                border: '1px solid #FCA5A5',
+                borderRadius: 6,
+                marginBottom: 8,
+              }}>
+                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#DC2626' }}>
+                  ⚠️ ALLERGY: Patient is allergic to Penicillin (SEVERE)
+                </p>
+                <p style={{ margin: 0, fontSize: 11, color: '#991B1B' }}>
+                  Drug class match would be flagged here
+                </p>
+              </div>
+
+              {/* DDI Warning */}
+              <div style={{
+                padding: 12,
+                background: '#FEF3C7',
+                border: '1px solid #FCD34D',
+                borderRadius: 6,
+                marginBottom: 8,
+              }}>
+                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#D97706' }}>
+                  ⚠️ DDI: Potential interaction with existing medication
+                </p>
+                <p style={{ margin: 0, fontSize: 11, color: '#92400E' }}>
+                  Severity: Moderate
+                </p>
+              </div>
+
+              {/* Renal Warning */}
+              <div style={{
+                padding: 12,
+                background: '#DBEAFE',
+                border: '1px solid #93C5FD',
+                borderRadius: 6,
+              }}>
+                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#0055FF' }}>
+                  ℹ️ Renal: eGFR 38
+                </p>
+                <p style={{ margin: 0, fontSize: 11, color: '#1E40AF' }}>
+                  Dose adjustment may be needed
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={{
+            padding: '16px 20px',
+            borderTop: '1px solid #e0e0e0',
+            display: 'flex',
+            gap: 12,
+            flexShrink: 0,
+          }}>
+            <button
+              onClick={() => setOrderPanel('none')}
+              style={{
+                flex: 1,
+                height: 40,
+                background: '#f0f0f0',
+                border: 'none',
+                color: '#333',
+                borderRadius: 6,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                alert('Medication order placed successfully!');
+                setOrderPanel('none');
+              }}
+              style={{
+                flex: 1,
+                height: 40,
+                background: '#0055FF',
+                border: 'none',
+                color: 'white',
+                borderRadius: 6,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Prescribe
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Labs Panel */}
+      {orderPanel === 'labs' && (
+        <div style={{
+          position: 'fixed',
+          right: 0,
+          top: 0,
+          width: 420,
+          height: '100vh',
+          background: 'white',
+          boxShadow: '-4px 0 20px rgba(0,0,0,0.1)',
+          zIndex: 1000,
+          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '20px',
+            borderBottom: '1px solid #e0e0e0',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexShrink: 0,
+          }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: '#002054' }}>Order Labs</h2>
+            <button
+              onClick={() => setOrderPanel('none')}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: 24,
+                cursor: 'pointer',
+                color: '#666',
+                padding: 0,
+                width: 32,
+                height: 32,
+              }}
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Form */}
+          <div style={{
+            padding: '20px',
+            flex: 1,
+            overflowY: 'auto',
+          }}>
+            {/* Quick-select chips */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 12, color: '#333' }}>
+                Quick Select
+              </label>
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+              }}>
+                {['CBC', 'RFT', 'LFT', 'Coagulation', 'Electrolytes', 'Blood Gas', 'Cardiac Markers', 'HbA1c', 'Thyroid', 'Cultures'].map((chip) => (
+                  <button
+                    key={chip}
+                    style={{
+                      padding: '6px 12px',
+                      background: '#EFF6FF',
+                      border: '1px solid #0055FF',
+                      color: '#0055FF',
+                      borderRadius: 20,
+                      fontSize: 12,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Search */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Search Tests
+              </label>
+              <input
+                type="text"
+                placeholder="Search individual test..."
+                style={{
+                  width: '100%',
+                  height: 40,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                }}
+              />
+            </div>
+
+            {/* Selected Tests */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 8, color: '#333' }}>
+                Selected Tests
+              </label>
+              <div style={{
+                background: '#f9f9f9',
+                border: '1px solid #e0e0e0',
+                borderRadius: 6,
+                padding: '12px',
+                minHeight: 60,
+              }}>
+                <p style={{ margin: '0 0 8px', fontSize: 12, color: '#666' }}>
+                  CBC, RFT, Coagulation
+                </p>
+                <p style={{ margin: 0, fontSize: 11, color: '#999' }}>
+                  (Select tests above to add them)
+                </p>
+              </div>
+            </div>
+
+            {/* Priority */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 8, color: '#333' }}>
+                Priority
+              </label>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button
+                  style={{
+                    flex: 1,
+                    height: 40,
+                    background: '#ECFDF5',
+                    border: '1px solid #0B8A3E',
+                    color: '#0B8A3E',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Routine
+                </button>
+                <button
+                  style={{
+                    flex: 1,
+                    height: 40,
+                    background: '#FEE2E2',
+                    border: '1px solid #DC2626',
+                    color: '#DC2626',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  STAT
+                </button>
+              </div>
+            </div>
+
+            {/* Clinical Indication */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Clinical Indication
+              </label>
+              <textarea
+                placeholder="e.g., Baseline before chemotherapy..."
+                style={{
+                  width: '100%',
+                  minHeight: 80,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                  resize: 'vertical',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={{
+            padding: '16px 20px',
+            borderTop: '1px solid #e0e0e0',
+            display: 'flex',
+            gap: 12,
+            flexShrink: 0,
+          }}>
+            <button
+              onClick={() => setOrderPanel('none')}
+              style={{
+                flex: 1,
+                height: 40,
+                background: '#f0f0f0',
+                border: 'none',
+                color: '#333',
+                borderRadius: 6,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                alert('Lab order placed successfully!');
+                setOrderPanel('none');
+              }}
+              style={{
+                flex: 1,
+                height: 40,
+                background: '#0055FF',
+                border: 'none',
+                color: 'white',
+                borderRadius: 6,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Place Order
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Imaging Panel */}
+      {orderPanel === 'imaging' && (
+        <div style={{
+          position: 'fixed',
+          right: 0,
+          top: 0,
+          width: 420,
+          height: '100vh',
+          background: 'white',
+          boxShadow: '-4px 0 20px rgba(0,0,0,0.1)',
+          zIndex: 1000,
+          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '20px',
+            borderBottom: '1px solid #e0e0e0',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexShrink: 0,
+          }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: '#002054' }}>Order Imaging</h2>
+            <button
+              onClick={() => setOrderPanel('none')}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: 24,
+                cursor: 'pointer',
+                color: '#666',
+                padding: 0,
+                width: 32,
+                height: 32,
+              }}
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Form */}
+          <div style={{
+            padding: '20px',
+            flex: 1,
+            overflowY: 'auto',
+          }}>
+            {/* Modality */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Modality
+              </label>
+              <select
+                style={{
+                  width: '100%',
+                  height: 40,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                }}
+              >
+                <option>X-Ray</option>
+                <option>CT</option>
+                <option>MRI</option>
+                <option>Ultrasound</option>
+                <option>Echo</option>
+                <option>Fluoroscopy</option>
+              </select>
+            </div>
+
+            {/* Body Part / Region */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Body Part / Region
+              </label>
+              <input
+                type="text"
+                placeholder="e.g., Chest PA, Abdomen"
+                style={{
+                  width: '100%',
+                  height: 40,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                }}
+              />
+            </div>
+
+            {/* Clinical Indication */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Clinical Indication
+              </label>
+              <textarea
+                placeholder="e.g., Fever, SOB, chest pain..."
+                style={{
+                  width: '100%',
+                  minHeight: 80,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                  resize: 'vertical',
+                }}
+              />
+            </div>
+
+            {/* Priority */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 8, color: '#333' }}>
+                Priority
+              </label>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button
+                  style={{
+                    flex: 1,
+                    height: 40,
+                    background: '#ECFDF5',
+                    border: '1px solid #0B8A3E',
+                    color: '#0B8A3E',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Routine
+                </button>
+                <button
+                  style={{
+                    flex: 1,
+                    height: 40,
+                    background: '#FEE2E2',
+                    border: '1px solid #DC2626',
+                    color: '#DC2626',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Urgent
+                </button>
+              </div>
+            </div>
+
+            {/* Special Instructions */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Special Instructions
+              </label>
+              <textarea
+                placeholder="Any special instructions..."
+                style={{
+                  width: '100%',
+                  minHeight: 80,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                  resize: 'vertical',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={{
+            padding: '16px 20px',
+            borderTop: '1px solid #e0e0e0',
+            display: 'flex',
+            gap: 12,
+            flexShrink: 0,
+          }}>
+            <button
+              onClick={() => setOrderPanel('none')}
+              style={{
+                flex: 1,
+                height: 40,
+                background: '#f0f0f0',
+                border: 'none',
+                color: '#333',
+                borderRadius: 6,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                alert('Imaging order placed successfully!');
+                setOrderPanel('none');
+              }}
+              style={{
+                flex: 1,
+                height: 40,
+                background: '#0055FF',
+                border: 'none',
+                color: 'white',
+                borderRadius: 6,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Place Order
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Consult Panel */}
+      {orderPanel === 'consult' && (
+        <div style={{
+          position: 'fixed',
+          right: 0,
+          top: 0,
+          width: 420,
+          height: '100vh',
+          background: 'white',
+          boxShadow: '-4px 0 20px rgba(0,0,0,0.1)',
+          zIndex: 1000,
+          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '20px',
+            borderBottom: '1px solid #e0e0e0',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexShrink: 0,
+          }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: '#002054' }}>Request Consult</h2>
+            <button
+              onClick={() => setOrderPanel('none')}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: 24,
+                cursor: 'pointer',
+                color: '#666',
+                padding: 0,
+                width: 32,
+                height: 32,
+              }}
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Form */}
+          <div style={{
+            padding: '20px',
+            flex: 1,
+            overflowY: 'auto',
+          }}>
+            {/* Specialty */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Specialty
+              </label>
+              <select
+                style={{
+                  width: '100%',
+                  height: 40,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                }}
+              >
+                <option>Cardiology</option>
+                <option>Nephrology</option>
+                <option>Pulmonology</option>
+                <option>Neurology</option>
+                <option>General Surgery</option>
+                <option>Orthopedics</option>
+                <option>ENT</option>
+                <option>Ophthalmology</option>
+                <option>Dermatology</option>
+                <option>Urology</option>
+                <option>Oncology</option>
+                <option>Psychiatry</option>
+                <option>Physiotherapy</option>
+                <option>Dietetics</option>
+              </select>
+            </div>
+
+            {/* Urgency */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 8, color: '#333' }}>
+                Urgency
+              </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <button
+                  style={{
+                    height: 40,
+                    background: '#ECFDF5',
+                    border: '1px solid #0B8A3E',
+                    color: '#0B8A3E',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Routine 6-12h
+                </button>
+                <button
+                  style={{
+                    height: 40,
+                    background: '#FEF3C7',
+                    border: '1px solid #D97706',
+                    color: '#D97706',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Urgent &lt;30min
+                </button>
+                <button
+                  style={{
+                    height: 40,
+                    background: '#FEE2E2',
+                    border: '1px solid #DC2626',
+                    color: '#DC2626',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Emergency
+                </button>
+              </div>
+            </div>
+
+            {/* Clinical Question */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Clinical Question
+              </label>
+              <textarea
+                placeholder="e.g., Rising creatinine, possible AKI. Please evaluate."
+                style={{
+                  width: '100%',
+                  minHeight: 100,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  border: '1px solid #d0d0d0',
+                  borderRadius: 6,
+                  boxSizing: 'border-box',
+                  fontFamily: 'system-ui',
+                  resize: 'vertical',
+                }}
+              />
+            </div>
+
+            {/* Relevant Findings */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#333' }}>
+                Relevant Findings
+              </label>
+              <div style={{
+                background: '#f9f9f9',
+                border: '1px solid #e0e0e0',
+                borderRadius: 6,
+                padding: '12px',
+                fontSize: 12,
+                fontFamily: "'SF Mono', Menlo, monospace",
+                color: '#666',
+                minHeight: 60,
+              }}>
+                <p style={{ margin: 0 }}>Cr 1.8↑, eGFR 38↓, BUN 28↑</p>
+                <p style={{ margin: '4px 0 0' }}>On Enoxaparin</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={{
+            padding: '16px 20px',
+            borderTop: '1px solid #e0e0e0',
+            display: 'flex',
+            gap: 12,
+            flexShrink: 0,
+          }}>
+            <button
+              onClick={() => setOrderPanel('none')}
+              style={{
+                flex: 1,
+                height: 40,
+                background: '#f0f0f0',
+                border: 'none',
+                color: '#333',
+                borderRadius: 6,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                alert('Consult request sent successfully!');
+                setOrderPanel('none');
+              }}
+              style={{
+                flex: 1,
+                height: 40,
+                background: '#0055FF',
+                border: 'none',
+                color: 'white',
+                borderRadius: 6,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Send Consult
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* CSS for pulse animation */}
       <style>{`
