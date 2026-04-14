@@ -77,7 +77,7 @@ interface JourneyData {
   next_milestone: string;
 }
 
-type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan';
+type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan' | 'emar';
 
 interface Props {
   patientId: string;
@@ -99,7 +99,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
     return [
       { label: 'Overview', id: 'overview', icon: '📋' },
       { label: 'Vitals & I/O', id: 'vitals', icon: '📊' },
-      { label: 'eMAR', id: 'notes', icon: '💊' },
+      { label: 'eMAR', id: 'emar', icon: '💊' },
       { label: 'Assessments', id: 'plan', icon: '✅' },
       { label: 'Notes', id: 'notes', icon: '📝' },
       { label: 'Tasks', id: 'orders', icon: '🎯' },
@@ -1186,6 +1186,15 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   const [journey, setJourney] = useState<JourneyData | null>(null);
   const [news2Score, setNews2Score] = useState<number | null>(null);
   const [news2RiskLevel, setNews2RiskLevel] = useState<'low' | 'medium' | 'high' | null>(null);
+
+  // eMAR state
+  const [emarGiveModal, setEmarGiveModal] = useState<{ med_id: string; med_name: string; dose: string; route: string } | null>(null);
+  const [emarHoldModal, setEmarHoldModal] = useState<{ med_id: string; med_name: string } | null>(null);
+  const [emarRefuseModal, setEmarRefuseModal] = useState<{ med_id: string; med_name: string } | null>(null);
+  const [emarAdminSite, setEmarAdminSite] = useState('');
+  const [emarBarcode, setEmarBarcode] = useState('');
+  const [emarHoldReason, setEmarHoldReason] = useState('');
+  const [emarRefuseReason, setEmarRefuseReason] = useState('');
 
   const tabs = getTabsForRole(userRole);
   const actionButtons = getActionButtonsForRole(userRole);
@@ -3039,8 +3048,568 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
         <NotesTab userRole={userRole} userName={userName} onNoteSaved={loadData} />
       )}
 
+      {/* ── eMAR Tab (Medication Administration Record) ────────────────────────── */}
+      {activeTab === 'emar' && (
+        <div style={{ padding: '24px', background: '#f5f6fa', minHeight: '100vh' }}>
+          {/* Nursing roles: show full eMAR interface */}
+          {['nurse', 'senior_nurse', 'charge_nurse', 'nursing_supervisor', 'nursing_manager', 'ot_nurse'].includes(userRole) ? (
+            <>
+              {/* ── Summary Stats Bar ──────────────────────────────────────────────── */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: 16,
+                marginBottom: 24,
+              }}>
+                {[
+                  { label: 'Total Active Meds', value: '6', color: '#0055FF' },
+                  { label: 'Given Today', value: '3', color: '#0B8A3E' },
+                  { label: 'Overdue', value: '1', color: '#DC2626' },
+                  { label: 'Pending', value: '2', color: '#D97706' },
+                ].map((stat, idx) => (
+                  <div key={idx} style={{
+                    background: 'white',
+                    borderRadius: 12,
+                    padding: 16,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                    borderLeft: `4px solid ${stat.color}`,
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#666', textTransform: 'uppercase' }}>{stat.label}</div>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: stat.color, marginTop: 8 }}>{stat.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* ── Scheduled Medications ──────────────────────────────────────────── */}
+              <div style={{ marginBottom: 24 }}>
+                <h2 style={{ fontSize: 16, fontWeight: 700, color: '#002054', marginBottom: 16, padding: '0 0 12px', borderBottom: '2px solid #e0e0e0' }}>
+                  Scheduled Medications
+                </h2>
+
+                {/* Medication Cards */}
+                {[
+                  { id: 'm1', name: 'Metoprolol 25mg PO BD', dose: '25mg', route: 'PO', doctor: 'Dr. Sharma', startDate: '12 Apr', times: [{ time: '06:00', status: 'given' }, { time: '08:00', status: 'given' }, { time: '14:00', status: 'due' }, { time: '22:00', status: 'none' }], nextDue: 'Due 14:00' },
+                  { id: 'm2', name: 'Clopidogrel 75mg PO OD', dose: '75mg', route: 'PO', doctor: 'Dr. Sharma', startDate: '12 Apr', times: [{ time: '08:00', status: 'none' }, { time: '12:00', status: 'due' }, { time: '16:00', status: 'none' }, { time: '20:00', status: 'none' }], nextDue: 'Due 12:00' },
+                  { id: 'm3', name: 'Enoxaparin 40mg SC OD', dose: '40mg', route: 'SC', doctor: 'Dr. Sharma', startDate: '12 Apr', times: [{ time: '06:00', status: 'none' }, { time: '10:00', status: 'overdue' }, { time: '14:00', status: 'none' }, { time: '18:00', status: 'none' }], nextDue: 'OVERDUE (due 10:00)', isOverdue: true },
+                  { id: 'm4', name: 'Atorvastatin 40mg PO HS', dose: '40mg', route: 'PO', doctor: 'Dr. Sharma', startDate: '12 Apr', times: [{ time: '06:00', status: 'none' }, { time: '12:00', status: 'none' }, { time: '18:00', status: 'none' }, { time: '22:00', status: 'due' }], nextDue: 'Due tonight' },
+                  { id: 'm5', name: 'Pantoprazole 40mg IV OD', dose: '40mg', route: 'IV', doctor: 'Dr. Sharma', startDate: '11 Apr', times: [{ time: '06:00', status: 'given' }, { time: '12:00', status: 'none' }, { time: '18:00', status: 'none' }, { time: '00:00', status: 'none' }], nextDue: 'Given today' },
+                  { id: 'm6', name: 'Aspirin 75mg PO OD', dose: '75mg', route: 'PO', doctor: 'Dr. Sharma', startDate: '12 Apr', times: [{ time: '08:00', status: 'none' }, { time: '10:00', status: 'none' }, { time: '14:00', status: 'refused' }, { time: '18:00', status: 'none' }], nextDue: 'Refused 14:00' },
+                ].map((med) => (
+                  <div key={med.id} style={{
+                    background: 'white',
+                    borderRadius: 12,
+                    padding: 20,
+                    marginBottom: 16,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                    borderLeft: med.isOverdue ? '4px solid #DC2626' : '4px solid #0055FF',
+                  }}>
+                    {/* Card Header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#002054' }}>{med.name}</div>
+                        <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>{med.doctor} | Started {med.startDate}</div>
+                      </div>
+                      <div style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        padding: '4px 12px',
+                        borderRadius: 4,
+                        background: med.isOverdue ? '#DC2626' : '#D97706',
+                        color: 'white',
+                      }}>
+                        {med.nextDue}
+                      </div>
+                    </div>
+
+                    {/* Time-Slot Grid */}
+                    <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 16, overflowX: 'auto' }}>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        {med.times.map((slot, idx) => {
+                          let icon = '—';
+                          let color = '#ccc';
+                          let bgColor = 'transparent';
+
+                          if (slot.status === 'given') {
+                            icon = '✓';
+                            color = '#0B8A3E';
+                            bgColor = '#0B8A3E';
+                          } else if (slot.status === 'overdue') {
+                            icon = '!';
+                            color = 'white';
+                            bgColor = '#DC2626';
+                          } else if (slot.status === 'due') {
+                            icon = '•';
+                            color = '#0055FF';
+                            bgColor = 'transparent';
+                          } else if (slot.status === 'held') {
+                            icon = '⊘';
+                            color = '#999';
+                            bgColor = 'transparent';
+                          } else if (slot.status === 'refused') {
+                            icon = '✕';
+                            color = 'white';
+                            bgColor = '#D97706';
+                          }
+
+                          return (
+                            <div key={idx} style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              gap: 6,
+                              minWidth: 48,
+                            }}>
+                              <div style={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: '50%',
+                                background: bgColor,
+                                border: slot.status === 'due' ? '2px solid #0055FF' : (slot.status === 'none' ? '1px solid #e0e0e0' : 'none'),
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: color,
+                              }}>
+                                {icon}
+                              </div>
+                              <div style={{ fontSize: 11, color: '#666', fontWeight: 600 }}>{slot.time}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    {med.isOverdue && (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                        <button
+                          onClick={() => setEmarGiveModal({ med_id: med.id, med_name: med.name, dose: med.dose, route: med.route })}
+                          style={{
+                            padding: '10px 16px',
+                            background: '#0B8A3E',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: 6,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'background 0.2s',
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = '#086a31')}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = '#0B8A3E')}
+                        >
+                          Give Now
+                        </button>
+                        <button
+                          onClick={() => setEmarHoldModal({ med_id: med.id, med_name: med.name })}
+                          style={{
+                            padding: '10px 16px',
+                            background: '#999',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: 6,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'background 0.2s',
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = '#777')}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = '#999')}
+                        >
+                          Hold
+                        </button>
+                        <button
+                          onClick={() => setEmarRefuseModal({ med_id: med.id, med_name: med.name })}
+                          style={{
+                            padding: '10px 16px',
+                            background: '#D97706',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: 6,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'background 0.2s',
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = '#b85c03')}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = '#D97706')}
+                        >
+                          Refuse
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* ── PRN Section ────────────────────────────────────────────────────── */}
+              <div>
+                <h2 style={{ fontSize: 16, fontWeight: 700, color: '#002054', marginBottom: 16, padding: '0 0 12px', borderBottom: '2px solid #e0e0e0' }}>
+                  PRN Medications
+                </h2>
+                <div style={{
+                  background: 'white',
+                  borderRadius: 12,
+                  padding: 20,
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#002054' }}>Morphine 2mg IV PRN q4h</div>
+                      <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>(for pain &gt; 5)</div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#666', marginBottom: 16, lineHeight: 1.6 }}>
+                    <div>Last given: <span style={{ fontWeight: 600, color: '#002054' }}>04:00 (6h 45m ago)</span></div>
+                    <div>Next available: <span style={{ fontWeight: 600, color: '#0B8A3E' }}>NOW</span></div>
+                  </div>
+                  <button
+                    style={{
+                      padding: '10px 20px',
+                      background: '#0055FF',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = '#003DBF')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = '#0055FF')}
+                  >
+                    Give PRN
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div style={{
+              background: 'white',
+              borderRadius: 12,
+              padding: 40,
+              textAlign: 'center',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            }}>
+              <p style={{ fontSize: 14, color: '#666', margin: 0 }}>eMAR is managed by nursing staff.</p>
+              <p style={{ fontSize: 12, color: '#999', marginTop: 8 }}>Contact your nurse for medication administration details.</p>
+            </div>
+          )}
+
+          {/* ── Give Medication Inline Modal ────────────────────────────────────── */}
+          {emarGiveModal && (
+            <div style={{
+              background: 'white',
+              borderRadius: 12,
+              padding: 20,
+              marginTop: 24,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              border: '2px solid #0B8A3E',
+            }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#002054', margin: '0 0 16px' }}>Give Medication</h3>
+
+              {/* Identity Verification */}
+              <div style={{ padding: '12px 16px', background: '#f5f6fa', borderRadius: 8, marginBottom: 16 }}>
+                <div style={{ fontSize: 12, color: '#666' }}>Patient Name / UHID</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#002054', marginTop: 4 }}>{patient?.full_name} ({patient?.uhid})</div>
+              </div>
+
+              {/* Drug Details */}
+              <div style={{ padding: '12px 16px', background: '#f5f6fa', borderRadius: 8, marginBottom: 16 }}>
+                <div style={{ fontSize: 12, color: '#666' }}>Drug</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#002054', marginTop: 4 }}>{emarGiveModal.med_name}</div>
+                <div style={{ fontSize: 12, color: '#666', marginTop: 6 }}>
+                  <span style={{ fontFamily: "'SF Mono', Menlo, monospace", fontWeight: 600 }}>{emarGiveModal.dose}</span> {emarGiveModal.route}
+                </div>
+              </div>
+
+              {/* Barcode Input */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 6 }}>Barcode Scan</label>
+                <input
+                  type="text"
+                  placeholder="Scan barcode here"
+                  value={emarBarcode}
+                  onChange={(e) => setEmarBarcode(e.target.value)}
+                  style={{
+                    width: '100%',
+                    height: 40,
+                    padding: '8px 12px',
+                    fontSize: 13,
+                    border: '1px solid #d0d0d0',
+                    borderRadius: 6,
+                    boxSizing: 'border-box',
+                    fontFamily: 'system-ui',
+                  }}
+                />
+              </div>
+
+              {/* Admin Site (for injections) */}
+              {['SC', 'IM', 'IV'].includes(emarGiveModal.route) && (
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 6 }}>Administration Site</label>
+                  <select
+                    value={emarAdminSite}
+                    onChange={(e) => setEmarAdminSite(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: 40,
+                      padding: '8px 12px',
+                      fontSize: 13,
+                      border: '1px solid #d0d0d0',
+                      borderRadius: 6,
+                      boxSizing: 'border-box',
+                      fontFamily: 'system-ui',
+                    }}
+                  >
+                    <option value="">Select site...</option>
+                    <option value="left_arm">Left Arm</option>
+                    <option value="right_arm">Right Arm</option>
+                    <option value="left_thigh">Left Thigh</option>
+                    <option value="right_thigh">Right Thigh</option>
+                    <option value="abdomen">Abdomen</option>
+                    <option value="left_buttock">Left Buttock</option>
+                    <option value="right_buttock">Right Buttock</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Buttons */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <button
+                  onClick={() => {
+                    alert('Medication administered successfully');
+                    setEmarGiveModal(null);
+                    setEmarBarcode('');
+                    setEmarAdminSite('');
+                  }}
+                  style={{
+                    padding: '12px 16px',
+                    background: '#0B8A3E',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#086a31')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = '#0B8A3E')}
+                >
+                  Confirm Give
+                </button>
+                <button
+                  onClick={() => {
+                    setEmarGiveModal(null);
+                    setEmarBarcode('');
+                    setEmarAdminSite('');
+                  }}
+                  style={{
+                    padding: '12px 16px',
+                    background: '#e0e0e0',
+                    color: '#333',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#d0d0d0')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = '#e0e0e0')}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Hold Medication Inline Modal ────────────────────────────────────── */}
+          {emarHoldModal && (
+            <div style={{
+              background: 'white',
+              borderRadius: 12,
+              padding: 20,
+              marginTop: 24,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              border: '2px solid #999',
+            }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#002054', margin: '0 0 16px' }}>Hold Medication</h3>
+
+              <div style={{ padding: '12px 16px', background: '#f5f6fa', borderRadius: 8, marginBottom: 16 }}>
+                <div style={{ fontSize: 12, color: '#666' }}>Drug</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#002054', marginTop: 4 }}>{emarHoldModal.med_name}</div>
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 6 }}>Reason for Hold</label>
+                <select
+                  value={emarHoldReason}
+                  onChange={(e) => setEmarHoldReason(e.target.value)}
+                  style={{
+                    width: '100%',
+                    height: 40,
+                    padding: '8px 12px',
+                    fontSize: 13,
+                    border: '1px solid #d0d0d0',
+                    borderRadius: 6,
+                    boxSizing: 'border-box',
+                    fontFamily: 'system-ui',
+                  }}
+                >
+                  <option value="">Select reason...</option>
+                  <option value="npo">Patient NPO</option>
+                  <option value="refused">Patient refused</option>
+                  <option value="vitals">Vitals abnormal</option>
+                  <option value="doctor">Doctor hold</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <button
+                  onClick={() => {
+                    alert('Medication held successfully');
+                    setEmarHoldModal(null);
+                    setEmarHoldReason('');
+                  }}
+                  style={{
+                    padding: '12px 16px',
+                    background: '#999',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#777')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = '#999')}
+                >
+                  Confirm Hold
+                </button>
+                <button
+                  onClick={() => {
+                    setEmarHoldModal(null);
+                    setEmarHoldReason('');
+                  }}
+                  style={{
+                    padding: '12px 16px',
+                    background: '#e0e0e0',
+                    color: '#333',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#d0d0d0')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = '#e0e0e0')}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Refuse Medication Inline Modal ──────────────────────────────────── */}
+          {emarRefuseModal && (
+            <div style={{
+              background: 'white',
+              borderRadius: 12,
+              padding: 20,
+              marginTop: 24,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              border: '2px solid #D97706',
+            }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#002054', margin: '0 0 16px' }}>Medication Refused</h3>
+
+              <div style={{ padding: '12px 16px', background: '#f5f6fa', borderRadius: 8, marginBottom: 16 }}>
+                <div style={{ fontSize: 12, color: '#666' }}>Drug</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#002054', marginTop: 4 }}>{emarRefuseModal.med_name}</div>
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 6 }}>Reason for Refusal</label>
+                <select
+                  value={emarRefuseReason}
+                  onChange={(e) => setEmarRefuseReason(e.target.value)}
+                  style={{
+                    width: '100%',
+                    height: 40,
+                    padding: '8px 12px',
+                    fontSize: 13,
+                    border: '1px solid #d0d0d0',
+                    borderRadius: 6,
+                    boxSizing: 'border-box',
+                    fontFamily: 'system-ui',
+                  }}
+                >
+                  <option value="">Select reason...</option>
+                  <option value="refused">Patient refused</option>
+                  <option value="unavailable">Not available</option>
+                  <option value="allergy">Allergy concern</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <button
+                  onClick={() => {
+                    alert('Medication refusal recorded');
+                    setEmarRefuseModal(null);
+                    setEmarRefuseReason('');
+                  }}
+                  style={{
+                    padding: '12px 16px',
+                    background: '#D97706',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#b85c03')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = '#D97706')}
+                >
+                  Confirm Refusal
+                </button>
+                <button
+                  onClick={() => {
+                    setEmarRefuseModal(null);
+                    setEmarRefuseReason('');
+                  }}
+                  style={{
+                    padding: '12px 16px',
+                    background: '#e0e0e0',
+                    color: '#333',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#d0d0d0')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = '#e0e0e0')}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Other Tabs: Coming Soon ───────────────────────────────────────────── */}
-      {activeTab !== 'overview' && activeTab !== 'vitals' && activeTab !== 'labs' && activeTab !== 'orders' && activeTab !== 'notes' && (
+      {activeTab !== 'overview' && activeTab !== 'vitals' && activeTab !== 'labs' && activeTab !== 'orders' && activeTab !== 'notes' && activeTab !== 'emar' && (
         <div style={{
           padding: '40px 24px',
           textAlign: 'center',
