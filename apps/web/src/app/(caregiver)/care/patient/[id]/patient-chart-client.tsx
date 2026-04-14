@@ -1440,8 +1440,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
         {/* Journey Strip */}
         {journey && (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 12 }}>
-            {['Start', 'Admission', 'Assessment', 'Treatment', 'Progress', 'Stabilize', 'Discharge Plan', 'Ready', 'Discharge'].map((phase, idx) => (
-              <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+            {['Start', 'Admit', 'Assess', 'Treat', 'Progress', 'Stabilize', 'DC Plan', 'Ready', 'Exit'].map((phase, idx) => (
+              <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 48 }}>
                 <div style={{
                   width: 36,
                   height: 36,
@@ -1458,8 +1458,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                 }}>
                   {idx < journey.completed_steps ? '✓' : idx + 1}
                 </div>
-                <div style={{ fontSize: 10, textAlign: 'center', maxWidth: 40, color: '#666', lineHeight: 1.2 }}>
-                  {phase.split(' ').length > 1 ? phase.split(' ')[0] : phase}
+                <div style={{ fontSize: 10, textAlign: 'center', color: '#666', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                  {phase}
                 </div>
               </div>
             ))}
