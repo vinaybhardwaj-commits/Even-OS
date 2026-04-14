@@ -360,6 +360,155 @@ function getVitalLabel(type: string): string {
   return labels[type] || type;
 }
 
+// ── Sparkline Component ─────────────────────────────────────────────────────
+interface LabTest {
+  name: string;
+  current: string;
+  previous: string;
+  refRange: string;
+  flag: string;
+  flagColor: string;
+  trend: number[];
+}
+
+function renderSparkline(trend: number[], refMin: number = 0, refMax: number = 100): JSX.Element {
+  const svgWidth = 50;
+  const svgHeight = 16;
+  const padding = 2;
+  const chartWidth = svgWidth - padding * 2;
+  const chartHeight = svgHeight - padding * 2;
+
+  if (trend.length < 2) {
+    return <svg width={svgWidth} height={svgHeight} style={{ display: 'inline' }} />;
+  }
+
+  const min = Math.min(...trend);
+  const max = Math.max(...trend);
+  const range = max === min ? 1 : max - min;
+
+  const points = trend.map((val, idx) => {
+    const x = (idx / (trend.length - 1)) * chartWidth + padding;
+    const y = chartHeight - ((val - min) / range) * chartHeight + padding;
+    return { x, y, val };
+  });
+
+  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+
+  return (
+    <svg width={svgWidth} height={svgHeight} style={{ display: 'inline', marginLeft: 8 }}>
+      {/* Reference range background */}
+      <rect x={padding} y={padding} width={chartWidth} height={chartHeight} fill="#ECFDF5" />
+      {/* Trend line */}
+      <path d={pathD} stroke="#0055FF" strokeWidth="1.5" fill="none" />
+      {/* Data points */}
+      {points.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r="1.5" fill={p.val > refMax || p.val < refMin ? '#DC2626' : '#0055FF'} />
+      ))}
+    </svg>
+  );
+}
+
+interface LabPanelProps {
+  title: string;
+  timestamp: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  tests: LabTest[];
+}
+
+function LabPanel({ title, timestamp, isOpen, onToggle, tests }: LabPanelProps) {
+  return (
+    <div style={{
+      background: 'white',
+      borderRadius: 12,
+      padding: 0,
+      marginBottom: 20,
+      boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+      overflow: 'hidden',
+    }}>
+      {/* Panel Header */}
+      <div
+        onClick={onToggle}
+        style={{
+          padding: 16,
+          borderBottom: isOpen ? '1px solid #e0e0e0' : 'none',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          cursor: 'pointer',
+          background: '#fafafa',
+        }}
+      >
+        <div>
+          <p style={{ margin: '0 0 4px', fontWeight: 600, fontSize: 14, color: '#002054' }}>
+            {title}
+          </p>
+          <p style={{ margin: 0, fontSize: 12, color: '#999' }}>
+            {timestamp}
+          </p>
+        </div>
+        <div style={{ fontSize: 18, color: '#666' }}>
+          {isOpen ? '▼' : '▶'}
+        </div>
+      </div>
+
+      {/* Panel Content */}
+      {isOpen && (
+        <div style={{ padding: 16 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
+                <th style={{ padding: '12px 8px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase' }}>
+                  Test
+                </th>
+                <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', fontFamily: "'SF Mono', Menlo, monospace" }}>
+                  Current
+                </th>
+                <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', fontFamily: "'SF Mono', Menlo, monospace" }}>
+                  Prev
+                </th>
+                <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase' }}>
+                  Ref Range
+                </th>
+                <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase' }}>
+                  Flag
+                </th>
+                <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase' }}>
+                  Trend
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {tests.map((test, idx) => (
+                <tr key={idx} style={{ borderBottom: idx < tests.length - 1 ? '1px solid #f0f0f0' : 'none' }}>
+                  <td style={{ padding: '12px 8px', color: '#333', fontWeight: 500, fontSize: 13 }}>
+                    {test.name}
+                  </td>
+                  <td style={{ padding: '12px 8px', textAlign: 'center', fontWeight: 600, fontFamily: "'SF Mono', Menlo, monospace", fontSize: 12, color: '#002054' }}>
+                    {test.current}
+                  </td>
+                  <td style={{ padding: '12px 8px', textAlign: 'center', color: '#666', fontFamily: "'SF Mono', Menlo, monospace", fontSize: 12 }}>
+                    {test.previous}
+                  </td>
+                  <td style={{ padding: '12px 8px', textAlign: 'center', color: '#666', fontFamily: "'SF Mono', Menlo, monospace", fontSize: 11 }}>
+                    {test.refRange}
+                  </td>
+                  <td style={{ padding: '12px 8px', textAlign: 'center', fontWeight: 600, fontSize: 11, color: test.flagColor }}>
+                    {test.flag}
+                  </td>
+                  <td style={{ padding: '12px 8px', textAlign: 'center' }}>
+                    {renderSparkline(test.trend)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ──────────────────────────────────────────────────────────
 export default function PatientChartClient({ patientId, userId, userRole, userName, hospitalId }: Props) {
   const [activeTab, setActiveTab] = useState<PatientTab>('overview');
@@ -1723,14 +1872,276 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
         </div>
       )}
 
+      {/* ── Labs & Results Tab ────────────────────────────────────────────────── */}
+      {activeTab === 'labs' && (
+        <div style={{ padding: '24px', background: '#f5f6fa', minHeight: '100vh' }}>
+          {/* Order Labs Button (for doctor roles only) */}
+          {['doctor', 'senior_doctor', 'department_head', 'medical_director'].includes(userRole) && (
+            <div style={{ marginBottom: 24 }}>
+              <button
+                onClick={() => alert('Coming in PC.4: Lab ordering engine')}
+                style={{
+                  padding: '12px 20px',
+                  background: '#0055FF',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 8,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <span>🔬</span> Order New Labs
+              </button>
+            </div>
+          )}
+
+          {/* CBC Panel */}
+          <LabPanel
+            title="CBC — Complete Blood Count"
+            timestamp="14 Apr 06:00"
+            isOpen={true}
+            onToggle={() => {}}
+            tests={[
+              {
+                name: 'Haemoglobin',
+                current: '10.2',
+                previous: '10.8',
+                refRange: '13.0–17.0',
+                flag: 'LOW',
+                flagColor: '#DC2626',
+                trend: [12.8, 11.5, 10.8, 10.2],
+              },
+              {
+                name: 'WBC',
+                current: '8.0',
+                previous: '9.2',
+                refRange: '4.5–11.0',
+                flag: 'Normal',
+                flagColor: '#0B8A3E',
+                trend: [7.5, 11.0, 9.2, 8.0],
+              },
+              {
+                name: 'Platelets',
+                current: '203',
+                previous: '195',
+                refRange: '150–400',
+                flag: 'Normal',
+                flagColor: '#0B8A3E',
+                trend: [220, 180, 195, 203],
+              },
+              {
+                name: 'Neutrophils',
+                current: '75.1',
+                previous: '72.0',
+                refRange: '40–75',
+                flag: 'HIGH',
+                flagColor: '#D97706',
+                trend: [72, 74, 72, 75.1],
+              },
+              {
+                name: 'Lymphocytes',
+                current: '18.1',
+                previous: '20.0',
+                refRange: '20–40',
+                flag: 'LOW',
+                flagColor: '#D97706',
+                trend: [22, 21, 20, 18.1],
+              },
+            ]}
+          />
+
+          {/* RFT Panel */}
+          <LabPanel
+            title="Renal Function Test"
+            timestamp="14 Apr 06:00"
+            isOpen={true}
+            onToggle={() => {}}
+            tests={[
+              {
+                name: 'Creatinine',
+                current: '1.8',
+                previous: '1.5',
+                refRange: '0.7–1.3',
+                flag: 'HIGH',
+                flagColor: '#DC2626',
+                trend: [1.0, 1.2, 1.5, 1.8],
+              },
+              {
+                name: 'BUN',
+                current: '28',
+                previous: '24',
+                refRange: '7–20',
+                flag: 'HIGH',
+                flagColor: '#DC2626',
+                trend: [18, 20, 24, 28],
+              },
+              {
+                name: 'eGFR',
+                current: '38',
+                previous: '45',
+                refRange: '>60',
+                flag: 'LOW',
+                flagColor: '#DC2626',
+                trend: [85, 65, 45, 38],
+              },
+              {
+                name: 'Potassium',
+                current: '4.2',
+                previous: '4.0',
+                refRange: '3.5–5.0',
+                flag: 'Normal',
+                flagColor: '#0B8A3E',
+                trend: [4.0, 4.0, 4.0, 4.2],
+              },
+              {
+                name: 'Sodium',
+                current: '139',
+                previous: '140',
+                refRange: '136–145',
+                flag: 'Normal',
+                flagColor: '#0B8A3E',
+                trend: [140, 140, 140, 139],
+              },
+            ]}
+          />
+
+          {/* Clinical Alerts */}
+          <div style={{
+            background: '#FEE2E2',
+            border: '1px solid #FECACA',
+            borderRadius: 8,
+            padding: 16,
+            marginBottom: 24,
+            borderLeft: '4px solid #DC2626',
+          }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div style={{ fontSize: 18 }}>⚠️</div>
+              <div>
+                <p style={{ margin: '0 0 8px', fontWeight: 600, color: '#991B1B', fontSize: 14 }}>
+                  Creatinine 1.8 and rising (1.0 → 1.2 → 1.5 → 1.8)
+                </p>
+                <p style={{ margin: 0, color: '#7F1D1D', fontSize: 13 }}>
+                  Possible acute kidney injury. Consider nephrology consult.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Coagulation Panel */}
+          <LabPanel
+            title="Coagulation Panel"
+            timestamp="14 Apr 06:00"
+            isOpen={true}
+            onToggle={() => {}}
+            tests={[
+              {
+                name: 'INR',
+                current: '2.8',
+                previous: '2.4',
+                refRange: '0.8–1.2',
+                flag: 'HIGH',
+                flagColor: '#DC2626',
+                trend: [1.1, 1.8, 2.4, 2.8],
+              },
+              {
+                name: 'PT',
+                current: '32',
+                previous: '28',
+                refRange: '11–13.5',
+                flag: 'HIGH',
+                flagColor: '#DC2626',
+                trend: [12, 18, 28, 32],
+              },
+            ]}
+          />
+
+          {/* Second Clinical Alert */}
+          <div style={{
+            background: '#FEF3C7',
+            border: '1px solid #FDE68A',
+            borderRadius: 8,
+            padding: 16,
+            marginBottom: 24,
+            borderLeft: '4px solid #D97706',
+          }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div style={{ fontSize: 18 }}>⚠️</div>
+              <div>
+                <p style={{ margin: '0 0 8px', fontWeight: 600, color: '#92400E', fontSize: 14 }}>
+                  INR 2.8 with active Enoxaparin
+                </p>
+                <p style={{ margin: 0, color: '#78350F', fontSize: 13 }}>
+                  Risk of over-anticoagulation. Consider dose adjustment or holding anticoagulant.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Metabolic Panel */}
+          <LabPanel
+            title="Metabolic Panel"
+            timestamp="14 Apr 06:00"
+            isOpen={true}
+            onToggle={() => {}}
+            tests={[
+              {
+                name: 'Glucose (Fasting)',
+                current: '145',
+                previous: '132',
+                refRange: '70–100',
+                flag: 'HIGH',
+                flagColor: '#D97706',
+                trend: [128, 155, 132, 145],
+              },
+            ]}
+          />
+
+          {/* Pending Lab Orders Section */}
+          <div style={{
+            background: 'white',
+            borderRadius: 12,
+            padding: 20,
+            marginTop: 24,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+          }}>
+            <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 16px', textTransform: 'uppercase', color: '#666' }}>
+              Pending Lab Orders
+            </h3>
+            <div style={{
+              padding: 16,
+              background: '#EFF6FF',
+              borderRadius: 8,
+              borderLeft: '4px solid #0055FF',
+            }}>
+              <p style={{ margin: '0 0 8px', fontWeight: 600, color: '#002054', fontSize: 14 }}>
+                CBC + RFT + Coagulation
+              </p>
+              <p style={{ margin: '0 0 4px', fontSize: 12, color: '#666' }}>
+                Ordered 14 Apr 07:30
+              </p>
+              <p style={{ margin: '0 0 4px', fontSize: 12, color: '#666' }}>
+                Status: <span style={{ fontWeight: 600, color: '#D97706' }}>Pending collection</span>
+              </p>
+              <p style={{ margin: 0, fontSize: 12, color: '#666' }}>
+                Priority: Routine
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Other Tabs: Coming Soon ───────────────────────────────────────────── */}
-      {activeTab !== 'overview' && activeTab !== 'vitals' && (
+      {activeTab !== 'overview' && activeTab !== 'vitals' && activeTab !== 'labs' && (
         <div style={{
           padding: '40px 24px',
           textAlign: 'center',
           color: '#666',
         }}>
-          <p style={{ fontSize: 16, fontWeight: 600 }}>Coming in PC.3–PC.7</p>
+          <p style={{ fontSize: 16, fontWeight: 600 }}>Coming in PC.4–PC.7</p>
           <p style={{ fontSize: 13, color: '#999', marginTop: 8 }}>
             This tab will be available in upcoming sprints.
           </p>
