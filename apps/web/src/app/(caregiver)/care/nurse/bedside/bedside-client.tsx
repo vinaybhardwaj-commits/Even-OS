@@ -250,6 +250,9 @@ export default function BedsideClient({
     setVitals({ ...EMPTY_VITALS });
     setSaveSuccess(false);
     setSaveError('');
+    // Auto-refresh vitals/IO every 30s
+    const iv = setInterval(() => { loadRecentVitals(); loadRecentIO(); }, 30_000);
+    return () => clearInterval(iv);
   }, [currentIdx, loadRecentVitals, loadRecentIO]);
 
   // ── Navigation ─────────────────────────────────────────────────────────

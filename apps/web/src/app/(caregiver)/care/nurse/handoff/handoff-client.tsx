@@ -179,7 +179,11 @@ export default function HandoffClient({ userId, userRole, userName }: Props) {
     setLoading(false);
   }, [mode, IS_CHARGE]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    loadData();
+    const iv = setInterval(loadData, 60_000);
+    return () => clearInterval(iv);
+  }, [loadData]);
 
   // ── Auto-populate when selecting patient ───────────────────────────────
 

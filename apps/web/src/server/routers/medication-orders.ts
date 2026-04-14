@@ -78,8 +78,8 @@ export const medicationOrdersRouter = router({
           const alertResult = await getSql()`
             INSERT INTO cds_alerts (
               patient_id, encounter_id, hospital_id,
-              alert_type, severity, title, description,
-              related_to_table, related_to_id, created_at
+              cds_alert_type, cds_alert_severity, message, cds_details,
+              triggered_by, created_at
             )
             VALUES (
               ${input.patient_id}::uuid,
@@ -87,13 +87,12 @@ export const medicationOrdersRouter = router({
               ${hospitalId},
               'allergy',
               'critical',
-              'Allergy Conflict',
-              ${'Patient has allergy to ' + allergyRows[0].substance},
-              'medication_requests',
-              NULL,
+              ${'Allergy Conflict: Patient has allergy to ' + allergyRows[0].substance},
+              ${JSON.stringify({ allergen: allergyRows[0].substance, drug: input.drug_name })}::jsonb,
+              ${ctx.user.sub}::uuid,
               NOW()
             )
-            RETURNING id, alert_type, severity;
+            RETURNING id, cds_alert_type AS alert_type, cds_alert_severity AS severity;
           `;
           const alertRows = (alertResult as any);
           if (alertRows && alertRows.length > 0) {
@@ -119,8 +118,8 @@ export const medicationOrdersRouter = router({
           const alertResult = await getSql()`
             INSERT INTO cds_alerts (
               patient_id, encounter_id, hospital_id,
-              alert_type, severity, title, description,
-              related_to_table, related_to_id, created_at
+              cds_alert_type, cds_alert_severity, message, cds_details,
+              conflicting_order_id, triggered_by, created_at
             )
             VALUES (
               ${input.patient_id}::uuid,
@@ -128,13 +127,13 @@ export const medicationOrdersRouter = router({
               ${hospitalId},
               'duplicate_order',
               'warning',
-              'Duplicate Medication Order',
-              ${'Patient already has active order for ' + input.drug_name},
-              'medication_requests',
+              ${'Duplicate Medication Order: Patient already has active order for ' + input.drug_name},
+              ${JSON.stringify({ drug_name: input.drug_name, existing_order_id: dupRows[0].id })}::jsonb,
               ${dupRows[0].id}::uuid,
+              ${ctx.user.sub}::uuid,
               NOW()
             )
-            RETURNING id, alert_type, severity;
+            RETURNING id, cds_alert_type AS alert_type, cds_alert_severity AS severity;
           `;
           const alertRows = (alertResult as any);
           if (alertRows && alertRows.length > 0) {
@@ -147,8 +146,8 @@ export const medicationOrdersRouter = router({
           const alertResult = await getSql()`
             INSERT INTO cds_alerts (
               patient_id, encounter_id, hospital_id,
-              alert_type, severity, title, description,
-              related_to_table, related_to_id, created_at
+              cds_alert_type, cds_alert_severity, message, cds_details,
+              triggered_by, created_at
             )
             VALUES (
               ${input.patient_id}::uuid,
@@ -156,13 +155,12 @@ export const medicationOrdersRouter = router({
               ${hospitalId},
               'high_alert',
               'warning',
-              'High Alert Medication',
-              ${'High alert medication being ordered: ' + input.drug_name},
-              'medication_requests',
-              NULL,
+              ${'High Alert Medication: ' + input.drug_name},
+              ${JSON.stringify({ drug_name: input.drug_name, is_high_alert: true })}::jsonb,
+              ${ctx.user.sub}::uuid,
               NOW()
             )
-            RETURNING id, alert_type, severity;
+            RETURNING id, cds_alert_type AS alert_type, cds_alert_severity AS severity;
           `;
           const alertRows = (alertResult as any);
           if (alertRows && alertRows.length > 0) {
@@ -505,10 +503,10 @@ export const medicationOrdersRouter = router({
 
         // Fetch linked CDS alerts
         const alertsResult = await getSql()`
-          SELECT id, alert_type, severity, title, description
+          SELECT id, cds_alert_type AS alert_type, cds_alert_severity AS severity, message, cds_details AS details
           FROM cds_alerts
           WHERE patient_id = ${order.patient_id}
-            AND related_to_id = ${input.id}::uuid
+            AND (triggering_order_id = ${input.id}::uuid OR conflicting_order_id = ${input.id}::uuid)
             AND hospital_id = ${hospitalId}
           ORDER BY created_at DESC;
         `;
@@ -1114,8 +1112,8 @@ export const medicationOrdersRouter = router({
           await getSql()`
             INSERT INTO clinical_alert_logs (
               patient_id, encounter_id, hospital_id,
-              alert_type, severity, title, description,
-              acknowledged, created_at
+              alert_type, severity, message,
+              created_at
             )
             VALUES (
               ${patient_id}::uuid,
@@ -1123,9 +1121,7 @@ export const medicationOrdersRouter = router({
               ${hospitalId},
               'critical_result',
               'critical',
-              'Critical Lab Result',
-              ${'Critical result reported for service request'},
-              false,
+              ${'Critical lab result reported for service request'},
               NOW()
             );
           `;

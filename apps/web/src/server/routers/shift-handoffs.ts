@@ -42,7 +42,7 @@ export const shiftHandoffsRouter = router({
           WHERE o.hospital_id = ${hospitalId}
             AND o.patient_id = ${input.patient_id}::uuid
             AND o.encounter_id = ${input.encounter_id}::uuid
-            AND o.recorded_at >= (
+            AND o.effective_datetime >= (
               SELECT si.start_time FROM shift_instances si WHERE si.id = ${input.shift_instance_id}::uuid
             )
         `,
@@ -72,7 +72,7 @@ export const shiftHandoffsRouter = router({
           FROM observations o
           WHERE o.hospital_id = ${hospitalId}
             AND o.patient_id = ${input.patient_id}::uuid
-            AND o.recorded_at::date = CURRENT_DATE
+            AND o.effective_datetime::date = CURRENT_DATE
             AND o.observation_type LIKE 'intake_%' OR o.observation_type LIKE 'output_%'
         `,
         // Latest key assessments
