@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure, adminProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeAuditLog } from '@/lib/audit/logger';
+import { generateTemplate, generateSmartDefaults } from '@/lib/ai/template-ai';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -420,5 +421,93 @@ export const templateManagementRouter = router({
         LIMIT 100;
       `;
       return rows as any[];
+    }),
+
+  // ── AI: Generate template from description ────────────────────────────
+  aiGenerate: protectedProcedure
+    .input(z.object({
+      description: z.string().min(10).max(1000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await generateTemplate({
+        description: input.description,
+        hospital_id: ctx.user.hospital_id,
+        user_id: ctx.user.sub,
+      });
+
+      if (!result) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'AI template generation failed. Try a more detailed description or try again.',
+        });
+      }
+
+      return result;
+    }),
+
+  // ── AI: Generate smart defaults for template fields ───────────────────
+  aiSmartDefaults: protectedProcedure
+    .input(z.object({
+      fields: z.array(z.object({
+        id: z.string(),
+        type: z.string(),
+        label: z.string(),
+        ai_hint: z.string().optional(),
+      })),
+      patient_id: z.string().uuid(),
+      encounter_id: z.string().uuid(),
+      diagnosis: z.string().optional(),
+      chief_complaint: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Fetch patient context
+      const hospitalId = ctx.user.hospital_id;
+      const [vitals, labs, orders, problems, allergies] = await Promise.all([
+        getSql()`
+          SELECT observation_type, value_quantity, value_text, unit, effective_datetime
+          FROM observations WHERE hospital_id = ${hospitalId} AND patient_id = ${input.patient_id}::uuid
+          AND observation_type IN ('vital_temperature','vital_pulse','vital_bp_systolic','vital_bp_diastolic','vital_spo2','vital_rr')
+          ORDER BY effective_datetime DESC LIMIT 12
+        `,
+        getSql()`
+          SELECT lr.lr_test_code AS test_code, lr.lr_test_name AS test_name,
+                 COALESCE(lr.value_numeric::text, lr.value_text) AS result_value,
+                 (lr.lr_flag != 'normal') AS is_abnormal
+          FROM lab_results lr JOIN lab_orders lo ON lo.id = lr.lr_order_id
+          WHERE lo.hospital_id = ${hospitalId} AND lo.lo_patient_id = ${input.patient_id}::uuid
+          ORDER BY lr.lr_resulted_at DESC LIMIT 10
+        `,
+        getSql()`
+          SELECT drug_name, dose_quantity, dose_unit, route, frequency_code
+          FROM medication_requests WHERE hospital_id = ${hospitalId} AND patient_id = ${input.patient_id}::uuid
+          AND status = 'active' AND is_deleted = false
+        `,
+        getSql()`
+          SELECT condition_name AS code_display FROM conditions
+          WHERE hospital_id = ${hospitalId} AND patient_id = ${input.patient_id}::uuid
+          AND clinical_status IN ('active','recurrence')
+        `,
+        getSql()`
+          SELECT substance, reaction, severity FROM allergy_intolerances
+          WHERE hospital_id = ${hospitalId} AND patient_id = ${input.patient_id}::uuid AND is_deleted = false
+        `,
+      ]);
+
+      const defaults = await generateSmartDefaults({
+        fields: input.fields,
+        patientContext: {
+          vitals: vitals as any[],
+          labs: labs as any[],
+          activeOrders: orders as any[],
+          problems: problems as any[],
+          allergies: allergies as any[],
+          diagnosis: input.diagnosis,
+          chief_complaint: input.chief_complaint,
+        },
+        hospital_id: hospitalId,
+        user_id: ctx.user.sub,
+      });
+
+      return { defaults, ai_generated: true };
     }),
 });

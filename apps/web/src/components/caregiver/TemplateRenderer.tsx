@@ -36,6 +36,8 @@ export default function TemplateRenderer({ template, patientId, encounterId, onS
   const [values, setValues] = useState<Record<string, any>>({});
   const [autoPopulated, setAutoPopulated] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiFieldIds, setAiFieldIds] = useState<Set<string>>(new Set());
   const [startTime] = useState(Date.now());
 
   const fields: TemplateField[] = template?.template_fields || template?.fields || [];
@@ -62,6 +64,41 @@ export default function TemplateRenderer({ template, patientId, encounterId, onS
       } catch { /* ignore */ }
     })();
   }, [patientId, encounterId]);
+
+  // AI Smart Defaults — fill free-text fields with AI-generated content
+  const handleAiFill = async () => {
+    if (!patientId || !encounterId) return;
+    setAiLoading(true);
+    try {
+      const aiFields = fields.filter(f => (f.type === 'textarea' || f.type === 'text') && f.ai_hint);
+      if (aiFields.length === 0) { setAiLoading(false); return; }
+
+      const result = await trpcMutate('templateManagement.aiSmartDefaults', {
+        fields: aiFields.map(f => ({ id: f.id, type: f.type, label: f.label, ai_hint: f.ai_hint })),
+        patient_id: patientId,
+        encounter_id: encounterId,
+      });
+
+      if (result?.defaults) {
+        const newAiIds = new Set<string>();
+        setValues(prev => {
+          const next = { ...prev };
+          for (const [fid, val] of Object.entries(result.defaults)) {
+            if (val && !prev[fid]) { // only fill if not already manually entered
+              next[fid] = val;
+              newAiIds.add(fid);
+            }
+          }
+          return next;
+        });
+        setAiFieldIds(newAiIds);
+      }
+    } catch (err) {
+      console.error('AI smart defaults error:', err);
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const setValue = (fieldId: string, value: any) => {
     setValues(prev => ({ ...prev, [fieldId]: value }));
@@ -111,6 +148,13 @@ export default function TemplateRenderer({ template, patientId, encounterId, onS
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onCancel} style={{ padding: '6px 14px', fontSize: 13, background: '#e0e0e0', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Cancel</button>
+          {patientId && encounterId && (
+            <button onClick={handleAiFill} disabled={aiLoading} style={{
+              padding: '6px 14px', fontSize: 13, fontWeight: 600,
+              background: aiLoading ? '#ccc' : '#f3e5f5', color: aiLoading ? '#888' : '#7b1fa2',
+              border: '1px solid #ce93d8', borderRadius: 6, cursor: 'pointer',
+            }}>{aiLoading ? '🤖 Filling…' : '🤖 AI Fill'}</button>
+          )}
           <button onClick={handleSubmit} disabled={submitting} style={{
             padding: '6px 18px', fontSize: 13, fontWeight: 600, background: submitting ? '#ccc' : '#1565c0',
             color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer',
@@ -129,6 +173,7 @@ export default function TemplateRenderer({ template, patientId, encounterId, onS
               <label style={{ fontSize: 13, fontWeight: 600, color: '#333', display: 'block', marginBottom: 4 }}>
                 {f.label} {f.required && <span style={{ color: '#c62828' }}>*</span>}
                 {autoPopulated.has(f.id) && <span style={{ fontSize: 10, color: '#1565c0', marginLeft: 6, fontWeight: 400 }}>🔄 auto-filled</span>}
+                {aiFieldIds.has(f.id) && <span style={{ fontSize: 10, color: '#7b1fa2', marginLeft: 6, fontWeight: 400 }}>🤖 AI-generated</span>}
               </label>
               {renderFieldInput(f, values[f.id], (v) => setValue(f.id, v))}
             </div>

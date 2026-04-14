@@ -82,6 +82,9 @@ export default function TemplateBuilderClient({ userId, userRole, userName }: Pr
   const [isEdit, setIsEdit] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
   const [loaded, setLoaded] = useState(!editId);
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiGenerating, setAiGenerating] = useState(false);
 
   // Load existing template if editing
   useEffect(() => {
@@ -155,6 +158,27 @@ export default function TemplateBuilderClient({ userId, userRole, userName }: Pr
       router.push('/care/templates');
     } catch (err) { alert('Failed to save template'); }
     finally { setSaving(false); }
+  };
+
+  // ── AI Generate ────────────────────────────────────────────────────────
+  const handleAiGenerate = async () => {
+    if (!aiPrompt.trim()) return;
+    setAiGenerating(true);
+    try {
+      const result = await trpcMutate('templateManagement.aiGenerate', { description: aiPrompt.trim() });
+      if (result) {
+        setName(result.name || name);
+        setDescription(result.description || description);
+        if (result.category) setCategory(result.category);
+        if (result.fields?.length) setFields(result.fields);
+        setShowAiModal(false);
+        setAiPrompt('');
+      }
+    } catch (err) {
+      alert('AI generation failed. Try a more detailed description.');
+    } finally {
+      setAiGenerating(false);
+    }
   };
 
   const selectedFieldData = fields.find(f => f.id === selectedField);
@@ -244,6 +268,7 @@ export default function TemplateBuilderClient({ userId, userRole, userName }: Pr
           <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>🔨 {isEdit ? 'Edit' : 'Build'} Template</h1>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setShowAiModal(true)} style={{ padding: '6px 16px', fontSize: 13, fontWeight: 600, background: '#f3e5f5', color: '#7b1fa2', border: 'none', borderRadius: 6, cursor: 'pointer' }}>🤖 AI Generate</button>
           <button onClick={() => setPreviewMode(true)} style={{ padding: '6px 16px', fontSize: 13, fontWeight: 600, background: '#e3f2fd', color: '#1565c0', border: 'none', borderRadius: 6, cursor: 'pointer' }}>👁 Preview</button>
           <button onClick={handleSave} disabled={saving} style={{
             padding: '6px 20px', fontSize: 13, fontWeight: 600, background: saving ? '#ccc' : '#1565c0', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer',
@@ -395,6 +420,46 @@ export default function TemplateBuilderClient({ userId, userRole, userName }: Pr
           )}
         </div>
       </div>
+
+      {/* ═══ AI GENERATE MODAL ═══ */}
+      {showAiModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
+        }} onClick={() => setShowAiModal(false)}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 24, maxWidth: 520, width: '90%' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 8px' }}>🤖 AI Template Generator</h3>
+            <p style={{ fontSize: 13, color: '#666', margin: '0 0 16px' }}>
+              Describe the template you need in plain English. AI will generate the complete structure with appropriate fields, types, and auto-populate hooks.
+            </p>
+            <textarea
+              value={aiPrompt}
+              onChange={e => setAiPrompt(e.target.value)}
+              placeholder="e.g., Create a discharge template for post-CABG patients that includes wound care instructions, medication reconciliation, cardiac rehab referral, and follow-up schedule"
+              rows={4}
+              style={{ width: '100%', padding: 10, fontSize: 14, border: '1px solid #d0d0d0', borderRadius: 8, fontFamily: 'system-ui', resize: 'vertical' }}
+              autoFocus
+            />
+            {aiGenerating && (
+              <div style={{ margin: '12px 0', padding: 10, background: '#f3e5f5', borderRadius: 6, fontSize: 13, color: '#7b1fa2', textAlign: 'center' }}>
+                🤖 AI is generating your template… This may take 10–20 seconds.
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button onClick={handleAiGenerate} disabled={aiGenerating || !aiPrompt.trim()} style={{
+                flex: 1, padding: '10px 0', fontSize: 14, fontWeight: 600,
+                background: aiGenerating || !aiPrompt.trim() ? '#ccc' : '#7b1fa2',
+                color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer',
+              }}>{aiGenerating ? '🤖 Generating…' : '🤖 Generate Template'}</button>
+              <button onClick={() => setShowAiModal(false)} style={{
+                padding: '10px 20px', fontSize: 14, background: '#e0e0e0', color: '#333',
+                border: 'none', borderRadius: 8, cursor: 'pointer',
+              }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
