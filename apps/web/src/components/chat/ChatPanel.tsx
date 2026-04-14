@@ -13,6 +13,7 @@
 import { useState, useEffect } from 'react';
 import ActionableMessage from './ActionableMessage';
 import { createActionsForMessage } from '@/lib/chat-actions';
+import { isSlashCommand, parseCommand, getMatchingCommands, executeCommand, COMMANDS, type CommandResult } from '@/lib/slash-commands';
 
 interface Channel {
   group: string;
@@ -72,6 +73,9 @@ export default function ChatPanel({ isOpen, onClose, userId, userRole, userName 
   const [searchQuery, setSearchQuery] = useState('');
   const [messageText, setMessageText] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['MY PATIENTS', 'DEPARTMENT', 'COORDINATION', 'DIRECT MESSAGES', 'BROADCAST']));
+  const [showSlashMenu, setShowSlashMenu] = useState(false);
+  const [slashResults, setSlashResults] = useState<CommandResult[]>([]);
+  const [executingCommand, setExecutingCommand] = useState(false);
 
   // Close on Escape
   useEffect(() => {
@@ -318,24 +322,132 @@ export default function ChatPanel({ isOpen, onClose, userId, userRole, userName 
                 fontFamily: 'system-ui',
               }}
             >
-              <textarea
-                value={messageText}
-                onChange={(e) => setMessageText(e.target.value)}
-                placeholder="Type a message..."
-                style={{
-                  flex: 1,
-                  padding: 8,
-                  border: `1px solid ${grayBorder}`,
-                  borderRadius: 6,
-                  fontSize: 13,
-                  fontFamily: 'system-ui',
-                  resize: 'none',
-                  height: 40,
-                }}
-              />
+              <div style={{ flex: 1, position: 'relative' }}>
+                {/* Slash command autocomplete */}
+                {showSlashMenu && isSlashCommand(messageText) && (
+                  <div style={{
+                    position: 'absolute', bottom: '100%', left: 0, right: 0,
+                    background: '#fff', border: `1px solid ${grayBorder}`, borderRadius: 8,
+                    boxShadow: '0 -4px 12px rgba(0,0,0,0.1)', maxHeight: 200, overflowY: 'auto',
+                    marginBottom: 4, zIndex: 50,
+                  }}>
+                    {getMatchingCommands(messageText).map(cmd => (
+                      <div key={cmd.name}
+                        onClick={() => { setMessageText(`/${cmd.name} `); setShowSlashMenu(false); }}
+                        style={{
+                          padding: '8px 12px', cursor: 'pointer', fontSize: 12,
+                          borderBottom: '1px solid #f0f0f0',
+                        }}
+                        onMouseEnter={(e) => { (e.target as HTMLElement).style.background = '#f0f4f8'; }}
+                        onMouseLeave={(e) => { (e.target as HTMLElement).style.background = '#fff'; }}
+                      >
+                        <span style={{ fontWeight: 700, color: '#1565c0' }}>/{cmd.name}</span>
+                        <span style={{ color: '#888', marginLeft: 8 }}>{cmd.description}</span>
+                        <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>{cmd.usage}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Slash command results */}
+                {slashResults.length > 0 && (
+                  <div style={{
+                    position: 'absolute', bottom: '100%', left: 0, right: 0,
+                    background: '#fff', border: `1px solid ${grayBorder}`, borderRadius: 8,
+                    boxShadow: '0 -4px 12px rgba(0,0,0,0.1)', maxHeight: 300, overflowY: 'auto',
+                    marginBottom: 4, zIndex: 50, padding: 12,
+                  }}>
+                    {slashResults.map((result, i) => (
+                      <div key={i} style={{
+                        marginBottom: 8, padding: 10, borderRadius: 8,
+                        background: result.type === 'error' ? '#ffebee' : '#f0f4f8',
+                        border: `1px solid ${result.type === 'error' ? '#ef9a9a' : '#d1dce6'}`,
+                      }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
+                          {result.icon} {result.title}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#666', marginBottom: result.fields?.length ? 8 : 0 }}>
+                          {result.body}
+                        </div>
+                        {result.fields && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+                            {result.fields.map((f, fi) => (
+                              <div key={fi} style={{ fontSize: 11 }}>
+                                <span style={{ color: '#888' }}>{f.label}: </span>
+                                <span style={{ fontWeight: 600, color: f.color || '#333' }}>{f.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {result.actionMessage && (
+                          <div style={{ fontSize: 11, color: '#1565c0', fontWeight: 600, marginTop: 4 }}>
+                            {result.actionMessage}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    <button onClick={() => setSlashResults([])} style={{
+                      fontSize: 11, color: '#888', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
+                    }}>✕ Dismiss</button>
+                  </div>
+                )}
+
+                <textarea
+                  value={messageText}
+                  onChange={(e) => {
+                    setMessageText(e.target.value);
+                    setShowSlashMenu(isSlashCommand(e.target.value) && !e.target.value.includes(' '));
+                    if (!isSlashCommand(e.target.value)) setSlashResults([]);
+                  }}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && isSlashCommand(messageText)) {
+                      e.preventDefault();
+                      const parsed = parseCommand(messageText);
+                      if (parsed) {
+                        setExecutingCommand(true);
+                        setShowSlashMenu(false);
+                        try {
+                          const result = await executeCommand(parsed.command, parsed.args);
+                          setSlashResults([result]);
+                        } catch {
+                          setSlashResults([{ type: 'error', title: 'Error', icon: '❌', body: 'Command failed' }]);
+                        } finally {
+                          setExecutingCommand(false);
+                          setMessageText('');
+                        }
+                      }
+                    }
+                  }}
+                  placeholder={executingCommand ? 'Running command…' : 'Type a message or / for commands…'}
+                  style={{
+                    width: '100%', padding: 8,
+                    border: `1px solid ${isSlashCommand(messageText) ? '#1565c0' : grayBorder}`,
+                    borderRadius: 6, fontSize: 13, fontFamily: 'system-ui',
+                    resize: 'none', height: 40,
+                    background: executingCommand ? '#f5f5f5' : '#fff',
+                  }}
+                  disabled={executingCommand}
+                />
+              </div>
               <button
-                onClick={() => {
-                  if (messageText.trim()) {
+                onClick={async () => {
+                  if (!messageText.trim()) return;
+                  if (isSlashCommand(messageText)) {
+                    const parsed = parseCommand(messageText);
+                    if (parsed) {
+                      setExecutingCommand(true);
+                      setShowSlashMenu(false);
+                      try {
+                        const result = await executeCommand(parsed.command, parsed.args);
+                        setSlashResults([result]);
+                      } catch {
+                        setSlashResults([{ type: 'error', title: 'Error', icon: '❌', body: 'Command failed' }]);
+                      } finally {
+                        setExecutingCommand(false);
+                        setMessageText('');
+                      }
+                    }
+                  } else {
                     setMessageText('');
                     // TODO: Real integration with GetStream
                   }
