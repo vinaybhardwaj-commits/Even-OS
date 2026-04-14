@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 // ─── Route catalog ──────────────────────────────────────────────────────────
 
@@ -182,9 +182,67 @@ const ROUTE_GROUPS: RouteGroup[] = [
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
+// ─── Role impersonation ────────────────────────────────────────────────────
+
+const IMPERSONATION_ROLES = [
+  { value: '', label: 'No impersonation', group: '' },
+  // Nursing
+  { value: 'nurse', label: 'Staff Nurse', group: 'nursing' },
+  { value: 'charge_nurse', label: 'Charge Nurse', group: 'nursing' },
+  { value: 'icu_nurse', label: 'ICU Nurse', group: 'nursing' },
+  { value: 'ot_nurse', label: 'OT Nurse', group: 'nursing' },
+  // Clinical
+  { value: 'resident_doctor', label: 'Resident Doctor', group: 'clinical' },
+  { value: 'consultant', label: 'Consultant', group: 'clinical' },
+  { value: 'surgeon', label: 'Surgeon', group: 'clinical' },
+  { value: 'anaesthetist', label: 'Anaesthetist', group: 'clinical' },
+  // Pharmacy & Lab
+  { value: 'pharmacist', label: 'Pharmacist', group: 'pharmacy' },
+  { value: 'lab_technician', label: 'Lab Technician', group: 'lab' },
+  // Billing & Support
+  { value: 'billing_executive', label: 'Billing Executive', group: 'billing' },
+  { value: 'receptionist', label: 'Receptionist', group: 'support' },
+  { value: 'ip_coordinator', label: 'IP Coordinator', group: 'support' },
+  // Executive
+  { value: 'hospital_admin', label: 'Hospital Admin', group: 'admin' },
+  { value: 'medical_director', label: 'Medical Director', group: 'executive' },
+];
+
+function getCookie(name: string): string {
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+  return match ? decodeURIComponent(match[2]) : '';
+}
+
+function setCookie(name: string, value: string, days: number = 1) {
+  const expires = new Date(Date.now() + days * 864e5).toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; expires=${expires}; SameSite=Lax`;
+}
+
+function deleteCookie(name: string) {
+  document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+}
+
+// ─── Component ──────────────────────────────────────────────────────────────
+
 export function TestCockpitClient({ userName }: { userName: string }) {
   const [search, setSearch] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(ROUTE_GROUPS.map(g => g.title)));
+  const [impersonatedRole, setImpersonatedRole] = useState('');
+
+  // Load existing impersonation from cookie
+  useEffect(() => {
+    const existing = getCookie('test_role');
+    if (existing) setImpersonatedRole(existing);
+  }, []);
+
+  const handleImpersonation = (role: string) => {
+    setImpersonatedRole(role);
+    if (role) {
+      setCookie('test_role', role, 1);
+    } else {
+      deleteCookie('test_role');
+    }
+  };
 
   const toggleGroup = (title: string) => {
     setExpandedGroups(prev => {
@@ -216,7 +274,7 @@ export function TestCockpitClient({ userName }: { userName: string }) {
                 {totalRoutes} pages across {ROUTE_GROUPS.length} groups — Hi {userName}
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <input
                 type="text"
                 placeholder="Search pages..."
@@ -224,6 +282,27 @@ export function TestCockpitClient({ userName }: { userName: string }) {
                 onChange={e => setSearch(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-indigo-400"
               />
+
+              {/* Role impersonation */}
+              <div className="flex items-center gap-2">
+                <select
+                  value={impersonatedRole}
+                  onChange={e => handleImpersonation(e.target.value)}
+                  className={`border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 ${impersonatedRole ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-gray-300'}`}
+                >
+                  {IMPERSONATION_ROLES.map(r => (
+                    <option key={r.value} value={r.value}>
+                      {r.group ? `[${r.group}] ` : ''}{r.label}
+                    </option>
+                  ))}
+                </select>
+                {impersonatedRole && (
+                  <span className="px-2 py-1 bg-amber-100 text-amber-700 text-xs rounded-full font-medium whitespace-nowrap">
+                    Impersonating: {impersonatedRole.replace(/_/g, ' ')}
+                  </span>
+                )}
+              </div>
+
               <button onClick={expandAll} className="text-xs text-indigo-600 hover:text-indigo-800 whitespace-nowrap">
                 Expand All
               </button>

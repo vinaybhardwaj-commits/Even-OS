@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, adminProcedure, protectedProcedure } from '../trpc';
 import { db } from '@/lib/db';
-import { users, roles } from '@db/schema';
+import { users, roles, auditLog } from '@db/schema';
 import { hashPassword } from '@/lib/auth';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { eq, and, sql, desc, ilike, or } from 'drizzle-orm';
@@ -170,6 +170,7 @@ export const usersRouter = router({
 
   /**
    * Update user details (name, department, roles).
+   * Role changes are logged with before/after diff for full audit trail.
    */
   update: adminProcedure
     .input(z.object({
@@ -181,8 +182,14 @@ export const usersRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input;
 
-      // Verify user belongs to this hospital
-      const [user] = await db.select({ id: users.id, hospital_id: users.hospital_id })
+      // Fetch full user for before-state
+      const [user] = await db.select({
+        id: users.id,
+        hospital_id: users.hospital_id,
+        full_name: users.full_name,
+        department: users.department,
+        roles: users.roles,
+      })
         .from(users)
         .where(and(eq(users.id, id), eq(users.hospital_id, ctx.user.hospital_id)))
         .limit(1);
@@ -196,13 +203,35 @@ export const usersRouter = router({
 
       await db.update(users).set(setValues).where(eq(users.id, id));
 
+      // General update audit
       await writeAuditLog(ctx.user, {
         action: 'UPDATE',
         table_name: 'users',
         row_id: id,
+        old_values: { full_name: user.full_name, department: user.department, roles: user.roles },
         new_values: updates,
         reason: 'User updated by admin',
       });
+
+      // If roles changed, write a specific role-change audit entry for the Role History view
+      if (updates.roles) {
+        const oldRoles = user.roles || [];
+        const newRoles = updates.roles;
+        const added = newRoles.filter((r: string) => !oldRoles.includes(r));
+        const removed = oldRoles.filter((r: string) => !newRoles.includes(r));
+        const primaryChanged = oldRoles[0] !== newRoles[0];
+
+        if (added.length > 0 || removed.length > 0 || primaryChanged) {
+          await writeAuditLog(ctx.user, {
+            action: 'UPDATE',
+            table_name: 'user_roles',
+            row_id: id,
+            old_values: { roles: oldRoles, primary_role: oldRoles[0] || null },
+            new_values: { roles: newRoles, primary_role: newRoles[0], added, removed, primary_changed: primaryChanged },
+            reason: `Role change: +[${added.join(',')}] -[${removed.join(',')}]${primaryChanged ? ` primary: ${oldRoles[0] || 'none'} → ${newRoles[0]}` : ''}`,
+          });
+        }
+      }
 
       return { success: true };
     }),
@@ -333,4 +362,44 @@ export const usersRouter = router({
       ));
     return result;
   }),
+
+  /**
+   * Get role change history for a specific user.
+   * Queries audit_log for table_name='user_roles' entries.
+   */
+  roleHistory: adminProcedure
+    .input(z.object({ user_id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      // Verify user belongs to this hospital
+      const [user] = await db.select({ id: users.id, full_name: users.full_name })
+        .from(users)
+        .where(and(eq(users.id, input.user_id), eq(users.hospital_id, ctx.user.hospital_id)))
+        .limit(1);
+
+      if (!user) throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found' });
+
+      const history = await db.select({
+        id: auditLog.id,
+        action: auditLog.action,
+        old_data: auditLog.old_data,
+        new_data: auditLog.new_data,
+        actor_email: auditLog.actor_email,
+        reason: auditLog.reason,
+        timestamp: auditLog.timestamp,
+      })
+        .from(auditLog)
+        .where(and(
+          eq(auditLog.row_id, input.user_id),
+          eq(auditLog.table_name, 'user_roles'),
+          eq(auditLog.hospital_id, ctx.user.hospital_id),
+        ))
+        .orderBy(desc(auditLog.timestamp))
+        .limit(50);
+
+      return {
+        user_id: input.user_id,
+        user_name: user.full_name,
+        entries: history,
+      };
+    }),
 });
