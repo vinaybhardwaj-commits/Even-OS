@@ -773,9 +773,13 @@ export default function BedsideClient({
           </div>
         )}
 
-        {/* ═══ MEDS TAB (placeholder) ═══ */}
-        {activeTab === 'meds' && (
-          <EmptyState title="Medications" message="eMAR and medication administration will be available in NS.4." icon="💊" />
+        {/* ═══ MEDS TAB ═══ */}
+        {activeTab === 'meds' && currentPatient && (
+          <BedsideMeds
+            encounterId={currentPatient.assignment.encounter_id}
+            patientId={currentPatient.assignment.patient_id}
+            patientName={currentPatient.patient_name}
+          />
         )}
 
         {/* ═══ ASSESS TAB ═══ */}
@@ -809,6 +813,178 @@ export default function BedsideClient({
           onConfirm={endRound}
           onCancel={() => setShowEndRound(false)}
         />
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BEDSIDE MEDS — inline eMAR for current patient
+// ═══════════════════════════════════════════════════════════════════════════
+
+const HOLD_REASONS = [
+  'NPO / Nil by mouth', 'Lab values - awaiting result', 'Vital signs out of range',
+  'Patient in procedure', 'Prescriber instruction', 'Pharmacy hold', 'Other',
+];
+const REFUSE_REASONS = [
+  'Patient refused', 'Patient vomiting', 'Patient absent from ward',
+  'Patient NPO', 'Patient sleeping (non-critical)', 'Other',
+];
+
+function BedsideMeds({ encounterId, patientId, patientName }: { encounterId: string; patientId: string; patientName: string }) {
+  const [schedule, setSchedule] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actionTarget, setActionTarget] = useState<{ type: 'give' | 'hold' | 'refuse'; med: any } | null>(null);
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const loadMeds = useCallback(async () => {
+    setLoading(true);
+    const today = new Date().toISOString().split('T')[0];
+    const data = await trpcQuery('medicationOrders.emarSchedule', { encounter_id: encounterId, date: today });
+    setSchedule(data || []);
+    setLoading(false);
+  }, [encounterId]);
+
+  useEffect(() => { loadMeds(); }, [loadMeds]);
+
+  const doAction = async () => {
+    if (!actionTarget) return;
+    setSaving(true);
+    try {
+      const { type, med } = actionTarget;
+      if (type === 'give') {
+        await trpcMutate('medicationOrders.emarRecord', {
+          medication_request_id: med.request_id,
+          encounter_id: encounterId,
+          patient_id: patientId,
+          scheduled_datetime: med.scheduled_datetime,
+          dose_given: med.dose_quantity,
+          dose_unit: med.dose_unit,
+          route: med.route,
+        });
+      } else if (type === 'hold') {
+        await trpcMutate('medicationOrders.emarHold', {
+          medication_request_id: med.request_id,
+          encounter_id: encounterId,
+          patient_id: patientId,
+          scheduled_datetime: med.scheduled_datetime,
+          hold_reason: reason,
+        });
+      } else {
+        await trpcMutate('medicationOrders.emarRefuse', {
+          medication_request_id: med.request_id,
+          encounter_id: encounterId,
+          patient_id: patientId,
+          scheduled_datetime: med.scheduled_datetime,
+          not_done_reason: reason,
+        });
+      }
+      setActionTarget(null);
+      setReason('');
+      await loadMeds();
+    } catch (e) {
+      alert(`Failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 24, color: '#6B7280' }}>Loading medications...</div>;
+
+  const allMeds = schedule.flatMap((s: any) => s.medications.map((m: any) => ({ ...m, _slot: s.time_slot })));
+  if (allMeds.length === 0) {
+    return <EmptyState title="No Medications" message={`No medications scheduled for ${patientName} today.`} icon="💊" />;
+  }
+
+  const isOverdue = (dt: string) => new Date(dt) < new Date();
+  const fmtTime = (dt: string) => new Date(dt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+  const stColor = (st: string, dt: string) =>
+    st === 'completed' ? '#22C55E' : st === 'held' ? '#9CA3AF' : st === 'not_done' ? '#F97316'
+    : (st === 'pending' && isOverdue(dt)) ? '#DC2626' : '#3B82F6';
+  const stLabel = (st: string, dt: string) =>
+    st === 'completed' ? 'Given' : st === 'held' ? 'Held' : st === 'not_done' ? 'Refused'
+    : (st === 'pending' && isOverdue(dt)) ? 'Overdue' : 'Due';
+
+  const reasons = actionTarget?.type === 'hold' ? HOLD_REASONS : REFUSE_REASONS;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontWeight: 600, color: '#1E293B' }}>Today&apos;s Medications ({allMeds.length})</div>
+        <a href="/care/nurse/emar" style={{ fontSize: 13, color: '#3B82F6', textDecoration: 'none' }}>Full eMAR →</a>
+      </div>
+
+      {schedule.map((slot: any) => (
+        <div key={slot.time_slot} style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', padding: '4px 0', borderBottom: '1px solid #E5E7EB' }}>
+            ⏰ {slot.time_slot}
+          </div>
+          {slot.medications.map((med: any) => {
+            const st = med.administration?.status || 'pending';
+            const color = stColor(st, med.scheduled_datetime);
+            const label = stLabel(st, med.scheduled_datetime);
+            const actionable = st === 'pending';
+            return (
+              <div key={`${med.request_id}_${med.time_slot}`} style={{
+                padding: '8px 0', borderBottom: '1px solid #F3F4F6',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                borderLeft: `3px solid ${color}`, paddingLeft: 10,
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{med.drug_name}</div>
+                  <div style={{ fontSize: 12, color: '#6B7280' }}>{med.dose_quantity} {med.dose_unit} &middot; {med.route}</div>
+                </div>
+                {!actionable ? (
+                  <span style={{ padding: '3px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600, background: `${color}15`, color }}>{label}</span>
+                ) : (
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button onClick={() => setActionTarget({ type: 'give', med })}
+                      style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#22C55E', color: '#fff', fontWeight: 600, fontSize: 12, cursor: 'pointer', touchAction: 'manipulation' }}>Give</button>
+                    <button onClick={() => { setActionTarget({ type: 'hold', med }); setReason(''); }}
+                      style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', fontSize: 11, cursor: 'pointer', touchAction: 'manipulation' }}>Hold</button>
+                    <button onClick={() => { setActionTarget({ type: 'refuse', med }); setReason(''); }}
+                      style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', fontSize: 11, cursor: 'pointer', touchAction: 'manipulation' }}>Refuse</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+
+      {/* Action modal */}
+      {actionTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 20, maxWidth: 400, width: '100%' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>
+              {actionTarget.type === 'give' ? '✅ Confirm Give' : actionTarget.type === 'hold' ? '⏸ Hold Medication' : '🚫 Record Refusal'}
+            </h3>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>{actionTarget.med.drug_name}</div>
+            <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 12 }}>{actionTarget.med.dose_quantity} {actionTarget.med.dose_unit} &middot; {actionTarget.med.route} &middot; {fmtTime(actionTarget.med.scheduled_datetime)}</div>
+
+            {actionTarget.type !== 'give' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                {reasons.map(r => (
+                  <button key={r} onClick={() => setReason(r)} style={{
+                    padding: '8px 12px', borderRadius: 6, textAlign: 'left', cursor: 'pointer', fontSize: 13,
+                    border: reason === r ? '2px solid #3B82F6' : '1px solid #D1D5DB',
+                    background: reason === r ? '#EFF6FF' : '#fff', fontWeight: reason === r ? 600 : 400,
+                  }}>{r}</button>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setActionTarget(null)} style={{ flex: 1, height: 44, borderRadius: 8, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
+              <button onClick={doAction} disabled={saving || (actionTarget.type !== 'give' && !reason)} style={{
+                flex: 1, height: 44, borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 700, color: '#fff',
+                background: actionTarget.type === 'give' ? '#22C55E' : actionTarget.type === 'hold' ? '#9CA3AF' : '#F97316',
+                opacity: (saving || (actionTarget.type !== 'give' && !reason)) ? 0.5 : 1,
+              }}>{saving ? 'Saving...' : 'Confirm'}</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
