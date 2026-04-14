@@ -140,6 +140,11 @@ export default function CustomerCareClient({ userId, userRole, userName }: Props
     return <div style={{ padding: 40, textAlign: 'center', fontFamily: 'system-ui' }}><p style={{ color: '#666' }}>Loading patient journey…</p></div>;
   }
 
+  const handleSwitchView = (viewName: string) => {
+    const url = viewName === 'gantt' ? '/care/customer-care' : `/care/customer-care?view=${viewName}`;
+    window.location.href = url;
+  };
+
   return (
     <div className="caregiver-theme" style={{ fontFamily: 'system-ui', background: '#f5f6fa', minHeight: '100vh' }}>
 
@@ -153,6 +158,38 @@ export default function CustomerCareClient({ userId, userRole, userName }: Props
           <p style={{ fontSize: 12, color: '#888', margin: '2px 0 0' }}>
             {encounters.length} active patients · {dischargeQueue.length} pending discharge
           </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={() => handleSwitchView('gantt')}
+            style={{
+              padding: '8px 16px',
+              borderRadius: 6,
+              border: 'none',
+              backgroundColor: '#1565c0',
+              color: '#fff',
+              fontWeight: 600,
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            📊 Gantt View
+          </button>
+          <button
+            onClick={() => handleSwitchView('pipeline')}
+            style={{
+              padding: '8px 16px',
+              borderRadius: 6,
+              border: '1px solid #e0e0e0',
+              backgroundColor: '#f5f5f5',
+              color: '#333',
+              fontWeight: 600,
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            🔀 Pipeline View
+          </button>
         </div>
       </header>
 
