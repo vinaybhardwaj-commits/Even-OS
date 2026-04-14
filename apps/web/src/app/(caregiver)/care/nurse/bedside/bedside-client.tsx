@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { PatientIdentityStrip, AlertBanner, ConfirmModal, EmptyState } from '@/components/caregiver';
+import { PatientIdentityStrip, AlertBanner, ConfirmModal, EmptyState, AssessmentForms } from '@/components/caregiver';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -778,9 +778,13 @@ export default function BedsideClient({
           <EmptyState title="Medications" message="eMAR and medication administration will be available in NS.4." icon="💊" />
         )}
 
-        {/* ═══ ASSESS TAB (placeholder) ═══ */}
-        {activeTab === 'assess' && (
-          <EmptyState title="Nursing Assessment" message="Structured nursing assessments will be available in NS.3." icon="📋" />
+        {/* ═══ ASSESS TAB ═══ */}
+        {activeTab === 'assess' && currentPatient && (
+          <AssessmentForms
+            patientId={currentPatient.assignment.patient_id}
+            encounterId={currentPatient.assignment.encounter_id}
+            assignmentId={currentPatient.assignment.id}
+          />
         )}
 
         {/* ═══ NOTES TAB (placeholder) ═══ */}
