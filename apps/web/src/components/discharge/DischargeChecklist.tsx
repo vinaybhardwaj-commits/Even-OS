@@ -35,6 +35,15 @@ const DISCHARGE_STEPS = [
   { num: '8.8', name: 'Terminal Cleaning', role: 'housekeeping_supervisor', icon: '🧹', tat: 30, desc: 'Terminal cleaning per IPC protocol before next admission' },
 ];
 
+// Phase 9 — Billing Closure (DC.2)
+const CLOSURE_STEPS = [
+  { num: '9.1', name: 'TPA Claims Submission', role: 'billing_manager', icon: '📤', tat: 4320, desc: 'Compile claims package (final bill, DC summary, reports, pre-auth). Submit to TPA.' },
+  { num: '9.2', name: 'Medical Records Closure', role: 'staff', icon: '📁', tat: 1440, desc: 'IP file compiled and archived. ICD-10 coded. Retention policy applied.' },
+  { num: '9.3', name: 'Follow-Up Booking', role: 'receptionist', icon: '📅', tat: 1440, desc: 'Follow-up booked. OPD team notified. Journey marked COMPLETE.' },
+];
+
+const ALL_DC_STEPS = [...DISCHARGE_STEPS, ...CLOSURE_STEPS];
+
 interface StepData {
   id: string | null;
   step_number: string;
@@ -65,7 +74,7 @@ export default function DischargeChecklist({ patientId, encounterId, userRole, u
     const data = await trpcQuery('journeyEngine.getPatientJourney', { patient_id: patientId });
     if (!data?.steps) { setLoading(false); return; }
     const dcSteps = (data.steps as any[]).filter((s: any) =>
-      s.step_number?.startsWith('8.')
+      s.step_number?.startsWith('8.') || s.step_number?.startsWith('9.')
     );
     setSteps(dcSteps);
     setLoading(false);
@@ -92,7 +101,7 @@ export default function DischargeChecklist({ patientId, encounterId, userRole, u
   if (steps.length === 0) return null; // No discharge steps = discharge not initiated
 
   const completed = steps.filter(s => s.status === 'completed').length;
-  const total = DISCHARGE_STEPS.length;
+  const total = ALL_DC_STEPS.length;
   const pct = Math.round((completed / total) * 100);
 
   return (
@@ -120,8 +129,21 @@ export default function DischargeChecklist({ patientId, encounterId, userRole, u
         </div>
       </div>
 
-      {/* Steps */}
-      {DISCHARGE_STEPS.map((def, idx) => {
+      {/* Journey Complete banner */}
+      {pct === 100 && (
+        <div style={{
+          background: '#e8f5e9', border: '1px solid #a5d6a7', borderRadius: 8,
+          padding: '10px 16px', marginBottom: 12, textAlign: 'center',
+        }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#2e7d32' }}>
+            🎉 Journey Complete — All discharge and closure steps finished
+          </span>
+        </div>
+      )}
+
+      {/* Steps — Phase 8: Discharge + Phase 9: Closure */}
+      {ALL_DC_STEPS.map((def, idx) => {
+        const isPhase9Start = def.num === '9.1';
         const dbStep = steps.find(s => s.step_number === def.num);
         const status = dbStep?.status || 'not_started';
         const isComplete = status === 'completed';
@@ -136,10 +158,21 @@ export default function DischargeChecklist({ patientId, encounterId, userRole, u
         const isOverdue = !isComplete && elapsed > def.tat;
 
         return (
-          <div key={def.num} style={{
+          <div key={def.num}>
+          {isPhase9Start && (
+            <div style={{
+              padding: '8px 0', marginTop: 8, marginBottom: 4,
+              borderTop: '2px solid #e0e0e0',
+            }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#7b1fa2', letterSpacing: 0.5 }}>
+                PHASE 9 — BILLING CLOSURE
+              </span>
+            </div>
+          )}
+          <div style={{
             display: 'flex', alignItems: 'center', gap: 12,
             padding: '10px 0',
-            borderBottom: idx < DISCHARGE_STEPS.length - 1 ? '1px solid #f0f0f0' : 'none',
+            borderBottom: idx < ALL_DC_STEPS.length - 1 ? '1px solid #f0f0f0' : 'none',
             opacity: status === 'not_started' ? 0.5 : 1,
           }}>
             {/* Status icon */}
@@ -204,6 +237,7 @@ export default function DischargeChecklist({ patientId, encounterId, userRole, u
                 {completing === dbStep!.id ? '⏳' : '✓ Done'}
               </button>
             )}
+          </div>
           </div>
         );
       })}
