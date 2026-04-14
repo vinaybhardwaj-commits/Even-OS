@@ -146,7 +146,7 @@ export default function CaregiverShell({ user, children }: CaregiverShellProps) 
                 <a href="/care/schedule" className="block px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">My Schedule</a>
                 <a href="/profile" className="block px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">Profile</a>
                 <div className="border-t mt-1 pt-1">
-                  <form action="/api/trpc/auth.logout" method="POST">
+                  <form action="/api/auth/logout" method="POST">
                     <button type="submit" className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50">
                       Sign Out
                     </button>

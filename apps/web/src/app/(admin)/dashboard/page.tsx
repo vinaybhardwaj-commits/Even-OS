@@ -15,7 +15,7 @@ export default async function DashboardPage() {
           <a href="/profile" className="text-sm text-blue-100 hover:text-white transition-colors">
             {user.name} ({user.role})
           </a>
-          <form action="/api/trpc/auth.logout" method="POST">
+          <form action="/api/auth/logout" method="POST">
             <button className="text-sm text-blue-100 hover:text-white transition-colors">
               Sign Out
             </button>
