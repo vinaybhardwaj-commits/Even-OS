@@ -104,6 +104,10 @@ export const patients = pgTable('patients', {
   source_type: referralSourceEnum('source_type'),
   lsq_lead_id: text('lsq_lead_id'),
 
+  // Journey tracking (denormalized for fast queries)
+  journey_current_phase: text('journey_current_phase'), // Current journey phase (nullable = no active journey)
+  journey_current_step: text('journey_current_step'),   // Current step number (e.g., '2.5')
+
   // Audit
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -253,6 +257,7 @@ export const encounters = pgTable('encounters', {
   pre_auth_number: text('pre_auth_number'),
   pre_auth_override_reason: text('pre_auth_override_reason'),
   pre_auth_override_by: uuid('pre_auth_override_by').references(() => users.id, { onDelete: 'set null' }),
+  journey_type: text('journey_type'),  // elective_surgical, emergency, day_care, medical
   admission_at: timestamp('admission_at', { withTimezone: true }),
   discharge_at: timestamp('discharge_at', { withTimezone: true }),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
