@@ -6,8 +6,9 @@ import { useEffect, useState } from 'react';
 interface Patient {
   id: string;
   uhid: string;
-  first_name: string;
-  last_name: string;
+  name_full: string;
+  first_name?: string;
+  last_name?: string;
 }
 
 interface ClinicalNote {
@@ -760,7 +761,7 @@ function CreateNoteModal({ isOpen, noteType, onClose, onSubmit, loading, patient
                 <option value="">Select patient...</option>
                 {patients.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.first_name} {p.last_name} ({p.uhid})
+                    {p.name_full || `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Unknown'} ({p.uhid})
                   </option>
                 ))}
               </select>
@@ -1066,14 +1067,12 @@ export default function ClinicalNotesClient() {
   useEffect(() => {
     const fetchPatients = async () => {
       try {
-        const response = await fetch('/api/trpc/patient.list', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ json: {} }),
-        });
+        const params = `?input=${encodeURIComponent(JSON.stringify({ json: { pageSize: 100 } }))}`;
+        const response = await fetch(`/api/trpc/patient.list${params}`);
         if (!response.ok) throw new Error('Failed to fetch patients');
         const data = await response.json();
-        setPatients(data.result?.data || []);
+        const items = data.result?.data?.json?.items || [];
+        setPatients(items);
       } catch (error) {
         console.error('Error fetching patients:', error);
       }
@@ -1081,14 +1080,12 @@ export default function ClinicalNotesClient() {
 
     const fetchUsers = async () => {
       try {
-        const response = await fetch('/api/trpc/auth.listUsers', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ json: {} }),
-        });
+        const params = `?input=${encodeURIComponent(JSON.stringify({ json: {} }))}`;
+        const response = await fetch(`/api/trpc/auth.listUsers${params}`);
         if (!response.ok) throw new Error('Failed to fetch users');
         const data = await response.json();
-        setUsers(data.result?.data || []);
+        const items = data.result?.data?.json?.items || data.result?.data?.json || [];
+        setUsers(Array.isArray(items) ? items : []);
       } catch (error) {
         console.error('Error fetching users:', error);
       }
@@ -1333,7 +1330,7 @@ export default function ClinicalNotesClient() {
                 <option value="">All Patients</option>
                 {patients.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.first_name} {p.last_name} ({p.uhid})
+                    {p.name_full || `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Unknown'} ({p.uhid})
                   </option>
                 ))}
               </select>
@@ -1620,7 +1617,7 @@ export default function ClinicalNotesClient() {
                 <option value="">All Patients</option>
                 {patients.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.first_name} {p.last_name} ({p.uhid})
+                    {p.name_full || `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Unknown'} ({p.uhid})
                   </option>
                 ))}
               </select>

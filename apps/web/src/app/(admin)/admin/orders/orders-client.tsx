@@ -84,10 +84,27 @@ function formatDate(dateString: string): string {
   return date.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+// ─── Types for encounter selector ────────────────────────
+interface ActiveEncounter {
+  encounter_id: string;
+  patient_id: string;
+  uhid: string;
+  patient_name: string;
+  bed_name: string | null;
+  ward_name: string | null;
+  encounter_class: string;
+  admission_at: string;
+}
+
 // ─── Main Component ──────────────────────────────────────
 export default function OrdersClient() {
   // Tab state
   const [activeTab, setActiveTab] = useState<'orders' | 'vitals' | 'notes'>('orders');
+
+  // ──────────── ENCOUNTER SELECTOR ───────────────────────
+  const [encounters, setEncounters] = useState<ActiveEncounter[]>([]);
+  const [selectedEncounterId, setSelectedEncounterId] = useState('');
+  const [loadingEncounters, setLoadingEncounters] = useState(true);
 
   // ──────────── ORDERS ────────────────────────────────────
   const [orderStats, setOrderStats] = useState<OrderStats | null>(null);
@@ -95,7 +112,7 @@ export default function OrdersClient() {
   const [orderPage, setOrderPage] = useState(1);
   const [orderTypeFilter, setOrderTypeFilter] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState('');
-  const [loadingOrders, setLoadingOrders] = useState(true);
+  const [loadingOrders, setLoadingOrders] = useState(false);
 
   const [showCreateOrderModal, setShowCreateOrderModal] = useState(false);
   const [creatingOrder, setCreatingOrder] = useState(false);
@@ -151,35 +168,60 @@ export default function OrdersClient() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // ─── Load data on tab change ────────────────────────────
+  // ─── Load active encounters on mount ───────────────────
   useEffect(() => {
+    (async () => {
+      setLoadingEncounters(true);
+      try {
+        const data = await trpcQuery('encounter.listActive', { page: 1, pageSize: 100 });
+        setEncounters(data?.items || []);
+      } catch {
+        // Non-fatal — just means no encounters available
+        setEncounters([]);
+      } finally {
+        setLoadingEncounters(false);
+      }
+    })();
+  }, []);
+
+  // ─── Load stats on mount (no encounter_id needed) ──────
+  useEffect(() => {
+    (async () => {
+      try {
+        const statsData = await trpcQuery('clinicalOrders.orderStats');
+        setOrderStats(statsData);
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  // ─── Load data on tab change (only if encounter selected) ──
+  useEffect(() => {
+    if (!selectedEncounterId) return;
     if (activeTab === 'orders') fetchOrders();
     else if (activeTab === 'vitals') fetchVitals();
     else if (activeTab === 'notes') fetchNotes();
-  }, [activeTab, orderPage, orderTypeFilter, orderStatusFilter, vitalPage, vitalEncounterId, notePage]);
+  }, [activeTab, selectedEncounterId, orderPage, orderTypeFilter, orderStatusFilter, vitalPage, vitalEncounterId, notePage]);
 
   // ─── ORDERS: Fetch ──────────────────────────────────────
   const fetchOrders = useCallback(async () => {
+    if (!selectedEncounterId) return;
     setLoadingOrders(true);
     setError('');
     try {
-      const [statsData, listData] = await Promise.all([
-        trpcQuery('clinicalOrders.orderStats'),
-        trpcQuery('clinicalOrders.listOrders', {
-          page: orderPage,
-          pageSize: 20,
-          ...(orderTypeFilter ? { order_type: orderTypeFilter } : {}),
-          ...(orderStatusFilter ? { status: orderStatusFilter } : {}),
-        }),
-      ]);
-      setOrderStats(statsData);
+      const listData = await trpcQuery('clinicalOrders.listOrders', {
+        encounter_id: selectedEncounterId,
+        page: orderPage,
+        pageSize: 20,
+        ...(orderTypeFilter ? { type: orderTypeFilter } : {}),
+        ...(orderStatusFilter ? { status: orderStatusFilter } : {}),
+      });
       setOrders(listData.items || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load orders');
     } finally {
       setLoadingOrders(false);
     }
-  }, [orderPage, orderTypeFilter, orderStatusFilter]);
+  }, [selectedEncounterId, orderPage, orderTypeFilter, orderStatusFilter]);
 
   // ─── ORDERS: Create ─────────────────────────────────────
   const handleCreateOrder = async (e: React.FormEvent) => {
@@ -487,6 +529,53 @@ export default function OrdersClient() {
         </div>
       )}
 
+      {/* Encounter Selector */}
+      <div style={{
+        background: '#0a1929',
+        border: '1px solid #0f3460',
+        borderRadius: '8px',
+        padding: '16px',
+        marginBottom: '20px',
+      }}>
+        <label style={{ display: 'block', fontSize: '12px', color: '#999', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          Select Patient Encounter
+        </label>
+        {loadingEncounters ? (
+          <div style={{ color: '#888', fontSize: '14px' }}>Loading active encounters…</div>
+        ) : encounters.length === 0 ? (
+          <div style={{ color: '#ffaa00', fontSize: '14px' }}>No active encounters found. Admit a patient first.</div>
+        ) : (
+          <select
+            value={selectedEncounterId}
+            onChange={(e) => {
+              setSelectedEncounterId(e.target.value);
+              setOrders([]);
+              setVitals([]);
+              setNotes([]);
+              setOrderPage(1);
+              setVitalPage(1);
+              setNotePage(1);
+            }}
+            style={{
+              width: '100%',
+              padding: '10px 12px',
+              background: '#0d2137',
+              border: '1px solid #0f3460',
+              borderRadius: '6px',
+              color: '#e0e0e0',
+              fontSize: '14px',
+            }}
+          >
+            <option value="">— Select a patient encounter —</option>
+            {encounters.map((enc) => (
+              <option key={enc.encounter_id} value={enc.encounter_id}>
+                {enc.uhid} — {enc.patient_name || 'Unknown'} {enc.bed_name ? `(${enc.ward_name || ''} / ${enc.bed_name})` : ''} — {enc.encounter_class}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+
       {/* Tabs */}
       <div style={{ borderBottom: '1px solid #0f3460', marginBottom: '24px' }}>
         <button
@@ -546,8 +635,16 @@ export default function OrdersClient() {
             </div>
           )}
 
-          {/* Controls */}
-          <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
+          {/* Gate: require encounter selection */}
+          {!selectedEncounterId && (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#888' }}>
+              <div style={{ fontSize: '32px', marginBottom: '8px' }}>&#x1F50D;</div>
+              <div style={{ fontSize: '16px' }}>Select a patient encounter above to view orders</div>
+            </div>
+          )}
+
+          {/* Controls — only show if encounter selected */}
+          {selectedEncounterId && (<><div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
             <button
               onClick={() => setShowCreateOrderModal(true)}
               style={{ ...themeStyles.button, ...themeStyles.buttonPrimary }}
@@ -697,6 +794,7 @@ export default function OrdersClient() {
               </div>
             </div>
           )}
+          </>)}
         </div>
       )}
 
