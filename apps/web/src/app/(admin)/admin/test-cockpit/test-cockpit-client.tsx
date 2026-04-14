@@ -193,6 +193,7 @@ const ROUTE_GROUPS: RouteGroup[] = [
       { name: 'Worksheet', path: '/care/nurse/worksheet', desc: 'Phone pocket view: patient × task grid with status icons', badge: 'NS.6' },
       { name: 'Doctor Home', path: '/care/doctor', desc: 'Acuity-sorted patients, context panel, sidebar (new admits/co-sign/labs/DC)', badge: 'DV.1' },
       { name: 'Rounds View', path: '/care/doctor/rounds', desc: 'Rich patient cards, key labs, vitals, orders, companion quick notes', badge: 'DV.2' },
+      { name: 'SOAP Notes', path: '/care/doctor/note', desc: 'SOAP form with auto-populated O, quick-insert chips, post-rounds batch mode', badge: 'DV.3' },
     ],
   },
 ];
