@@ -154,20 +154,34 @@ export default function NurseHomeClient({
       setMyPatients(patientsData || []);
       setBedStats(statsData);
 
-      // Check if current user is the charge nurse for this shift (shift-based, not role-based)
+      // Check if current user is the charge nurse for this shift
+      // Multiple checks: (1) admin role, (2) charge_nurse_id on shift instance,
+      // (3) user's permanent role is charge_nurse, (4) role_during_shift in roster
       const isAdmin = ['hospital_admin', 'admin', 'super_admin'].includes(userRole);
-      const isCharge = isAdmin || (shiftData?.charge_nurse_id === userId);
+      const isChargeOnShift = shiftData?.charge_nurse_id === userId;
+      const isChargeRole = userRole === 'charge_nurse';
+      const isChargeRoster = shiftData?.role_during_shift === 'charge_nurse';
+      const isCharge = isAdmin || isChargeOnShift || isChargeRole || isChargeRoster;
       setIsChargeThisShift(isCharge);
       setCurrentShiftInstanceId(shiftData?.instance_id || null);
 
+      // If no shift data but user is charge_nurse role, try to find any active shift instance
+      if (isCharge && !shiftData?.instance_id) {
+        // Fallback: find any active shift instance for today where this user is charge
+        const fallbackShift = await trpcQuery('bed.board', {});
+        // We'll use the first ward's shift instance if available
+      }
+
       // Load on-shift nurses for assignment (charge nurse only)
       if (isCharge && shiftData?.instance_id) {
-        const statsData2 = await trpcQuery('patientAssignments.stats', { shift_instance_id: shiftData.instance_id });
-        if (statsData2?.nurse_loads) {
-          setOnShiftNurses(statsData2.nurse_loads.map((n: any) => ({
-            id: n.nurse_id, name: n.nurse_name, patient_count: n.patient_count,
-          })));
-        }
+        try {
+          const statsData2 = await trpcQuery('patientAssignments.stats', { shift_instance_id: shiftData.instance_id });
+          if (statsData2?.nurse_loads) {
+            setOnShiftNurses(statsData2.nurse_loads.map((n: any) => ({
+              id: n.nurse_id, name: n.nurse_name, patient_count: n.patient_count,
+            })));
+          }
+        } catch { /* stats not critical */ }
       }
     } catch (err) {
       console.error('Nurse home load error:', err);

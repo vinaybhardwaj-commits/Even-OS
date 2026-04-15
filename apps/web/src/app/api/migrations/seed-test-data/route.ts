@@ -105,7 +105,9 @@ export async function POST(req: NextRequest) {
       await sql`
         INSERT INTO users (hospital_id, email, full_name, roles, department, password_hash, status, must_change_password)
         VALUES (${hospitalId}, ${u.email}, ${u.name}, ${rolesArr}::text[], ${u.dept}, ${testPasswordHash}, 'active', true)
-        ON CONFLICT (email, hospital_id) DO UPDATE SET roles = ${rolesArr}::text[], full_name = ${u.name}, department = ${u.dept}, password_hash = ${testPasswordHash}, status = 'active'
+        ON CONFLICT (email, hospital_id) DO UPDATE SET roles = ${rolesArr}::text[], full_name = ${u.name}, department = ${u.dept},
+          password_hash = CASE WHEN users.password_hash IS NULL OR users.password_hash = '' THEN ${testPasswordHash} ELSE users.password_hash END,
+          status = 'active'
       `;
     }
     results.push(`✅ 7 test users created/updated`);
