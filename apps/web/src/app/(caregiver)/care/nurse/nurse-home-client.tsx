@@ -13,6 +13,20 @@ async function trpcQuery(path: string, input?: any) {
   return json.result?.data?.json;
 }
 
+async function trpcMutate(path: string, input: any) {
+  const res = await fetch(`/api/trpc/${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ json: input }),
+  });
+  const json = await res.json();
+  if (json.error) {
+    const msg = json.error?.json?.message || json.error?.message || 'Mutation failed';
+    throw new Error(msg);
+  }
+  return json.result?.data?.json;
+}
+
 // ── Types ────────────────────────────────────────────────────
 interface Bed {
   id: string;
@@ -109,8 +123,16 @@ export default function NurseHomeClient({
   const [selectedWard, setSelectedWard] = useState<string>('');
   const [now, setNow] = useState(new Date());
   const [isChargeThisShift, setIsChargeThisShift] = useState(false);
+  const [currentShiftInstanceId, setCurrentShiftInstanceId] = useState<string | null>(null);
   // Bed click popup
   const [clickedBed, setClickedBed] = useState<Bed | null>(null);
+  // Assignment flow (charge nurse)
+  const [showAssignPopup, setShowAssignPopup] = useState(false);
+  const [assignBed, setAssignBed] = useState<Bed | null>(null);
+  const [onShiftNurses, setOnShiftNurses] = useState<{ id: string; name: string; patient_count: number }[]>([]);
+  const [selectedNurseId, setSelectedNurseId] = useState('');
+  const [assigning, setAssigning] = useState(false);
+  const [assignError, setAssignError] = useState('');
 
   // Refresh clock every minute
   useEffect(() => {
@@ -136,6 +158,17 @@ export default function NurseHomeClient({
       const isAdmin = ['hospital_admin', 'admin', 'super_admin'].includes(userRole);
       const isCharge = isAdmin || (shiftData?.charge_nurse_id === userId);
       setIsChargeThisShift(isCharge);
+      setCurrentShiftInstanceId(shiftData?.instance_id || null);
+
+      // Load on-shift nurses for assignment (charge nurse only)
+      if (isCharge && shiftData?.instance_id) {
+        const statsData2 = await trpcQuery('patientAssignments.stats', { shift_instance_id: shiftData.instance_id });
+        if (statsData2?.nurse_loads) {
+          setOnShiftNurses(statsData2.nurse_loads.map((n: any) => ({
+            id: n.nurse_id, name: n.nurse_name, patient_count: n.patient_count,
+          })));
+        }
+      }
     } catch (err) {
       console.error('Nurse home load error:', err);
     } finally {
@@ -484,16 +517,141 @@ export default function NurseHomeClient({
                 🩺 Bedside View
               </Link>
             </div>
+            {/* Assign to Nurse — charge nurse only */}
+            {isChargeThisShift && (
+              <button
+                onClick={() => {
+                  setAssignBed(clickedBed);
+                  setShowAssignPopup(true);
+                  setClickedBed(null);
+                  setSelectedNurseId('');
+                  setAssignError('');
+                }}
+                style={{
+                  width: '100%', marginTop: '10px', padding: '12px', borderRadius: '10px',
+                  background: '#f59e0b', color: '#fff', fontWeight: '600', fontSize: '14px',
+                  border: 'none', cursor: 'pointer',
+                }}
+              >
+                👩‍⚕️ Assign to Nurse
+              </button>
+            )}
             <button
               onClick={() => setClickedBed(null)}
               style={{
-                width: '100%', marginTop: '10px', padding: '8px', borderRadius: '8px',
+                width: '100%', marginTop: '8px', padding: '8px', borderRadius: '8px',
                 border: '1px solid #e5e7eb', background: '#fff', color: '#6b7280',
                 fontSize: '13px', cursor: 'pointer',
               }}
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── ASSIGN NURSE POPUP ── */}
+      {showAssignPopup && assignBed && (
+        <div
+          onClick={() => setShowAssignPopup(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{
+            background: '#fff', borderRadius: '16px', padding: '24px', width: '380px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+          }}>
+            <h3 style={{ fontSize: '16px', fontWeight: '700', margin: '0 0 4px', color: '#111827' }}>
+              Assign Patient to Nurse
+            </h3>
+            <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '16px' }}>
+              {assignBed.patient_name} ({assignBed.patient_uhid}) · {assignBed.code}
+            </div>
+
+            {assignError && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '8px 12px', fontSize: '13px', color: '#dc2626', marginBottom: '12px' }}>
+                {assignError}
+              </div>
+            )}
+
+            <label style={{ fontSize: '12px', fontWeight: '600', color: '#374151', display: 'block', marginBottom: '6px' }}>
+              Select Nurse (on shift)
+            </label>
+            <select
+              value={selectedNurseId}
+              onChange={(e) => setSelectedNurseId(e.target.value)}
+              style={{
+                width: '100%', padding: '10px 12px', borderRadius: '8px',
+                border: '1px solid #d1d5db', fontSize: '14px', marginBottom: '8px',
+              }}
+            >
+              <option value="">— Select a nurse —</option>
+              {/* Self-assign option */}
+              <option value={userId}>
+                {userName} (me)
+              </option>
+              {onShiftNurses.filter(n => n.id !== userId).map(n => (
+                <option key={n.id} value={n.id}>
+                  {n.name} ({n.patient_count} patients)
+                </option>
+              ))}
+            </select>
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+              <button
+                disabled={!selectedNurseId || assigning}
+                onClick={async () => {
+                  if (!selectedNurseId || !assignBed.patient_id || !assignBed.encounter_id) return;
+                  setAssigning(true);
+                  setAssignError('');
+                  try {
+                    // Find ward_id for this bed
+                    const wardId = wards.find(w => w.beds.some(b => b.id === assignBed.id))?.ward_id;
+                    if (!wardId) throw new Error('Ward not found for this bed');
+
+                    // Find shift instance for this ward
+                    const shiftForWard = currentShiftInstanceId;
+                    if (!shiftForWard) throw new Error('No active shift found');
+
+                    await trpcMutate('patientAssignments.assign', {
+                      shift_instance_id: shiftForWard,
+                      nurse_id: selectedNurseId,
+                      patient_id: assignBed.patient_id,
+                      encounter_id: assignBed.encounter_id,
+                      ward_id: wardId,
+                      bed_label: assignBed.code,
+                    });
+                    setShowAssignPopup(false);
+                    setAssignBed(null);
+                    loadData(); // refresh
+                  } catch (err) {
+                    setAssignError(err instanceof Error ? err.message : 'Assignment failed');
+                  } finally {
+                    setAssigning(false);
+                  }
+                }}
+                style={{
+                  flex: 1, padding: '12px', borderRadius: '10px', border: 'none',
+                  background: selectedNurseId ? '#3b82f6' : '#d1d5db',
+                  color: '#fff', fontWeight: '600', fontSize: '14px',
+                  cursor: selectedNurseId ? 'pointer' : 'default',
+                  opacity: assigning ? 0.6 : 1,
+                }}
+              >
+                {assigning ? 'Assigning…' : 'Assign'}
+              </button>
+              <button
+                onClick={() => { setShowAssignPopup(false); setAssignBed(null); }}
+                style={{
+                  padding: '12px 20px', borderRadius: '10px', border: '1px solid #e5e7eb',
+                  background: '#fff', color: '#6b7280', fontSize: '14px', cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

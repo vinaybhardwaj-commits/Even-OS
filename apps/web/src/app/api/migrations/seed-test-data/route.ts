@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
         VALUES (${hospitalId}, ${activeTemplateId}, ${ward.id}, ${today}, 'active',
           ${userMap['charge.nurse@even.in'] || userMap['test.nurse@even.in'] || null})
         ON CONFLICT (template_id, ward_id, shift_date) DO UPDATE SET status = 'active',
-          charge_nurse_id = COALESCE(${userMap['charge.nurse@even.in'] || userMap['test.nurse@even.in'] || null}, shift_instances.charge_nurse_id)
+          charge_nurse_id = COALESCE(${userMap['charge.nurse@even.in'] || null}, shift_instances.charge_nurse_id)
         RETURNING id
       `;
       instanceIds.push(result[0].id as string);
@@ -179,14 +179,22 @@ export async function POST(req: NextRequest) {
     results.push(`✅ ${instanceIds.length} shift instances created for today (${today})`);
 
     // ─── 5. ROSTER (put nurses on shift) ──────────────────────
+    // Clean up any stale roster entries with wrong role_during_shift
+    await sql`UPDATE shift_roster SET role_during_shift = 'nurse' WHERE user_id IN (
+      SELECT id FROM users WHERE email = 'test.nurse@even.in'
+    ) AND role_during_shift = 'charge_nurse'`;
+    // Update shift instances to use charge.nurse as the charge_nurse_id
+    if (userMap['charge.nurse@even.in']) {
+      await sql`UPDATE shift_instances SET charge_nurse_id = ${userMap['charge.nurse@even.in']} WHERE shift_date = ${today}`;
+    }
+
     const rosterNurses = ['charge.nurse@even.in', 'nurse.a@even.in', 'nurse.b@even.in', 'test.nurse@even.in'];
     let rosterCount = 0;
     for (const instanceId of instanceIds) {
       for (const email of rosterNurses) {
         const userId = userMap[email];
         if (!userId) continue;
-        const roleDuringShift = (email === 'charge.nurse@even.in' || email === 'test.nurse@even.in')
-          ? 'charge_nurse' : 'nurse';
+        const roleDuringShift = email === 'charge.nurse@even.in' ? 'charge_nurse' : 'nurse';
         await sql`
           INSERT INTO shift_roster (shift_instance_id, user_id, role_during_shift, status)
           VALUES (${instanceId}, ${userId}, ${roleDuringShift}, 'confirmed')

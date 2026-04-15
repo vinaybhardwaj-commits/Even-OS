@@ -1541,6 +1541,13 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
             boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
           }}>
             <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 16px', textTransform: 'uppercase', color: '#666' }}>Latest Vitals</h3>
+            {Object.keys(latestVitalsMap).length === 0 && (
+              <div style={{ textAlign: 'center', padding: '24px 12px', color: '#9ca3af' }}>
+                <div style={{ fontSize: '28px', marginBottom: '8px' }}>📊</div>
+                <div style={{ fontSize: '13px' }}>No vitals recorded yet</div>
+                <div style={{ fontSize: '11px', marginTop: '4px' }}>Record vitals using the button below</div>
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
               {Object.entries(latestVitalsMap).slice(0, 6).map(([type, vital]) => vital && (
                 <div key={type} style={{
