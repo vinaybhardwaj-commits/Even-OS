@@ -128,12 +128,24 @@ export async function POST(req: NextRequest) {
     let created = 0;
     let updated = 0;
     for (const r of roleDefinitions) {
-      const result = await sql`
-        INSERT INTO roles (hospital_id, name, description, role_group, is_active, is_system_role)
-        VALUES (${hospitalId}, ${r.name}, ${r.desc}, ${r.group}, true, false)
-        ON CONFLICT (name, hospital_id) DO UPDATE SET description = ${r.desc}, role_group = ${r.group}, is_active = true
-        RETURNING (xmax = 0) as is_new
+      // Check if role exists first (ON CONFLICT doesn't work with nullable hospital_id index)
+      const existing = await sql`
+        SELECT id FROM roles WHERE name = ${r.name} AND hospital_id = ${hospitalId} LIMIT 1
       `;
+      let isNew = false;
+      if (existing.length === 0) {
+        await sql`
+          INSERT INTO roles (hospital_id, name, description, role_group, is_active, is_system_role)
+          VALUES (${hospitalId}, ${r.name}, ${r.desc}, ${r.group}, true, false)
+        `;
+        isNew = true;
+      } else {
+        await sql`
+          UPDATE roles SET description = ${r.desc}, role_group = ${r.group}, is_active = true
+          WHERE name = ${r.name} AND hospital_id = ${hospitalId}
+        `;
+      }
+      const result = [{ is_new: isNew }];
       if (result[0]?.is_new) created++; else updated++;
     }
     results.push(`✅ ${created} new roles created, ${updated} existing roles updated`);
