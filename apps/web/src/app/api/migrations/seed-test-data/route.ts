@@ -87,8 +87,8 @@ export async function POST(req: NextRequest) {
     results.push('✅ Shift + nursing tables ensured');
 
     // ─── 1. CREATE TEST USERS ──────────────────────────────────
-    // Password hash for 'test1234' using bcrypt
-    const testPasswordHash = '$2b$10$xQHJLs3GFVaHkNEqKBMsZOVQnSJiJLmrKl1Y7bHcKj6JmFjqJ3Wpa';
+    // Password hash for 'test1234' using bcrypt (generated with bcrypt.hash('test1234', 10))
+    const testPasswordHash = '$2b$10$hiScguFU1YUMRKbCD6/OCOG7/8zLDG4cV/qynywH8YF1SopC6yuQG';
 
     const testUsers = [
       { email: 'charge.nurse@even.in', name: 'Priya Sharma', role: 'charge_nurse', dept: 'Nursing' },
@@ -110,9 +110,9 @@ export async function POST(req: NextRequest) {
     }
     results.push(`✅ 7 test users created/updated`);
 
-    // Also update test.nurse to charge_nurse so V can test
-    await sql`UPDATE users SET roles = '{charge_nurse}'::text[] WHERE email = 'test.nurse@even.in' AND hospital_id = ${hospitalId}`;
-    results.push(`✅ test.nurse@even.in promoted to charge_nurse`);
+    // Ensure test.nurse is a regular nurse (not charge_nurse)
+    await sql`UPDATE users SET roles = '{nurse}'::text[] WHERE email = 'test.nurse@even.in' AND hospital_id = ${hospitalId}`;
+    results.push(`✅ test.nurse@even.in set to nurse role`);
 
     // Get user IDs
     const usersResult = await sql`

@@ -19,6 +19,7 @@ interface Bed {
   code: string;
   name: string;
   bed_status: string;
+  patient_id: string | null;
   patient_uhid: string | null;
   patient_name: string | null;
   patient_gender: string | null;
@@ -94,8 +95,6 @@ function formatTime(d: Date): string {
 }
 
 // ── Component ────────────────────────────────────────────────
-const CHARGE_ROLES = ['charge_nurse', 'nursing_supervisor', 'hospital_admin', 'admin', 'super_admin'];
-
 export default function NurseHomeClient({
   userId, userName, userRole,
 }: {
@@ -109,6 +108,9 @@ export default function NurseHomeClient({
   const [loading, setLoading] = useState(true);
   const [selectedWard, setSelectedWard] = useState<string>('');
   const [now, setNow] = useState(new Date());
+  const [isChargeThisShift, setIsChargeThisShift] = useState(false);
+  // Bed click popup
+  const [clickedBed, setClickedBed] = useState<Bed | null>(null);
 
   // Refresh clock every minute
   useEffect(() => {
@@ -120,20 +122,26 @@ export default function NurseHomeClient({
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [boardData, patientsData, statsData] = await Promise.all([
+      const [boardData, patientsData, statsData, shiftData] = await Promise.all([
         trpcQuery('bed.board', {}),
         trpcQuery('patientAssignments.myPatients', {}),
         trpcQuery('bed.stats'),
+        trpcQuery('shifts.getCurrentShift'),
       ]);
       setWards(boardData?.wards || []);
       setMyPatients(patientsData || []);
       setBedStats(statsData);
+
+      // Check if current user is the charge nurse for this shift (shift-based, not role-based)
+      const isAdmin = ['hospital_admin', 'admin', 'super_admin'].includes(userRole);
+      const isCharge = isAdmin || (shiftData?.charge_nurse_id === userId);
+      setIsChargeThisShift(isCharge);
     } catch (err) {
       console.error('Nurse home load error:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userId, userRole]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -185,12 +193,12 @@ export default function NurseHomeClient({
           }}>
             💊 eMAR
           </Link>
-          {CHARGE_ROLES.includes(userRole) && (
+          {isChargeThisShift && (
             <Link href="/care/nurse/charge" style={{
               padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '600',
-              background: '#f3f4f6', color: '#374151', textDecoration: 'none', border: '1px solid #e5e7eb',
+              background: '#fef3c7', color: '#92400e', textDecoration: 'none', border: '1px solid #fcd34d',
             }}>
-              👩‍⚕️ Charge Nurse
+              👩‍⚕️ Ward Command
             </Link>
           )}
         </div>
@@ -278,10 +286,8 @@ export default function NurseHomeClient({
                     <div
                       key={bed.id}
                       onClick={() => {
-                        if (hasPatient && bed.encounter_id) {
-                          // Navigate to patient chart
-                          const patientId = bed.encounter_id; // encounter links to patient
-                          window.location.href = `/care/patient/${bed.encounter_id.split('-')[0]}`;
+                        if (hasPatient && bed.patient_id) {
+                          setClickedBed(bed);
                         }
                       }}
                       title={hasPatient
@@ -426,6 +432,71 @@ export default function NurseHomeClient({
           </Link>
         ))}
       </div>
+
+      {/* ── BED CLICK POPUP ── */}
+      {clickedBed && clickedBed.patient_id && (
+        <div
+          onClick={() => setClickedBed(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: '16px', padding: '24px', width: '360px',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+            }}
+          >
+            <div style={{ fontSize: '14px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>
+              {clickedBed.patient_name || 'Unknown Patient'}
+            </div>
+            <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+              {clickedBed.patient_uhid} · {clickedBed.code} · {clickedBed.encounter_class || 'IPD'}
+            </div>
+            {clickedBed.diagnosis && (
+              <div style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '16px' }}>
+                {clickedBed.diagnosis}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <Link
+                href={`/care/patient/${clickedBed.patient_id}`}
+                style={{
+                  flex: 1, padding: '12px', borderRadius: '10px', textAlign: 'center',
+                  background: '#3b82f6', color: '#fff', fontWeight: '600', fontSize: '14px',
+                  textDecoration: 'none',
+                }}
+                onClick={() => setClickedBed(null)}
+              >
+                📋 Patient Chart
+              </Link>
+              <Link
+                href={`/care/nurse/bedside?patient=${clickedBed.patient_id}&encounter=${clickedBed.encounter_id}`}
+                style={{
+                  flex: 1, padding: '12px', borderRadius: '10px', textAlign: 'center',
+                  background: '#10b981', color: '#fff', fontWeight: '600', fontSize: '14px',
+                  textDecoration: 'none',
+                }}
+                onClick={() => setClickedBed(null)}
+              >
+                🩺 Bedside View
+              </Link>
+            </div>
+            <button
+              onClick={() => setClickedBed(null)}
+              style={{
+                width: '100%', marginTop: '10px', padding: '8px', borderRadius: '8px',
+                border: '1px solid #e5e7eb', background: '#fff', color: '#6b7280',
+                fontSize: '13px', cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

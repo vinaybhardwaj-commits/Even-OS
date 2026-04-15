@@ -48,6 +48,7 @@ export const bedRouter = router({
               'code', b.code,
               'name', b.name,
               'bed_status', b.bed_status,
+              'patient_id', bo.patient_id,
               'patient_uhid', bo.uhid,
               'patient_name', bo.patient_name,
               'patient_gender', bo.gender,

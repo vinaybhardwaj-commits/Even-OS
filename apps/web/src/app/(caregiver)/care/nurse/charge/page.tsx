@@ -3,13 +3,20 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import ChargeNurseClient from './charge-nurse-client';
 
-const CHARGE_ROLES = ['charge_nurse', 'nursing_supervisor', 'hospital_admin', 'admin', 'super_admin'];
+// Admin roles always have access; for nurses, check shift roster at runtime
+const ADMIN_ROLES = ['hospital_admin', 'admin', 'super_admin', 'nursing_supervisor'];
 
 export default async function ChargeNursePage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
 
-  if (!CHARGE_ROLES.includes(user.role)) {
+  // Admins always have access. For nurses, we allow access — the client component
+  // will check the shift roster and show appropriate UI. The old gate was too restrictive
+  // because charge_nurse is a shift-based role, not a permanent one.
+  const isAdmin = ADMIN_ROLES.includes(user.role);
+  const isNurse = user.role.includes('nurse') || user.role === 'nurse';
+
+  if (!isAdmin && !isNurse) {
     return (
       <div style={{ maxWidth: '480px', margin: '80px auto', textAlign: 'center', padding: '40px 24px' }}>
         <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
