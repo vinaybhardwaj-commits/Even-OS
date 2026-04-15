@@ -90,6 +90,29 @@ export default async function DashboardPage() {
             </div>
           </div>
 
+          {/* Workforce Management — Admin only */}
+          {isAdmin && (
+            <div className="mt-8 pt-8 border-t border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Workforce Management</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <a href="/admin/shifts" className="flex items-center gap-3 p-4 bg-indigo-50 rounded-lg border border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300 transition-colors">
+                  <span className="text-2xl">📅</span>
+                  <div>
+                    <p className="text-sm font-semibold text-indigo-800">Shift Management</p>
+                    <p className="text-xs text-indigo-600">Templates, rosters, calendar</p>
+                  </div>
+                </a>
+                <a href="/care/schedule" className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100 hover:border-blue-300 transition-colors">
+                  <span className="text-2xl">🗓️</span>
+                  <div>
+                    <p className="text-sm font-semibold text-blue-800">Staff Schedule</p>
+                    <p className="text-xs text-blue-600">Weekly shift calendar</p>
+                  </div>
+                </a>
+              </div>
+            </div>
+          )}
+
           {/* Admin Links */}
           {isAdmin && (
             <div className="mt-8 pt-8 border-t border-gray-200">
