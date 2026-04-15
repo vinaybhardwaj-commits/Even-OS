@@ -22,6 +22,70 @@ export async function POST(req: NextRequest) {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const results: string[] = [];
 
+    // ─── 0. ENSURE SHIFT + NURSING TABLES EXIST ────────────────
+    // Run table creation inline (idempotent — IF NOT EXISTS)
+    const enumSqls = [
+      `DO $$ BEGIN CREATE TYPE shift_name AS ENUM ('morning','evening','night','general','custom'); EXCEPTION WHEN duplicate_object THEN null; END $$`,
+      `DO $$ BEGIN CREATE TYPE shift_instance_status AS ENUM ('planned','active','completed','cancelled'); EXCEPTION WHEN duplicate_object THEN null; END $$`,
+      `DO $$ BEGIN CREATE TYPE roster_status AS ENUM ('scheduled','confirmed','absent','swapped','cancelled'); EXCEPTION WHEN duplicate_object THEN null; END $$`,
+      `DO $$ BEGIN CREATE TYPE assignment_status AS ENUM ('active','completed','transferred','cancelled'); EXCEPTION WHEN duplicate_object THEN null; END $$`,
+      `DO $$ BEGIN CREATE TYPE handoff_status AS ENUM ('draft','submitted','acknowledged','flagged'); EXCEPTION WHEN duplicate_object THEN null; END $$`,
+      `DO $$ BEGIN CREATE TYPE handoff_priority AS ENUM ('routine','watch','critical'); EXCEPTION WHEN duplicate_object THEN null; END $$`,
+      `DO $$ BEGIN CREATE TYPE nursing_assessment_type AS ENUM ('admission','shift_start','routine','focused','discharge'); EXCEPTION WHEN duplicate_object THEN null; END $$`,
+      `DO $$ BEGIN CREATE TYPE ward_type_applicability AS ENUM ('icu','general','step_down','ot','er','all'); EXCEPTION WHEN duplicate_object THEN null; END $$`,
+    ];
+    for (const e of enumSqls) { await sql(e); }
+
+    await sql(`CREATE TABLE IF NOT EXISTS shift_templates (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      hospital_id TEXT NOT NULL REFERENCES hospitals(hospital_id) ON DELETE RESTRICT,
+      name TEXT NOT NULL, shift_name shift_name NOT NULL DEFAULT 'custom',
+      start_time TIME NOT NULL, end_time TIME NOT NULL,
+      duration_hours REAL NOT NULL DEFAULT 8,
+      ward_type ward_type_applicability NOT NULL DEFAULT 'all',
+      is_default BOOLEAN NOT NULL DEFAULT false, is_active BOOLEAN NOT NULL DEFAULT true,
+      color TEXT DEFAULT '#3B82F6',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+    await sql(`CREATE UNIQUE INDEX IF NOT EXISTS idx_shift_templates_name_hospital ON shift_templates(name, hospital_id)`);
+
+    await sql(`CREATE TABLE IF NOT EXISTS shift_instances (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      hospital_id TEXT NOT NULL REFERENCES hospitals(hospital_id) ON DELETE RESTRICT,
+      template_id UUID NOT NULL REFERENCES shift_templates(id) ON DELETE RESTRICT,
+      ward_id UUID NOT NULL, shift_date DATE NOT NULL,
+      charge_nurse_id UUID, status shift_instance_status NOT NULL DEFAULT 'planned',
+      actual_start TIMESTAMPTZ, actual_end TIMESTAMPTZ, notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+    await sql(`CREATE UNIQUE INDEX IF NOT EXISTS idx_shift_instances_unique ON shift_instances(template_id, ward_id, shift_date)`);
+
+    await sql(`CREATE TABLE IF NOT EXISTS shift_roster (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      shift_instance_id UUID NOT NULL REFERENCES shift_instances(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL, role_during_shift TEXT NOT NULL DEFAULT 'nurse',
+      status roster_status NOT NULL DEFAULT 'scheduled',
+      assigned_by UUID, assigned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+    await sql(`CREATE UNIQUE INDEX IF NOT EXISTS idx_shift_roster_unique ON shift_roster(shift_instance_id, user_id)`);
+
+    await sql(`CREATE TABLE IF NOT EXISTS patient_assignments (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      hospital_id TEXT NOT NULL REFERENCES hospitals(hospital_id) ON DELETE RESTRICT,
+      shift_instance_id UUID NOT NULL REFERENCES shift_instances(id) ON DELETE CASCADE,
+      nurse_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE RESTRICT,
+      encounter_id UUID NOT NULL REFERENCES encounters(id) ON DELETE RESTRICT,
+      ward_id UUID NOT NULL REFERENCES locations(id) ON DELETE RESTRICT,
+      bed_label TEXT, status assignment_status NOT NULL DEFAULT 'active',
+      assigned_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      assigned_at TIMESTAMPTZ NOT NULL DEFAULT now(), completed_at TIMESTAMPTZ,
+      notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+
+    results.push('✅ Shift + nursing tables ensured');
+
     // ─── 1. CREATE TEST USERS ──────────────────────────────────
     // Password hash for 'test1234' using bcrypt
     const testPasswordHash = '$2b$10$xQHJLs3GFVaHkNEqKBMsZOVQnSJiJLmrKl1Y7bHcKj6JmFjqJ3Wpa';
