@@ -223,11 +223,13 @@ export const encounterRouter = router({
           p.uhid, p.name_full as patient_name, p.phone, p.gender, p.dob,
           p.blood_group, p.patient_category,
           l.code as bed_code, l.name as bed_name,
-          w.code as ward_code, w.name as ward_name
+          w.code as ward_code, w.name as ward_name,
+          att.full_name as attending_physician_name
         FROM encounters e
         JOIN patients p ON e.patient_id = p.id
         LEFT JOIN locations l ON e.current_location_id = l.id
         LEFT JOIN locations w ON l.parent_location_id = w.id
+        LEFT JOIN users att ON e.attending_practitioner_id = att.id
         WHERE e.patient_id = ${input.patient_id}::uuid
           AND e.hospital_id = ${hospitalId}
           AND e.status = 'in-progress'

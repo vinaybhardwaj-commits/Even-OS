@@ -87,8 +87,8 @@ export async function POST(req: NextRequest) {
     results.push('✅ Shift + nursing tables ensured');
 
     // ─── 1. CREATE TEST USERS ──────────────────────────────────
-    // Password hash for 'test1234' using bcrypt (generated with bcrypt.hash('test1234', 10))
-    const testPasswordHash = '$2b$10$hiScguFU1YUMRKbCD6/OCOG7/8zLDG4cV/qynywH8YF1SopC6yuQG';
+    // Password hash for 'test1234' using bcrypt (12 rounds, matching app's SALT_ROUNDS)
+    const testPasswordHash = '$2a$12$QMfh5kOplN8JQysNr7akwOffKSKCOfL1ie/FgTCePiGvyGEPu2F52';
 
     const testUsers = [
       { email: 'charge.nurse@even.in', name: 'Priya Sharma', role: 'charge_nurse', dept: 'Nursing' },
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
       await sql`
         INSERT INTO users (hospital_id, email, full_name, roles, department, password_hash, status, must_change_password)
         VALUES (${hospitalId}, ${u.email}, ${u.name}, ${rolesArr}::text[], ${u.dept}, ${testPasswordHash}, 'active', true)
-        ON CONFLICT (email, hospital_id) DO UPDATE SET roles = ${rolesArr}::text[], full_name = ${u.name}, department = ${u.dept}
+        ON CONFLICT (email, hospital_id) DO UPDATE SET roles = ${rolesArr}::text[], full_name = ${u.name}, department = ${u.dept}, password_hash = ${testPasswordHash}, status = 'active'
       `;
     }
     results.push(`✅ 7 test users created/updated`);

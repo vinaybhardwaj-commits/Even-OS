@@ -35,10 +35,23 @@ interface PatientData {
 interface EncounterData {
   id: string;
   patient_id: string;
-  admission_date: string;
-  assigned_bed: string;
-  attending_physician_id: string;
-  attending_physician_name: string;
+  admission_at: string;
+  admission_date?: string; // alias
+  bed_code: string;
+  bed_name: string;
+  ward_code: string;
+  ward_name: string;
+  assigned_bed?: string; // alias
+  attending_practitioner_id: string;
+  attending_physician_id?: string; // alias
+  attending_physician_name?: string; // alias
+  chief_complaint: string;
+  preliminary_diagnosis_icd10: string;
+  encounter_class: string;
+  diet_type: string;
+  expected_los_days: number;
+  pre_auth_status: string;
+  [key: string]: any;
 }
 
 interface VitalData {
@@ -1306,7 +1319,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   }
 
   const age = calculateAge(patient.date_of_birth || patient.dob || '');
-  const daysSinceAdmission = encounter ? Math.floor((Date.now() - new Date(encounter.admission_date).getTime()) / (1000 * 60 * 60 * 24)) : 0;
+  const admDate = encounter?.admission_at || encounter?.admission_date;
+  const daysSinceAdmission = admDate ? Math.floor((Date.now() - new Date(admDate).getTime()) / (1000 * 60 * 60 * 24)) : 0;
 
   // Organise vitals by type for display
   const latestVitalsMap: Record<string, VitalData | null> = {};
@@ -1353,7 +1367,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               {patient.name_full || patient.full_name || `${patient.name_given || ''} ${patient.name_family || ''}`.trim() || 'Patient'}
             </div>
             <div style={{ fontSize: 12, opacity: 0.7, margin: '2px 0 0' }}>
-              UHID: {patient.uhid} · {age}y {(patient.sex || patient.gender || '').toUpperCase()} · {patient.primary_diagnosis || 'No diagnosis'}
+              UHID: {patient.uhid} · {age}y {(patient.sex || patient.gender || '').toUpperCase()} · {encounter?.chief_complaint || encounter?.preliminary_diagnosis_icd10 || patient.primary_diagnosis || 'No diagnosis'}
             </div>
           </div>
         </div>
@@ -1369,7 +1383,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
             fontSize: 13,
             whiteSpace: 'nowrap',
           }}>
-            Bed {encounter.assigned_bed}
+            {encounter.bed_code || encounter.bed_name || encounter.assigned_bed || 'Bed'}
           </div>
         )}
 
