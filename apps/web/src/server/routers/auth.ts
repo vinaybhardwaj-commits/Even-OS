@@ -7,7 +7,7 @@ import { hashPassword, verifyPassword, createSession, destroySession } from '@/l
 import { getDeviceId, generateDeviceId, generateOTP, hashCode, setDeviceTrustCookie, parseUserAgent } from '@/lib/auth/device-trust';
 import { sendEmail, otpEmailHtml, passwordResetEmailHtml, breakGlassNotificationHtml } from '@/lib/email/resend';
 import { writeAuditLog } from '@/lib/audit/logger';
-import { eq, and, gte, sql, desc, isNull } from 'drizzle-orm';
+import { eq, and, gte, sql, desc, asc, isNull } from 'drizzle-orm';
 import crypto from 'crypto';
 
 export const authRouter = router({
@@ -502,6 +502,40 @@ export const authRouter = router({
       });
 
       return { success: true };
+    }),
+
+  // ─── LIST STAFF (for shift assignment, admin only) ─────────
+  listStaff: protectedProcedure
+    .input(z.object({
+      department: z.string().optional(),
+      role: z.string().optional(),
+      search: z.string().optional(),
+      limit: z.number().min(1).max(500).default(100),
+    }).optional().default({}))
+    .query(async ({ ctx, input }) => {
+      if (!['super_admin', 'hospital_admin', 'nursing_superintendent'].includes(ctx.user.role)) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin access required' });
+      }
+      const hospitalId = ctx.user.hospital_id;
+      const conditions: any[] = [eq(users.hospital_id, hospitalId), eq(users.status, 'active')];
+
+      if (input.department) {
+        conditions.push(eq(users.department, input.department));
+      }
+
+      const rows = await db.select({
+        id: users.id,
+        email: users.email,
+        full_name: users.full_name,
+        department: users.department,
+        roles: users.roles,
+      })
+        .from(users)
+        .where(and(...conditions))
+        .orderBy(asc(users.full_name))
+        .limit(input.limit);
+
+      return rows;
     }),
 
   // ─── LOGIN ATTEMPTS (admin view) ───────────────────────────

@@ -102,11 +102,11 @@ export default async function DashboardPage() {
                     <p className="text-xs text-indigo-600">Templates, rosters, calendar</p>
                   </div>
                 </a>
-                <a href="/care/schedule" className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100 hover:border-blue-300 transition-colors">
+                <a href="/admin/duty-roster" className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100 hover:border-blue-300 transition-colors">
                   <span className="text-2xl">🗓️</span>
                   <div>
-                    <p className="text-sm font-semibold text-blue-800">Staff Schedule</p>
-                    <p className="text-xs text-blue-600">Weekly shift calendar</p>
+                    <p className="text-sm font-semibold text-blue-800">Duty Roster</p>
+                    <p className="text-xs text-blue-600">Staff schedules & assignments</p>
                   </div>
                 </a>
               </div>

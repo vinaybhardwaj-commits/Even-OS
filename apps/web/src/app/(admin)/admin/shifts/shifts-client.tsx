@@ -91,7 +91,7 @@ interface Stats {
 }
 
 // ── Tab type ──────────────────────────────────────────────────────────────
-type TabKey = 'templates' | 'daily' | 'monthly' | 'staffing' | 'leave' | 'swaps';
+type TabKey = 'monthly' | 'swaps' | 'templates' | 'daily' | 'staffing';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function formatTime(t: string) {
@@ -116,7 +116,7 @@ const ROSTER_ROLES = ['nurse', 'charge_nurse', 'rmo', 'consultant', 'intern', 't
 
 // ── Component ─────────────────────────────────────────────────────────────
 export default function ShiftsClient() {
-  const [tab, setTab] = useState<TabKey>('templates');
+  const [tab, setTab] = useState<TabKey>('monthly');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -185,11 +185,12 @@ export default function ShiftsClient() {
   const loadCore = useCallback(async () => {
     try {
       setLoading(true);
+      // Load each independently so one failure doesn't break everything
       const [tmpl, wds, st, tgts] = await Promise.all([
-        trpcQuery('shifts.getTemplates', { active_only: false }),
-        trpcQuery('shifts.getWards'),
-        trpcQuery('shifts.stats'),
-        trpcQuery('shifts.getStaffingTargets'),
+        trpcQuery('shifts.getTemplates', { active_only: false }).catch(() => []),
+        trpcQuery('shifts.getWards').catch(() => []),
+        trpcQuery('shifts.stats').catch(() => null),
+        trpcQuery('shifts.getStaffingTargets').catch(() => []),
       ]);
       setTemplates(tmpl || []);
       setWards(wds || []);
@@ -334,21 +335,16 @@ export default function ShiftsClient() {
   async function openAssignModal() {
     setShowAssignModal(true);
     try {
-      const data = await trpcQuery('users.list', { pageSize: 100 });
-      setAvailableUsers(data?.users || []);
+      const data = await trpcQuery('auth.listStaff', { limit: 200 });
+      setAvailableUsers((data || []).map((u: any) => ({ id: u.id, full_name: u.full_name, email: u.email })));
     } catch (e: any) {
       setError(e.message);
     }
   }
 
   // ── Leave & swap loading ─────────────────────────────────────────────
-  useEffect(() => {
-    if (tab === 'leave') {
-      trpcQuery('shifts.listLeaveRequests', { status: leaveFilter })
-        .then(data => setLeaveRequests(data || []))
-        .catch(e => setError(e.message));
-    }
-  }, [tab, leaveFilter]);
+  // Leave requests hidden — using 3rd party HR system
+  // useEffect for leave tab removed
 
   useEffect(() => {
     if (tab === 'swaps') {
@@ -399,12 +395,15 @@ export default function ShiftsClient() {
   const [monthInstances, setMonthInstances] = useState<ShiftInstance[]>([]);
 
   useEffect(() => {
-    if (tab !== 'monthly' || !selectedWard) return;
+    if (tab !== 'monthly') return;
     const { year, month } = monthYear;
     const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
     const daysInMonth = getDaysInMonth(year, month);
     const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
-    trpcQuery('shifts.listInstances', { ward_id: selectedWard, start_date: startDate, end_date: endDate })
+    // If ward selected, filter by it; otherwise load first ward
+    const wardId = selectedWard || wards[0]?.id;
+    if (!wardId) return;
+    trpcQuery('shifts.listInstances', { ward_id: wardId, start_date: startDate, end_date: endDate })
       .then(data => setMonthInstances(data || []))
       .catch(e => setError(e.message));
   }, [tab, selectedWard, monthYear]);
@@ -452,10 +451,6 @@ export default function ShiftsClient() {
                   <div className="text-blue-300">Rostered Staff</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-amber-300">{stats.pending_leave_requests}</div>
-                  <div className="text-blue-300">Pending Leave</div>
-                </div>
-                <div className="text-center">
                   <div className="text-2xl font-bold text-amber-300">{stats.pending_swap_requests}</div>
                   <div className="text-blue-300">Pending Swaps</div>
                 </div>
@@ -479,12 +474,11 @@ export default function ShiftsClient() {
       <div className="border-b bg-white px-6">
         <div className="flex gap-1">
           {([
+            { key: 'monthly' as TabKey, label: 'Monthly Calendar' },
+            { key: 'swaps' as TabKey, label: 'Shift Swaps' },
             { key: 'templates' as TabKey, label: 'Shift Templates' },
             { key: 'daily' as TabKey, label: 'Daily Roster' },
-            { key: 'monthly' as TabKey, label: 'Monthly Calendar' },
             { key: 'staffing' as TabKey, label: 'Staffing Targets' },
-            { key: 'leave' as TabKey, label: 'Leave Requests' },
-            { key: 'swaps' as TabKey, label: 'Shift Swaps' },
           ]).map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
@@ -853,8 +847,8 @@ export default function ShiftsClient() {
             )}
           </div>
         )}
-        {/* ── Leave Requests Tab ──────────────────────────────────────── */}
-        {tab === 'leave' && (
+        {/* ── Leave Requests Tab — HIDDEN (3rd party HR system) ──────── */}
+        {false && (
           <div>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-800">Leave Requests</h2>
