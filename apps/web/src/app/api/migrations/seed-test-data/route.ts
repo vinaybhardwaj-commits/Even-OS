@@ -249,7 +249,7 @@ export async function POST(req: NextRequest) {
         VALUES (${hospitalId}, ${p.id}, 'IMP', 'elective',
           ${diagnosis}, ${diagnosis}, 'in-progress', ${admissionAt},
           ${userMap['dr.patel@even.in'] || null}, ${bed.id}, ${admissionDaysAgo + 3},
-          ${['regular', 'diabetic', 'soft', 'liquid'][i % 4]}, 'approved')
+          ${['regular', 'diabetic', 'soft', 'liquid'][i % 4]}, 'obtained')
         RETURNING id
       `;
 
