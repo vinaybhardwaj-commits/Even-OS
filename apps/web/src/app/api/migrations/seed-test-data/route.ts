@@ -244,7 +244,7 @@ export async function POST(req: NextRequest) {
       const enc = await sql`
         INSERT INTO encounters (hospital_id, patient_id, encounter_class, admission_type,
           chief_complaint, preliminary_diagnosis_icd10, status, admission_at,
-          attending_doctor_id, current_location_id, expected_los_days,
+          attending_practitioner_id, current_location_id, expected_los_days,
           diet_type, pre_auth_status)
         VALUES (${hospitalId}, ${p.id}, 'IMP', 'elective',
           ${diagnosis}, ${diagnosis}, 'in-progress', ${admissionAt},
