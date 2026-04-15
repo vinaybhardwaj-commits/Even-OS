@@ -84,7 +84,53 @@ export async function POST(req: NextRequest) {
       notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`);
 
-    results.push('✅ Shift + nursing tables ensured');
+    // Also create staffing_targets, overtime_log, shift_swaps, leave_requests if missing
+    await sql(`DO $$ BEGIN CREATE TYPE leave_type AS ENUM ('sick','casual','privilege','emergency','compensatory','maternity','other'); EXCEPTION WHEN duplicate_object THEN null; END $$`);
+    await sql(`DO $$ BEGIN CREATE TYPE leave_status AS ENUM ('pending','approved','denied','cancelled'); EXCEPTION WHEN duplicate_object THEN null; END $$`);
+    await sql(`DO $$ BEGIN CREATE TYPE swap_status AS ENUM ('pending_target','pending_approval','approved','denied','cancelled'); EXCEPTION WHEN duplicate_object THEN null; END $$`);
+
+    await sql`CREATE TABLE IF NOT EXISTS staffing_targets (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      hospital_id TEXT NOT NULL REFERENCES hospitals(hospital_id) ON DELETE RESTRICT,
+      ward_type ward_type_applicability NOT NULL, role TEXT NOT NULL DEFAULT 'nurse',
+      min_ratio REAL NOT NULL, optimal_ratio REAL NOT NULL,
+      amber_threshold_pct REAL NOT NULL DEFAULT 20, notes TEXT,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_staffing_targets_ward_role ON staffing_targets(hospital_id, ward_type, role)`;
+
+    await sql`CREATE TABLE IF NOT EXISTS overtime_log (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      hospital_id TEXT NOT NULL REFERENCES hospitals(hospital_id) ON DELETE RESTRICT,
+      user_id UUID NOT NULL, period_start DATE NOT NULL, period_end DATE NOT NULL,
+      scheduled_hours REAL NOT NULL DEFAULT 0, actual_hours REAL NOT NULL DEFAULT 0,
+      overtime_hours REAL NOT NULL DEFAULT 0, consecutive_shifts INT NOT NULL DEFAULT 0,
+      flagged BOOLEAN NOT NULL DEFAULT false, reviewed_by UUID, reviewed_at TIMESTAMPTZ,
+      notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS leave_requests (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      hospital_id TEXT NOT NULL REFERENCES hospitals(hospital_id) ON DELETE RESTRICT,
+      user_id UUID NOT NULL, leave_type leave_type NOT NULL, start_date DATE NOT NULL,
+      end_date DATE NOT NULL, reason TEXT, status leave_status NOT NULL DEFAULT 'pending',
+      reviewed_by UUID, reviewed_at TIMESTAMPTZ, denial_reason TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`;
+
+    await sql`CREATE TABLE IF NOT EXISTS shift_swaps (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      hospital_id TEXT NOT NULL REFERENCES hospitals(hospital_id) ON DELETE RESTRICT,
+      requesting_user_id UUID NOT NULL, target_user_id UUID,
+      shift_instance_id UUID NOT NULL REFERENCES shift_instances(id) ON DELETE CASCADE,
+      swap_shift_instance_id UUID, reason TEXT,
+      status swap_status NOT NULL DEFAULT 'pending_target',
+      reviewed_by UUID, reviewed_at TIMESTAMPTZ, denial_reason TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`;
+
+    results.push('✅ Shift + nursing + staffing tables ensured');
 
     // ─── 1. CREATE TEST USERS ──────────────────────────────────
     // Password hash for 'test1234' using bcrypt (12 rounds, matching app's SALT_ROUNDS)
