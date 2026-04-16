@@ -3,6 +3,7 @@ import { Suspense } from 'react';
 import './globals.css';
 import { CockpitFab } from './(admin)/admin/test-cockpit/cockpit-fab';
 import { ChatProvider } from '@/providers/ChatProvider';
+import { ChatShell } from '@/components/chat/ChatShell';
 
 export const metadata: Metadata = {
   title: 'Even OS',
@@ -18,7 +19,9 @@ export default function RootLayout({
     <html lang="en">
       <body className="font-sans antialiased bg-gray-50 text-gray-900">
         <ChatProvider>
-          {children}
+          <ChatShell>
+            {children}
+          </ChatShell>
         </ChatProvider>
         <Suspense fallback={null}>
           <CockpitFab />
