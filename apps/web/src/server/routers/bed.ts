@@ -1026,4 +1026,415 @@ export const bedRouter = router({
         all_complete: total > 0 && done === total,
       };
     }),
+
+  // ═══════════════════════════════════════════════════════════
+  // BM.4 — ADMIN STRUCTURAL EDITING
+  // ═══════════════════════════════════════════════════════════
+
+  // ─── STRUCTURE TREE (Floor → Ward → Room → Bed, incl. inactive) ───
+  // Returns full hierarchy including inactive entities, annotated with counts & occupied flag.
+  structureTree: protectedProcedure
+    .input(z.object({
+      include_inactive: z.boolean().default(true),
+    }).optional().default({}))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+      const statusFilter = input.include_inactive ? sql`` : sql`AND status = 'active'`;
+
+      const rows = await db.execute(sql`
+        SELECT id, location_type, parent_location_id, code, name, capacity, status,
+               bed_status, ward_type, room_type, floor_number, room_tag,
+               infrastructure_flags, created_at
+          FROM locations
+         WHERE hospital_id = ${hospitalId} ${statusFilter}
+         ORDER BY floor_number NULLS LAST, location_type, code
+      `);
+      const all = ((rows as any).rows || rows) as any[];
+
+      // Index children by parent
+      const byParent: Record<string, any[]> = {};
+      for (const r of all) {
+        const p = r.parent_location_id || 'root';
+        if (!byParent[p]) byParent[p] = [];
+        byParent[p].push(r);
+      }
+
+      const floors = all.filter(r => r.location_type === 'floor');
+      const tree = floors.map(f => {
+        const wards = (byParent[f.id] || []).filter(r => r.location_type === 'ward').map(w => {
+          const rooms = (byParent[w.id] || []).filter(r => r.location_type === 'room').map(rm => {
+            const beds = (byParent[rm.id] || []).filter(r => r.location_type === 'bed');
+            const activeBeds = beds.filter(b => b.status === 'active');
+            const occupied = beds.filter(b => b.status === 'active' && b.bed_status === 'occupied').length;
+            return {
+              ...rm,
+              beds,
+              active_bed_count: activeBeds.length,
+              occupied_bed_count: occupied,
+            };
+          });
+          const activeRooms = rooms.filter(r => r.status === 'active');
+          const totalBeds = rooms.reduce((n: number, r: any) => n + r.active_bed_count, 0);
+          const occupiedBeds = rooms.reduce((n: number, r: any) => n + r.occupied_bed_count, 0);
+          return {
+            ...w,
+            rooms,
+            active_room_count: activeRooms.length,
+            total_active_beds: totalBeds,
+            occupied_beds: occupiedBeds,
+          };
+        });
+        return {
+          ...f,
+          wards,
+          active_ward_count: wards.filter(w => w.status === 'active').length,
+        };
+      });
+
+      return tree;
+    }),
+
+  // ─── ADMIN: RENAME LOCATION (ward/room/bed — NAME ONLY, code is permanent) ───
+  renameLocation: protectedProcedure
+    .input(z.object({
+      location_id: z.string().uuid(),
+      new_name: z.string().min(1).max(100),
+      reason: z.string().max(200).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      const role = ctx.user.role || '';
+      const isAdmin = ['super_admin', 'hospital_admin', 'gm'].includes(role);
+      if (!isAdmin) throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can rename locations' });
+
+      const [loc] = await db.select().from(locations)
+        .where(and(eq(locations.id, input.location_id as any), eq(locations.hospital_id, hospitalId)))
+        .limit(1);
+      if (!loc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Location not found' });
+
+      const oldName = loc.name;
+      if (oldName === input.new_name) return { success: true, unchanged: true };
+
+      await db.update(locations)
+        .set({ name: input.new_name } as any)
+        .where(eq(locations.id, input.location_id as any));
+
+      await db.insert(bedStructureAudit).values({
+        hospital_id: hospitalId,
+        action: 'location_renamed',
+        entity_type: loc.location_type,
+        entity_id: input.location_id,
+        old_values: { name: oldName },
+        new_values: { name: input.new_name },
+        performed_by_user_id: ctx.user.sub,
+        reason: input.reason || `Renamed ${loc.location_type} ${loc.code}: ${oldName} → ${input.new_name}`,
+      });
+
+      return { success: true, old_name: oldName, new_name: input.new_name };
+    }),
+
+  // ─── ADMIN: DECOMMISSION BED (single bed; guard occupied) ───
+  decommissionBed: protectedProcedure
+    .input(z.object({
+      bed_id: z.string().uuid(),
+      reason: z.string().min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      const role = ctx.user.role || '';
+      const isAdmin = ['super_admin', 'hospital_admin', 'gm'].includes(role);
+      if (!isAdmin) throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can decommission beds' });
+
+      const [bed] = await db.select().from(locations)
+        .where(and(eq(locations.id, input.bed_id as any), eq(locations.hospital_id, hospitalId), eq(locations.location_type, 'bed')))
+        .limit(1);
+      if (!bed) throw new TRPCError({ code: 'NOT_FOUND', message: 'Bed not found' });
+
+      if (bed.bed_status === 'occupied') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot decommission an occupied bed' });
+      }
+
+      await db.update(locations)
+        .set({ status: 'inactive', bed_status: 'blocked' } as any)
+        .where(eq(locations.id, input.bed_id as any));
+
+      // Recompute parent room's active bed capacity (best-effort; room.capacity is the target design capacity, not active count)
+      await db.insert(bedStructureAudit).values({
+        hospital_id: hospitalId,
+        action: 'bed_decommissioned',
+        entity_type: 'bed',
+        entity_id: input.bed_id,
+        old_values: { bed_code: bed.code, bed_status: bed.bed_status, status: 'active' },
+        new_values: { status: 'inactive' },
+        performed_by_user_id: ctx.user.sub,
+        reason: input.reason,
+      });
+
+      return { success: true };
+    }),
+
+  // ─── ADMIN: DECOMMISSION WARD (cascade rooms + beds; guard any occupied) ───
+  decommissionWard: protectedProcedure
+    .input(z.object({
+      ward_id: z.string().uuid(),
+      reason: z.string().min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      const role = ctx.user.role || '';
+      const isAdmin = ['super_admin', 'hospital_admin', 'gm'].includes(role);
+      if (!isAdmin) throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can decommission wards' });
+
+      const [ward] = await db.select().from(locations)
+        .where(and(eq(locations.id, input.ward_id as any), eq(locations.hospital_id, hospitalId), eq(locations.location_type, 'ward')))
+        .limit(1);
+      if (!ward) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ward not found' });
+
+      // Guard: no occupied beds anywhere under this ward
+      const occupiedCheck = await db.execute(sql`
+        SELECT count(*)::int AS cnt
+          FROM locations b
+         WHERE b.location_type = 'bed'
+           AND b.bed_status = 'occupied'
+           AND b.status = 'active'
+           AND b.parent_location_id IN (
+             SELECT id FROM locations WHERE parent_location_id = ${input.ward_id} AND location_type = 'room' AND status = 'active'
+           )
+      `);
+      const occupiedCount = ((occupiedCheck as any).rows || occupiedCheck)[0].cnt;
+      if (occupiedCount > 0) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `Cannot decommission ward — ${occupiedCount} bed(s) still occupied` });
+      }
+
+      // Cascade: all beds under all rooms under this ward → inactive
+      await db.execute(sql`
+        UPDATE locations SET status = 'inactive'
+         WHERE location_type = 'bed'
+           AND parent_location_id IN (
+             SELECT id FROM locations WHERE parent_location_id = ${input.ward_id} AND location_type = 'room'
+           )
+      `);
+      // Cascade: all rooms under this ward → inactive
+      await db.execute(sql`
+        UPDATE locations SET status = 'inactive'
+         WHERE parent_location_id = ${input.ward_id} AND location_type = 'room'
+      `);
+      // The ward itself → inactive
+      await db.update(locations)
+        .set({ status: 'inactive' } as any)
+        .where(eq(locations.id, input.ward_id as any));
+
+      await db.insert(bedStructureAudit).values({
+        hospital_id: hospitalId,
+        action: 'ward_decommissioned',
+        entity_type: 'ward',
+        entity_id: input.ward_id,
+        old_values: { ward_code: ward.code, ward_name: ward.name },
+        performed_by_user_id: ctx.user.sub,
+        reason: input.reason,
+      });
+
+      return { success: true };
+    }),
+
+  // ─── ADMIN: REACTIVATE LOCATION (inactive → active) ───
+  reactivateLocation: protectedProcedure
+    .input(z.object({
+      location_id: z.string().uuid(),
+      reason: z.string().min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      const role = ctx.user.role || '';
+      const isAdmin = ['super_admin', 'hospital_admin', 'gm'].includes(role);
+      if (!isAdmin) throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can reactivate locations' });
+
+      const [loc] = await db.select().from(locations)
+        .where(and(eq(locations.id, input.location_id as any), eq(locations.hospital_id, hospitalId)))
+        .limit(1);
+      if (!loc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Location not found' });
+      if (loc.status === 'active') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Location is already active' });
+      }
+
+      // Must ensure parent is active (can't reactivate a room whose ward is inactive)
+      if (loc.parent_location_id) {
+        const [parent] = await db.select().from(locations)
+          .where(eq(locations.id, loc.parent_location_id as any)).limit(1);
+        if (parent && parent.status !== 'active') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: `Parent ${parent.location_type} "${parent.code}" is inactive — reactivate it first` });
+        }
+      }
+
+      // If reactivating a bed, reset its bed_status to 'available' (unless it's already in a non-occupied state)
+      const patch: any = { status: 'active' };
+      if (loc.location_type === 'bed') {
+        patch.bed_status = 'available';
+      }
+      await db.update(locations).set(patch).where(eq(locations.id, input.location_id as any));
+
+      await db.insert(bedStructureAudit).values({
+        hospital_id: hospitalId,
+        action: 'location_reactivated',
+        entity_type: loc.location_type,
+        entity_id: input.location_id,
+        old_values: { status: 'inactive' },
+        new_values: { status: 'active' },
+        performed_by_user_id: ctx.user.sub,
+        reason: input.reason,
+      });
+
+      return { success: true };
+    }),
+
+  // ─── ADMIN: MOVE BED (reparent to a different room) ───
+  moveBed: protectedProcedure
+    .input(z.object({
+      bed_id: z.string().uuid(),
+      to_room_id: z.string().uuid(),
+      reason: z.string().min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      const role = ctx.user.role || '';
+      const isAdmin = ['super_admin', 'hospital_admin', 'gm'].includes(role);
+      if (!isAdmin) throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can move beds' });
+
+      const [bed] = await db.select().from(locations)
+        .where(and(eq(locations.id, input.bed_id as any), eq(locations.hospital_id, hospitalId), eq(locations.location_type, 'bed')))
+        .limit(1);
+      if (!bed) throw new TRPCError({ code: 'NOT_FOUND', message: 'Bed not found' });
+
+      if (bed.bed_status === 'occupied') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot move an occupied bed — discharge or transfer patient first' });
+      }
+
+      const [room] = await db.select().from(locations)
+        .where(and(eq(locations.id, input.to_room_id as any), eq(locations.hospital_id, hospitalId), eq(locations.location_type, 'room'), eq(locations.status, 'active')))
+        .limit(1);
+      if (!room) throw new TRPCError({ code: 'NOT_FOUND', message: 'Destination room not found or inactive' });
+
+      const oldParent = bed.parent_location_id;
+      if (oldParent === input.to_room_id) {
+        return { success: true, unchanged: true };
+      }
+
+      await db.update(locations)
+        .set({ parent_location_id: input.to_room_id, floor_number: room.floor_number } as any)
+        .where(eq(locations.id, input.bed_id as any));
+
+      await db.insert(bedStructureAudit).values({
+        hospital_id: hospitalId,
+        action: 'bed_moved',
+        entity_type: 'bed',
+        entity_id: input.bed_id,
+        old_values: { parent_location_id: oldParent, floor_number: bed.floor_number },
+        new_values: { parent_location_id: input.to_room_id, floor_number: room.floor_number },
+        performed_by_user_id: ctx.user.sub,
+        reason: input.reason,
+      });
+
+      return { success: true };
+    }),
+
+  // ─── ADMIN: UPDATE INFRASTRUCTURE FLAGS (clinical essentials) ───
+  // Fixed-schema clinical essentials checklist.
+  updateInfrastructureFlags: protectedProcedure
+    .input(z.object({
+      location_id: z.string().uuid(),
+      flags: z.object({
+        oxygen: z.boolean().optional(),
+        suction: z.boolean().optional(),
+        monitor: z.boolean().optional(),
+        telemetry: z.boolean().optional(),
+        isolation_ready: z.boolean().optional(),
+        attached_bathroom: z.boolean().optional(),
+        attendant_bed: z.boolean().optional(),
+        negative_pressure: z.boolean().optional(),
+      }),
+      reason: z.string().max(200).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      const role = ctx.user.role || '';
+      const isAdmin = ['super_admin', 'hospital_admin', 'gm'].includes(role);
+      if (!isAdmin) throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can edit infrastructure flags' });
+
+      const [loc] = await db.select().from(locations)
+        .where(and(eq(locations.id, input.location_id as any), eq(locations.hospital_id, hospitalId)))
+        .limit(1);
+      if (!loc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Location not found' });
+
+      const oldFlags = (loc.infrastructure_flags as Record<string, any>) || {};
+      // Merge: preserve non-standard keys, overwrite our fixed keys
+      const newFlags = { ...oldFlags, ...input.flags };
+
+      await db.update(locations)
+        .set({ infrastructure_flags: newFlags } as any)
+        .where(eq(locations.id, input.location_id as any));
+
+      await db.insert(bedStructureAudit).values({
+        hospital_id: hospitalId,
+        action: 'infrastructure_flags_updated',
+        entity_type: loc.location_type,
+        entity_id: input.location_id,
+        old_values: { infrastructure_flags: oldFlags },
+        new_values: { infrastructure_flags: newFlags },
+        performed_by_user_id: ctx.user.sub,
+        reason: input.reason || `Updated infrastructure flags on ${loc.location_type} ${loc.code}`,
+      });
+
+      return { success: true, flags: newFlags };
+    }),
+
+  // ─── ADMIN: ADD BED (overflow bed in an existing room) ───
+  addBed: protectedProcedure
+    .input(z.object({
+      room_id: z.string().uuid(),
+      bed_code: z.string().min(1).max(20),
+      bed_name: z.string().min(1).max(100).optional(),
+      reason: z.string().max(200).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      const role = ctx.user.role || '';
+      const isAdmin = ['super_admin', 'hospital_admin', 'gm'].includes(role);
+      if (!isAdmin) throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can add beds' });
+
+      const [room] = await db.select().from(locations)
+        .where(and(eq(locations.id, input.room_id as any), eq(locations.hospital_id, hospitalId), eq(locations.location_type, 'room'), eq(locations.status, 'active')))
+        .limit(1);
+      if (!room) throw new TRPCError({ code: 'NOT_FOUND', message: 'Room not found or inactive' });
+
+      const [newBed] = await db.insert(locations).values({
+        hospital_id: hospitalId,
+        location_type: 'bed',
+        parent_location_id: input.room_id,
+        code: input.bed_code,
+        name: input.bed_name || `Bed ${input.bed_code}`,
+        bed_status: 'available',
+        floor_number: room.floor_number,
+        infrastructure_flags: room.infrastructure_flags || null,
+        status: 'active',
+      } as any).returning();
+
+      await db.insert(bedStructureAudit).values({
+        hospital_id: hospitalId,
+        action: 'bed_added',
+        entity_type: 'bed',
+        entity_id: newBed.id,
+        new_values: { bed_code: input.bed_code, room_id: input.room_id },
+        performed_by_user_id: ctx.user.sub,
+        reason: input.reason || `Added bed ${input.bed_code} to room ${room.code}`,
+      });
+
+      return { success: true, bed_id: newBed.id };
+    }),
 });
