@@ -127,7 +127,7 @@ export function CeoDashboardClient() {
         {snapshot && (
           <div className="bg-white border rounded-2xl p-6 mb-6">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Financial Snapshot</h2>
-            <div className="grid grid-cols-5 gap-4">
+            <div className="grid grid-cols-5 gap-4 dash-grid-5">
               {[
                 { label: 'Revenue MTD', value: snapshot.revenue_month_to_date, format: 'currency' },
                 { label: 'Budget', value: snapshot.revenue_budget, format: 'currency' },
@@ -162,7 +162,7 @@ export function CeoDashboardClient() {
             {financialKpis.length > 0 && (
               <div className="mb-6">
                 <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Revenue & Claims</h2>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-3 gap-4 dash-grid-3">
                   {financialKpis.map(kpi => {
                     const colors = statusColor[kpi.status || 'neutral'];
                     return (
@@ -207,7 +207,7 @@ export function CeoDashboardClient() {
             {operationalKpis.length > 0 && (
               <div className="mb-6">
                 <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Quality & Operations</h2>
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-4 gap-3 dash-grid-4">
                   {operationalKpis.map(kpi => {
                     const colors = statusColor[kpi.status || 'neutral'];
                     return (

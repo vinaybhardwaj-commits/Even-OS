@@ -42,3 +42,40 @@
     padding-bottom: calc(var(--care-bottombar-h) + 8px);
   }
 }
+
+/* ── Chat Sidebar Responsive Reflow (OC.2c) ──────────────────────── */
+/* When the 300px chat sidebar pushes content right, dashboard grids  */
+/* reflow to fewer columns using container queries. The parent        */
+/* wrapper in ChatShell.tsx has container-type: inline-size.           */
+
+/* Dashboard KPI grids: 5/6 cols → 3 cols when container < 1000px */
+@container (max-width: 1000px) {
+  .dash-grid-6 { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  .dash-grid-5 { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+}
+
+/* Dashboard KPI grids: 3-4 cols → 2 cols when container < 800px */
+@container (max-width: 800px) {
+  .dash-grid-6 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .dash-grid-5 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .dash-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .dash-grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+
+/* Extreme narrow: everything stacks to 1 col when container < 500px */
+@container (max-width: 500px) {
+  .dash-grid-6,
+  .dash-grid-5,
+  .dash-grid-4,
+  .dash-grid-3 { grid-template-columns: repeat(1, minmax(0, 1fr)) !important; }
+}
+
+/* Patient chart tab bar: horizontal scroll on narrow containers */
+@container (max-width: 700px) {
+  .chart-tab-bar {
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .chart-tab-bar::-webkit-scrollbar { display: none; }
+}

@@ -131,6 +131,7 @@ export function ChatShell({ children }: { children: React.ReactNode }) {
         className="transition-[margin-left] duration-300 ease-in-out min-h-screen"
         style={{
           marginLeft: showChat && isSidebarOpen ? SIDEBAR_WIDTH : 0,
+          containerType: 'inline-size',
         }}
       >
         {children}

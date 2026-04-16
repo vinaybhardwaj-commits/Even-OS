@@ -145,7 +145,7 @@ export function GmDashboardClient() {
 
         {/* Quick Snapshot Row (from daily snapshot) */}
         {snapshot && (
-          <div className="grid grid-cols-5 gap-3 mb-6">
+          <div className="grid grid-cols-5 gap-3 mb-6 dash-grid-5">
             {[
               { label: 'Admissions', value: snapshot.admissions_yesterday, format: 'integer' },
               { label: 'Discharges', value: snapshot.discharges_yesterday, format: 'integer' },
@@ -180,7 +180,7 @@ export function GmDashboardClient() {
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
                 {categoryLabels[cat] || cat}
               </h2>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-3 dash-grid-3">
                 {items.map(kpi => {
                   const colors = statusColor[kpi.status || 'neutral'];
                   return (

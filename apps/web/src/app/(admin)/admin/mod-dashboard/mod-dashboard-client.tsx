@@ -149,7 +149,7 @@ export function ModDashboardClient() {
         )}
 
         {/* Compact Tier 1 Summary */}
-        <div className="grid grid-cols-6 gap-3 mb-6">
+        <div className="grid grid-cols-6 gap-3 mb-6 dash-grid-6">
           <div className={`rounded-xl p-4 text-white ${
             occPct <= 80 ? 'bg-green-600' : occPct <= 95 ? 'bg-amber-500' : 'bg-red-600'
           }`}>

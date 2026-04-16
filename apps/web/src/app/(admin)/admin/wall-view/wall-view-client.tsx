@@ -121,7 +121,7 @@ export function WallViewClient() {
   return (
     <div className="min-h-screen bg-slate-900 text-white p-4 overflow-hidden">
       {/* Top Header — Census + Occupancy */}
-      <div className="grid grid-cols-4 gap-4 mb-4">
+      <div className="grid grid-cols-4 gap-4 mb-4 dash-grid-4">
         {/* Census */}
         <div className={`rounded-2xl p-6 ${occColor.bg}`}>
           <div className="text-sm font-medium opacity-80">CENSUS</div>
@@ -167,7 +167,7 @@ export function WallViewClient() {
       </div>
 
       {/* Middle Row — Alerts + Staffing */}
-      <div className="grid grid-cols-3 gap-4 mb-4">
+      <div className="grid grid-cols-3 gap-4 mb-4 dash-grid-3">
         {/* Alert Cards — 2 columns wide */}
         <div className="col-span-2 bg-slate-800 rounded-2xl p-5">
           <div className="flex items-center justify-between mb-3">
@@ -177,7 +177,7 @@ export function WallViewClient() {
           {alerts.length === 0 ? (
             <div className="text-center py-8 text-slate-500 text-lg">No active critical/high alerts</div>
           ) : (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-3 dash-grid-3">
               {alerts.slice(0, 12).map(alert => (
                 <div key={alert.id} className={`rounded-xl p-3 ${
                   alert.severity_level === 1 && !alert.acknowledged_at
@@ -230,7 +230,7 @@ export function WallViewClient() {
       </div>
 
       {/* Bottom Row — Overdue Tasks + Incidents + Refresh */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-4 gap-4 dash-grid-4">
         {/* Overdue Tasks */}
         <div className="bg-slate-800 rounded-2xl p-5">
           <div className="text-sm font-medium text-slate-400 mb-2">OVERDUE TASKS</div>

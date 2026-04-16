@@ -282,7 +282,7 @@ export default function RoundsClient({ userId, userRole, userName }: Props) {
               </div>
 
               {/* Card body: 4-column layout */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0 }}>
+              <div className="dash-grid-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0 }}>
 
                 {/* Key Labs (24h) */}
                 <div style={{ padding: '10px 14px', borderRight: '1px solid #f0f0f0' }}>
