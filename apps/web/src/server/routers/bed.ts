@@ -48,6 +48,15 @@ export const bedRouter = router({
           JOIN patients p ON e.patient_id = p.id
           WHERE ba.released_at IS NULL
             AND ba.hospital_id = ${hospitalId}
+        ),
+        terminal_cleaning_started AS (
+          SELECT DISTINCT ON (location_id)
+            location_id,
+            changed_at as started_at
+          FROM bed_status_history
+          WHERE hospital_id = ${hospitalId}
+            AND status = 'terminal_cleaning'
+          ORDER BY location_id, changed_at DESC
         )
         SELECT
           f.id as floor_id,
@@ -81,12 +90,14 @@ export const bedRouter = router({
           bo.diagnosis,
           bo.chief_complaint,
           bo.expected_los_days,
-          bo.journey_type
+          bo.journey_type,
+          tc.started_at as terminal_cleaning_started_at
         FROM locations f
         JOIN locations w ON w.parent_location_id = f.id AND w.location_type = 'ward' AND w.status = 'active'
         JOIN locations r ON r.parent_location_id = w.id AND r.location_type = 'room' AND r.status = 'active'
         JOIN locations b ON b.parent_location_id = r.id AND b.location_type = 'bed' AND b.status = 'active'
         LEFT JOIN bed_occupants bo ON bo.location_id = b.id
+        LEFT JOIN terminal_cleaning_started tc ON tc.location_id = b.id AND b.bed_status = 'terminal_cleaning'
         WHERE f.location_type = 'floor'
           AND f.hospital_id = ${hospitalId}
           AND f.status = 'active'
@@ -103,6 +114,7 @@ export const bedRouter = router({
         patient_id?: string; patient_uhid?: string; patient_name?: string; patient_gender?: string;
         encounter_id?: string; encounter_class?: string; admission_at?: string;
         diagnosis?: string; chief_complaint?: string; expected_los_days?: number; journey_type?: string;
+        terminal_cleaning_started_at?: string;
       };
       type Room = {
         id: string; code: string; name: string; room_type: string; room_tag: string;
@@ -167,6 +179,7 @@ export const bedRouter = router({
           chief_complaint: row.chief_complaint || undefined,
           expected_los_days: row.expected_los_days || undefined,
           journey_type: row.journey_type || undefined,
+          terminal_cleaning_started_at: row.terminal_cleaning_started_at || undefined,
         });
       }
 
@@ -685,5 +698,332 @@ export const bedRouter = router({
       });
 
       return { success: true, ward_id: newWard.id };
+    }),
+
+  // ═══════════════════════════════════════════════════════════
+  // BM.3 — OPERATIONAL FLOWS (Assign / Transfer / Discharge)
+  // ═══════════════════════════════════════════════════════════
+
+  // ─── ADMISSION QUEUE (patients ready to be admitted) ───────
+  // Returns recent active patients with no currently active encounter.
+  admissionQueue: protectedProcedure
+    .input(z.object({
+      search: z.string().optional(),
+      limit: z.number().min(1).max(50).default(20),
+    }).optional().default({}))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+      const searchClause = input.search && input.search.trim().length >= 2
+        ? sql`AND (
+            p.name_full ILIKE ${'%' + input.search.trim() + '%'}
+            OR p.uhid ILIKE ${'%' + input.search.trim() + '%'}
+            OR p.phone = ${input.search.trim()}
+          )`
+        : sql``;
+
+      const result = await db.execute(sql`
+        SELECT
+          p.id, p.uhid, p.name_full, p.phone, p.gender, p.dob,
+          p.blood_group, p.patient_category, p.created_at
+        FROM patients p
+        WHERE p.hospital_id = ${hospitalId}
+          AND p.status = 'active'
+          AND NOT EXISTS (
+            SELECT 1 FROM encounters e
+            WHERE e.patient_id = p.id
+              AND e.hospital_id = ${hospitalId}
+              AND e.status = 'in-progress'
+          )
+          ${searchClause}
+        ORDER BY p.created_at DESC
+        LIMIT ${input.limit}
+      `);
+      return (result as any).rows || result;
+    }),
+
+  // ─── AVAILABLE BEDS FOR TRANSFER ───────────────────────────
+  // Returns all available beds (optionally excluding current bed).
+  availableBedsForTransfer: protectedProcedure
+    .input(z.object({
+      exclude_bed_id: z.string().uuid().optional(),
+      floor_number: z.number().optional(),
+      ward_code: z.string().optional(),
+      limit: z.number().min(1).max(200).default(100),
+    }).optional().default({}))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+      const excludeClause = input.exclude_bed_id
+        ? sql`AND b.id != ${input.exclude_bed_id}`
+        : sql``;
+      const floorClause = input.floor_number != null
+        ? sql`AND f.floor_number = ${input.floor_number}`
+        : sql``;
+      const wardClause = input.ward_code
+        ? sql`AND w.code = ${input.ward_code}`
+        : sql``;
+
+      const result = await db.execute(sql`
+        SELECT
+          b.id as bed_id, b.code as bed_code, b.name as bed_name, b.bed_status,
+          r.id as room_id, r.code as room_code, r.room_type, r.room_tag,
+          w.id as ward_id, w.code as ward_code, w.name as ward_name, w.ward_type,
+          f.id as floor_id, f.name as floor_name, f.floor_number
+        FROM locations b
+        JOIN locations r ON b.parent_location_id = r.id AND r.status = 'active'
+        JOIN locations w ON r.parent_location_id = w.id AND w.status = 'active'
+        JOIN locations f ON w.parent_location_id = f.id AND f.status = 'active'
+        WHERE b.hospital_id = ${hospitalId}
+          AND b.location_type = 'bed'
+          AND b.status = 'active'
+          AND b.bed_status IN ('available', 'reserved')
+          ${excludeClause}
+          ${floorClause}
+          ${wardClause}
+        ORDER BY f.floor_number, w.code, r.code, b.code
+        LIMIT ${input.limit}
+      `);
+      return (result as any).rows || result;
+    }),
+
+  // ─── ASSIGNMENT PREFLIGHT (soft validation warnings) ───────
+  // Returns warnings for (bed_id, patient_id) tuple — gender mismatch,
+  // isolation tag, pre-auth required but missing. All soft; caller decides.
+  assignmentPreflight: protectedProcedure
+    .input(z.object({
+      bed_id: z.string().uuid(),
+      patient_id: z.string().uuid(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      // Fetch bed + room + ward context
+      const bedResult = await db.execute(sql`
+        SELECT
+          b.id as bed_id, b.code as bed_code, b.bed_status,
+          r.id as room_id, r.code as room_code, r.room_type, r.room_tag, r.capacity as room_capacity,
+          w.code as ward_code, w.name as ward_name, w.ward_type
+        FROM locations b
+        JOIN locations r ON b.parent_location_id = r.id
+        JOIN locations w ON r.parent_location_id = w.id
+        WHERE b.id = ${input.bed_id}
+          AND b.hospital_id = ${hospitalId}
+          AND b.location_type = 'bed'
+        LIMIT 1
+      `);
+      const bedRow = ((bedResult as any).rows || bedResult)[0];
+      if (!bedRow) throw new TRPCError({ code: 'NOT_FOUND', message: 'Bed not found' });
+
+      // Fetch patient
+      const [patient] = await db.select({
+        id: patients.id,
+        uhid: patients.uhid,
+        name_full: patients.name_full,
+        gender: patients.gender,
+        patient_category: patients.patient_category,
+      })
+        .from(patients)
+        .where(and(
+          eq(patients.id, input.patient_id as any),
+          eq(patients.hospital_id, hospitalId),
+        ))
+        .limit(1);
+      if (!patient) throw new TRPCError({ code: 'NOT_FOUND', message: 'Patient not found' });
+
+      // Check co-occupant gender (for semi-private rooms)
+      let coOccupantGender: string | null = null;
+      if (bedRow.room_type === 'semi_private' && bedRow.room_capacity > 1) {
+        const coResult = await db.execute(sql`
+          SELECT p.gender
+          FROM bed_assignments ba
+          JOIN encounters e ON ba.encounter_id = e.id
+          JOIN patients p ON e.patient_id = p.id
+          JOIN locations b ON ba.location_id = b.id
+          WHERE b.parent_location_id = ${bedRow.room_id}
+            AND b.id != ${input.bed_id}
+            AND ba.released_at IS NULL
+            AND ba.hospital_id = ${hospitalId}
+          LIMIT 1
+        `);
+        const coRow = ((coResult as any).rows || coResult)[0];
+        if (coRow) coOccupantGender = coRow.gender;
+      }
+
+      const warnings: Array<{ type: string; severity: 'warn' | 'info'; message: string }> = [];
+
+      // Gender mismatch in semi-private
+      if (coOccupantGender && patient.gender && coOccupantGender.toLowerCase() !== patient.gender.toLowerCase()) {
+        warnings.push({
+          type: 'gender_mismatch',
+          severity: 'warn',
+          message: `Co-occupant in room ${bedRow.room_code} is ${coOccupantGender}; patient is ${patient.gender}.`,
+        });
+      }
+
+      // Isolation tag on room
+      if (bedRow.room_tag === 'isolation') {
+        warnings.push({
+          type: 'isolation_room',
+          severity: 'info',
+          message: `Room ${bedRow.room_code} is tagged ISOLATION. Confirm patient requires isolation.`,
+        });
+      }
+
+      // Pre-auth required for insured
+      if (patient.patient_category === 'insured') {
+        warnings.push({
+          type: 'pre_auth_required',
+          severity: 'warn',
+          message: `Patient is insured — pre-authorization is required (admit will enforce unless overridden).`,
+        });
+      }
+
+      // Bed status not available
+      if (bedRow.bed_status !== 'available' && bedRow.bed_status !== 'reserved') {
+        warnings.push({
+          type: 'bed_not_available',
+          severity: 'warn',
+          message: `Bed is currently ${bedRow.bed_status}. Assignment will fail unless status is cleared.`,
+        });
+      }
+
+      return {
+        bed: { id: bedRow.bed_id, code: bedRow.bed_code, room_code: bedRow.room_code, ward_name: bedRow.ward_name, room_type: bedRow.room_type, room_tag: bedRow.room_tag },
+        patient: { id: patient.id, uhid: patient.uhid, name_full: patient.name_full, gender: patient.gender, patient_category: patient.patient_category },
+        co_occupant_gender: coOccupantGender,
+        warnings,
+      };
+    }),
+
+  // ─── TRANSFER PREFLIGHT (soft validation for transfer) ─────
+  transferPreflight: protectedProcedure
+    .input(z.object({
+      encounter_id: z.string().uuid(),
+      to_bed_id: z.string().uuid(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      const encResult = await db.execute(sql`
+        SELECT
+          e.id, e.patient_id, e.current_location_id, e.status,
+          p.uhid, p.name_full, p.gender, p.patient_category
+        FROM encounters e
+        JOIN patients p ON e.patient_id = p.id
+        WHERE e.id = ${input.encounter_id}
+          AND e.hospital_id = ${hospitalId}
+        LIMIT 1
+      `);
+      const encRow = ((encResult as any).rows || encResult)[0];
+      if (!encRow) throw new TRPCError({ code: 'NOT_FOUND', message: 'Encounter not found' });
+      if (encRow.status !== 'in-progress') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `Encounter is ${encRow.status} — cannot transfer` });
+      }
+
+      // Reuse assignmentPreflight logic by calling it inline
+      const bedResult = await db.execute(sql`
+        SELECT
+          b.id as bed_id, b.code as bed_code, b.bed_status,
+          r.id as room_id, r.code as room_code, r.room_type, r.room_tag, r.capacity as room_capacity,
+          w.code as ward_code, w.name as ward_name, w.ward_type
+        FROM locations b
+        JOIN locations r ON b.parent_location_id = r.id
+        JOIN locations w ON r.parent_location_id = w.id
+        WHERE b.id = ${input.to_bed_id}
+          AND b.hospital_id = ${hospitalId}
+          AND b.location_type = 'bed'
+        LIMIT 1
+      `);
+      const bedRow = ((bedResult as any).rows || bedResult)[0];
+      if (!bedRow) throw new TRPCError({ code: 'NOT_FOUND', message: 'Destination bed not found' });
+
+      let coOccupantGender: string | null = null;
+      if (bedRow.room_type === 'semi_private' && bedRow.room_capacity > 1) {
+        const coResult = await db.execute(sql`
+          SELECT p.gender
+          FROM bed_assignments ba
+          JOIN encounters e ON ba.encounter_id = e.id
+          JOIN patients p ON e.patient_id = p.id
+          JOIN locations b ON ba.location_id = b.id
+          WHERE b.parent_location_id = ${bedRow.room_id}
+            AND b.id != ${input.to_bed_id}
+            AND ba.released_at IS NULL
+            AND ba.hospital_id = ${hospitalId}
+          LIMIT 1
+        `);
+        const coRow = ((coResult as any).rows || coResult)[0];
+        if (coRow) coOccupantGender = coRow.gender;
+      }
+
+      const warnings: Array<{ type: string; severity: 'warn' | 'info'; message: string }> = [];
+
+      if (coOccupantGender && encRow.gender && coOccupantGender.toLowerCase() !== encRow.gender.toLowerCase()) {
+        warnings.push({
+          type: 'gender_mismatch',
+          severity: 'warn',
+          message: `Co-occupant in room ${bedRow.room_code} is ${coOccupantGender}; patient is ${encRow.gender}.`,
+        });
+      }
+
+      if (bedRow.room_tag === 'isolation') {
+        warnings.push({
+          type: 'isolation_room',
+          severity: 'info',
+          message: `Room ${bedRow.room_code} is tagged ISOLATION. Confirm patient requires isolation.`,
+        });
+      }
+
+      if (bedRow.bed_status !== 'available' && bedRow.bed_status !== 'reserved') {
+        warnings.push({
+          type: 'bed_not_available',
+          severity: 'warn',
+          message: `Destination bed is ${bedRow.bed_status}. Transfer will fail.`,
+        });
+      }
+
+      return {
+        encounter: { id: encRow.id, patient_name: encRow.name_full, patient_uhid: encRow.uhid, gender: encRow.gender },
+        destination_bed: { id: bedRow.bed_id, code: bedRow.bed_code, room_code: bedRow.room_code, ward_name: bedRow.ward_name },
+        co_occupant_gender: coOccupantGender,
+        warnings,
+      };
+    }),
+
+  // ─── DISCHARGE STATUS (milestone summary for drawer) ───────
+  dischargeReadiness: protectedProcedure
+    .input(z.object({
+      encounter_id: z.string().uuid(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      const milestonesResult = await db.execute(sql`
+        SELECT id, milestone, sequence, completed_at, notes
+        FROM discharge_milestones
+        WHERE encounter_id = ${input.encounter_id}
+          AND hospital_id = ${hospitalId}
+        ORDER BY sequence
+      `);
+      const milestones = (milestonesResult as any).rows || milestonesResult;
+
+      const orderResult = await db.execute(sql`
+        SELECT id, status, reason, summary, ordered_at
+        FROM discharge_orders
+        WHERE encounter_id = ${input.encounter_id}
+          AND hospital_id = ${hospitalId}
+        ORDER BY ordered_at DESC
+        LIMIT 1
+      `);
+      const order = ((orderResult as any).rows || orderResult)[0] || null;
+
+      const total = milestones.length;
+      const done = milestones.filter((m: any) => m.completed_at).length;
+
+      return {
+        order,
+        milestones,
+        total,
+        done,
+        all_complete: total > 0 && done === total,
+      };
     }),
 });

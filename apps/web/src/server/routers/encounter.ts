@@ -447,17 +447,17 @@ export const encounterRouter = router({
         assigned_by_user_id: ctx.user.sub,
       });
 
-      // 6. Release old bed
+      // 6. Release old bed → terminal_cleaning (BM.3: 2h SLA before re-use)
       if (fromLocationId) {
         await db.update(locations)
-          .set({ bed_status: 'available' })
+          .set({ bed_status: 'terminal_cleaning' })
           .where(eq(locations.id, fromLocationId as any));
 
         await db.insert(bedStatusHistory).values({
           hospital_id: hospitalId,
           location_id: fromLocationId,
-          status: 'available',
-          reason: `Patient transferred out`,
+          status: 'terminal_cleaning',
+          reason: `Patient transferred out — terminal cleaning`,
           changed_by_user_id: ctx.user.sub,
         });
       }
@@ -731,17 +731,17 @@ export const encounterRouter = router({
           isNull(bedAssignments.released_at),
         ));
 
-      // 7. Release bed
+      // 7. Release bed → terminal_cleaning (BM.3: 2h SLA before re-use)
       if (encounter.current_location_id) {
         await db.update(locations)
-          .set({ bed_status: 'available' })
+          .set({ bed_status: 'terminal_cleaning' })
           .where(eq(locations.id, encounter.current_location_id as any));
 
         await db.insert(bedStatusHistory).values({
           hospital_id: hospitalId,
           location_id: encounter.current_location_id,
-          status: 'available',
-          reason: 'Patient discharged',
+          status: 'terminal_cleaning',
+          reason: 'Patient discharged — terminal cleaning',
           changed_by_user_id: ctx.user.sub,
         });
       }
