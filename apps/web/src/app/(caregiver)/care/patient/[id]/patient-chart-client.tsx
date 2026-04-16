@@ -1693,6 +1693,30 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
             <span>{tab.label}</span>
           </button>
         ))}
+        {/* OC.4d: Link to Communications page */}
+        {encounter && (
+          <a
+            href={`/care/patient/${patientId}/comms?encounter=${encounter.id}`}
+            style={{
+              padding: '12px 10px',
+              minHeight: 44,
+              fontSize: 13,
+              fontWeight: 500,
+              color: '#10B981',
+              borderBottom: '3px solid transparent',
+              background: 'none',
+              textDecoration: 'none',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <span style={{ fontSize: 15 }}>💬</span>
+            <span>Comms</span>
+          </a>
+        )}
       </div>
 
       {/* ── Overview Tab Content ──────────────────────────────────────────────── */}
