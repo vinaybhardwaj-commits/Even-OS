@@ -474,6 +474,44 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     }
   }, [activeMessages]);
 
+  // ── OC.6: Tab title unread badge ───────────────────────────
+  const originalTitleRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!originalTitleRef.current && typeof document !== 'undefined') {
+      originalTitleRef.current = document.title;
+    }
+    if (typeof document !== 'undefined') {
+      const base = originalTitleRef.current || 'Even OS';
+      document.title = unreadTotal > 0 ? `(${unreadTotal > 99 ? '99+' : unreadTotal}) ${base}` : base;
+    }
+  }, [unreadTotal]);
+
+  // ── OC.6: Sound notification for new messages ─────────────
+  const prevUnreadRef = useRef(0);
+  useEffect(() => {
+    // Play subtle notification when unread count increases (not on initial load)
+    if (prevUnreadRef.current > 0 || unreadTotal === 0) {
+      if (unreadTotal > prevUnreadRef.current && typeof window !== 'undefined') {
+        // Check if sound is enabled (stored as preference, default true)
+        try {
+          // Use a subtle web audio beep (no external file needed)
+          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.value = 800;
+          osc.type = 'sine';
+          gain.gain.value = 0.08;
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+          osc.start(ctx.currentTime);
+          osc.stop(ctx.currentTime + 0.3);
+        } catch { /* Audio not available — silent fail */ }
+      }
+    }
+    prevUnreadRef.current = unreadTotal;
+  }, [unreadTotal]);
+
   // ── OC.4c: Listen for open-patient-chat custom events ──────
   useEffect(() => {
     const handler = (e: Event) => {

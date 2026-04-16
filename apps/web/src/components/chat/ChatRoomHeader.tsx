@@ -7,7 +7,9 @@
  * "← Back to [Page Name]" button. Page name read from pathname.
  */
 
+import { useState, useCallback } from 'react';
 import { ChatChannel } from '@/providers/ChatProvider';
+import { trpcMutate } from '@/lib/chat/poll';
 
 interface ChatRoomHeaderProps {
   channel: ChatChannel;
@@ -33,6 +35,19 @@ function channelIconColor(type: string): string {
 }
 
 export function ChatRoomHeader({ channel, onBack }: ChatRoomHeaderProps) {
+  const [showMuteMenu, setShowMuteMenu] = useState(false);
+  const [isMuted, setIsMuted] = useState(channel.is_muted);
+
+  const handleMute = useCallback(async (duration: string) => {
+    try {
+      await trpcMutate('chat.muteChannel', { channelId: channel.channel_id, duration });
+      setIsMuted(duration !== 'unmute');
+    } catch (err) {
+      console.error('[ChatRoomHeader] Mute failed:', err);
+    }
+    setShowMuteMenu(false);
+  }, [channel.channel_id]);
+
   return (
     <div className="flex items-center gap-3 px-4 h-12 border-b border-white/10 shrink-0 bg-[#0A1628]">
       {/* Back button */}
@@ -89,6 +104,56 @@ export function ChatRoomHeader({ channel, onBack }: ChatRoomHeaderProps) {
           <path d="M16 3.13a4 4 0 0 1 0 7.75" />
         </svg>
         <span>{channel.member_count}</span>
+      </div>
+
+      {/* Mute/bell button */}
+      <div className="relative shrink-0">
+        <button
+          onClick={() => isMuted ? handleMute('unmute') : setShowMuteMenu(!showMuteMenu)}
+          className={`p-1.5 rounded-lg transition-colors
+            ${isMuted ? 'text-amber-400 hover:bg-amber-400/10' : 'text-white/40 hover:bg-white/10 hover:text-white/70'}`}
+          title={isMuted ? 'Unmute channel' : 'Mute channel'}
+        >
+          {isMuted ? (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+              className="w-4 h-4">
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+              <path d="M18.63 13A17.89 17.89 0 0 1 18 8" />
+              <path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14" />
+              <path d="M18 8a6 6 0 0 0-9.33-5" />
+              <line x1="1" y1="1" x2="23" y2="23" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+              className="w-4 h-4">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+            </svg>
+          )}
+        </button>
+
+        {/* Mute duration menu */}
+        {showMuteMenu && (
+          <div className="absolute right-0 top-full mt-1 w-36 bg-[#1A2744] border border-white/10 rounded-lg shadow-xl py-1 z-50">
+            {[
+              { label: '1 hour', value: '1h' },
+              { label: '8 hours', value: '8h' },
+              { label: '24 hours', value: '24h' },
+              { label: '7 days', value: '7d' },
+              { label: 'Until I unmute', value: 'forever' },
+            ].map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => handleMute(opt.value)}
+                className="w-full text-left px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Patient channel indicator */}

@@ -42,6 +42,13 @@ export function ChatShell({ children }: { children: React.ReactNode }) {
           setChatState('collapsed');
         }
       }
+      // Ctrl+Shift+N — new DM
+      if (e.ctrlKey && e.shiftKey && e.key === 'N') {
+        e.preventDefault();
+        if (chatState === 'collapsed') setChatState('sidebar');
+        // Dispatch event for ChatSidebar to open the DM picker
+        window.dispatchEvent(new CustomEvent('open-new-dm'));
+      }
       // Escape closes sidebar/chatroom
       if (e.key === 'Escape' && isSidebarOpen) {
         setChatState('collapsed');

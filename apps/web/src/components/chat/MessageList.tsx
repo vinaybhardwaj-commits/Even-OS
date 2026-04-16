@@ -10,10 +10,12 @@
  * - Date separators between different days
  */
 
-import { useRef, useEffect, useCallback, useState } from 'react';
+import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { ChatMessage } from '@/providers/ChatProvider';
 import { MessageBubble } from './MessageBubble';
 import { SystemMessage } from './SystemMessage';
+
+const SCROLL_DEBOUNCE_MS = 50;
 
 interface MessageListProps {
   messages: ChatMessage[];
@@ -52,9 +54,10 @@ export function MessageList({ messages, currentUserId, channelType, channelId, o
   const [hasMore, setHasMore] = useState(true);
   const prevMsgCountRef = useRef(0);
   const isNearBottomRef = useRef(true);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Track if user is near bottom
-  const handleScroll = useCallback(() => {
+  // Debounced scroll handler for performance
+  const handleScrollRaw = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     const threshold = 120;
@@ -67,7 +70,6 @@ export function MessageList({ messages, currentUserId, channelType, channelId, o
       onLoadOlder().then((more) => {
         setHasMore(more);
         setIsLoadingOlder(false);
-        // Preserve scroll position after prepending older messages
         requestAnimationFrame(() => {
           if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight - prevHeight;
@@ -76,6 +78,21 @@ export function MessageList({ messages, currentUserId, channelType, channelId, o
       });
     }
   }, [hasMore, isLoadingOlder, onLoadOlder]);
+
+  const handleScroll = useCallback(() => {
+    // Fast-path: always track near-bottom immediately
+    const el = scrollRef.current;
+    if (el) {
+      isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    }
+    // Debounce the expensive load-older check
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    scrollTimerRef.current = setTimeout(handleScrollRaw, SCROLL_DEBOUNCE_MS);
+  }, [handleScrollRaw]);
+
+  useEffect(() => {
+    return () => { if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current); };
+  }, []);
 
   // Auto-scroll to bottom when new messages arrive (only if near bottom)
   useEffect(() => {
@@ -90,9 +107,24 @@ export function MessageList({ messages, currentUserId, channelType, channelId, o
     bottomRef.current?.scrollIntoView();
   }, []);
 
-  // ── Render messages with grouping + date separators ────────
-  let lastSenderId: string | null = null;
-  let lastDateKey: string | null = null;
+  // ── Pre-compute message display metadata (memoized) ────────
+  const messageItems = useMemo(() => {
+    let lastSenderId: string | null = null;
+    let lastDateKey: string | null = null;
+
+    return messages.map((msg) => {
+      const dateKey = getDateKey(msg.created_at);
+      const showDateSeparator = dateKey !== lastDateKey;
+      const isSystem = msg.message_type === 'system';
+      const showSender = !isSystem && (msg.sender_id !== lastSenderId || showDateSeparator);
+      const isOwnMessage = msg.sender_id === currentUserId;
+
+      lastDateKey = dateKey;
+      if (!isSystem) lastSenderId = msg.sender_id;
+
+      return { msg, dateKey, showDateSeparator, isSystem, showSender, isOwnMessage };
+    });
+  }, [messages, currentUserId]);
 
   return (
     <div
@@ -112,47 +144,35 @@ export function MessageList({ messages, currentUserId, channelType, channelId, o
         </div>
       )}
 
-      {messages.map((msg) => {
-        const dateKey = getDateKey(msg.created_at);
-        const showDateSeparator = dateKey !== lastDateKey;
-        const isSystem = msg.message_type === 'system';
-        const showSender = !isSystem && (msg.sender_id !== lastSenderId || showDateSeparator);
-        const isOwnMessage = msg.sender_id === currentUserId;
+      {messageItems.map(({ msg, showDateSeparator, isSystem, showSender, isOwnMessage }) => (
+        <div key={msg.id}>
+          {/* Date separator */}
+          {showDateSeparator && (
+            <div className="flex items-center gap-3 py-3 px-4">
+              <div className="flex-1 h-px bg-white/10" />
+              <span className="text-[11px] text-white/40 font-medium">
+                {formatDateSeparator(msg.created_at)}
+              </span>
+              <div className="flex-1 h-px bg-white/10" />
+            </div>
+          )}
 
-        // Update tracking
-        lastDateKey = dateKey;
-        if (!isSystem) lastSenderId = msg.sender_id;
-
-        return (
-          <div key={msg.id}>
-            {/* Date separator */}
-            {showDateSeparator && (
-              <div className="flex items-center gap-3 py-3 px-4">
-                <div className="flex-1 h-px bg-white/10" />
-                <span className="text-[11px] text-white/40 font-medium">
-                  {formatDateSeparator(msg.created_at)}
-                </span>
-                <div className="flex-1 h-px bg-white/10" />
-              </div>
-            )}
-
-            {/* Message */}
-            {isSystem ? (
-              <SystemMessage content={msg.content} timestamp={msg.created_at} />
-            ) : (
-              <MessageBubble
-                message={msg}
-                isOwnMessage={isOwnMessage}
-                showSender={showSender}
-                channelType={channelType}
-                channelId={channelId}
-                currentUserId={currentUserId}
-                onMessageUpdated={onMessageUpdated}
-              />
-            )}
-          </div>
-        );
-      })}
+          {/* Message */}
+          {isSystem ? (
+            <SystemMessage content={msg.content} timestamp={msg.created_at} />
+          ) : (
+            <MessageBubble
+              message={msg}
+              isOwnMessage={isOwnMessage}
+              showSender={showSender}
+              channelType={channelType}
+              channelId={channelId}
+              currentUserId={currentUserId}
+              onMessageUpdated={onMessageUpdated}
+            />
+          )}
+        </div>
+      ))}
 
       {/* Empty state */}
       {messages.length === 0 && (

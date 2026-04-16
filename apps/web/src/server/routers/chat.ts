@@ -608,6 +608,30 @@ export const chatRouter = router({
   // ── DM CREATION ─────────────────────────────────────────────
 
   /**
+   * Search hospital users for DM creation. Returns active staff
+   * matching name or department, excludes the calling user.
+   */
+  searchUsers: protectedProcedure
+    .input(z.object({ query: z.string().min(2).max(100) }))
+    .query(async ({ ctx, input }) => {
+      const sql = getSql();
+      const userId = ctx.user.sub;
+      const hospitalId = ctx.user.hospital_id;
+      const pattern = `%${input.query}%`;
+
+      return sql`
+        SELECT id, full_name, department, role
+        FROM users
+        WHERE hospital_id = ${hospitalId}
+          AND status = 'active'
+          AND id != ${userId}
+          AND (full_name ILIKE ${pattern} OR department ILIKE ${pattern})
+        ORDER BY full_name ASC
+        LIMIT 20
+      `;
+    }),
+
+  /**
    * Create or get existing DM channel. Uses deterministic channel_id
    * (sorted UUIDs) to prevent duplicate DM channels.
    */
@@ -658,6 +682,123 @@ export const chatRouter = router({
       `;
 
       return { channel, created: true };
+    }),
+
+  // ── NOTIFICATION PREFERENCES ──────────────────────────────── (OC.6)
+
+  /**
+   * Get notification preferences (global + per-channel overrides).
+   */
+  getNotificationPrefs: protectedProcedure
+    .query(async ({ ctx }) => {
+      const sql = getSql();
+      const userId = ctx.user.sub;
+
+      const prefs = await sql`
+        SELECT id, channel_id, push_enabled, sound_enabled, mute_until
+        FROM chat_notification_prefs
+        WHERE user_id = ${userId}
+        ORDER BY channel_id NULLS FIRST
+      `;
+
+      // First row with NULL channel_id is the global default
+      const global = prefs.find((p: any) => !p.channel_id) || {
+        push_enabled: true, sound_enabled: true, mute_until: null,
+      };
+      const channelOverrides = prefs.filter((p: any) => p.channel_id);
+
+      return { global, channelOverrides };
+    }),
+
+  /**
+   * Update global notification preferences.
+   */
+  updateGlobalPrefs: protectedProcedure
+    .input(z.object({
+      push_enabled: z.boolean(),
+      sound_enabled: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const userId = ctx.user.sub;
+
+      await sql`
+        INSERT INTO chat_notification_prefs (user_id, channel_id, push_enabled, sound_enabled)
+        VALUES (${userId}, NULL, ${input.push_enabled}, ${input.sound_enabled})
+        ON CONFLICT (user_id, channel_id) WHERE channel_id IS NULL
+        DO UPDATE SET push_enabled = ${input.push_enabled}, sound_enabled = ${input.sound_enabled}
+      `;
+      return { ok: true };
+    }),
+
+  /**
+   * Mute/unmute a channel. Sets mute_until or clears it.
+   * Duration: null = unmute, 'forever' = mute indefinitely, '1h'/'8h'/'24h'/'7d' = timed mute.
+   */
+  muteChannel: protectedProcedure
+    .input(z.object({
+      channelId: z.string(),
+      duration: z.enum(['1h', '8h', '24h', '7d', 'forever', 'unmute']),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const userId = ctx.user.sub;
+      const hospitalId = ctx.user.hospital_id;
+
+      // Resolve channel UUID
+      const [channel] = await sql`
+        SELECT id FROM chat_channels
+        WHERE channel_id = ${input.channelId} AND hospital_id = ${hospitalId}
+      `;
+      if (!channel) throw new TRPCError({ code: 'NOT_FOUND', message: 'Channel not found' });
+
+      if (input.duration === 'unmute') {
+        // Clear mute: update member row + delete notification pref
+        await sql`
+          UPDATE chat_channel_members SET is_muted = false
+          WHERE channel_id = ${channel.id} AND user_id = ${userId}
+        `;
+        await sql`
+          DELETE FROM chat_notification_prefs
+          WHERE user_id = ${userId} AND channel_id = ${channel.id}
+        `;
+        return { muted: false };
+      }
+
+      // Calculate mute_until
+      const durations: Record<string, string | null> = {
+        '1h': "NOW() + INTERVAL '1 hour'",
+        '8h': "NOW() + INTERVAL '8 hours'",
+        '24h': "NOW() + INTERVAL '24 hours'",
+        '7d': "NOW() + INTERVAL '7 days'",
+        'forever': null,
+      };
+
+      // Update member muted flag
+      await sql`
+        UPDATE chat_channel_members SET is_muted = true
+        WHERE channel_id = ${channel.id} AND user_id = ${userId}
+      `;
+
+      // Upsert notification pref with mute_until
+      if (input.duration === 'forever') {
+        await sql`
+          INSERT INTO chat_notification_prefs (user_id, channel_id, push_enabled, sound_enabled, mute_until)
+          VALUES (${userId}, ${channel.id}, false, false, '9999-12-31'::timestamptz)
+          ON CONFLICT (user_id, channel_id)
+          DO UPDATE SET push_enabled = false, sound_enabled = false, mute_until = '9999-12-31'::timestamptz
+        `;
+      } else {
+        const interval = { '1h': '1 hour', '8h': '8 hours', '24h': '24 hours', '7d': '7 days' }[input.duration] || '1 hour';
+        await sql`
+          INSERT INTO chat_notification_prefs (user_id, channel_id, push_enabled, sound_enabled, mute_until)
+          VALUES (${userId}, ${channel.id}, false, false, NOW() + ${interval}::interval)
+          ON CONFLICT (user_id, channel_id)
+          DO UPDATE SET push_enabled = false, sound_enabled = false, mute_until = NOW() + ${interval}::interval
+        `;
+      }
+
+      return { muted: true, duration: input.duration };
     }),
 
   // ── ADMIN ENDPOINTS ─────────────────────────────────────────
