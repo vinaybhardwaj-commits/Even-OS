@@ -29,9 +29,15 @@ export const locationType = pgEnum('location_type', ['hospital', 'floor', 'ward'
 
 export const locationStatusEnum = pgEnum('location_status', ['active', 'inactive']);
 
-export const bedStatusEnum = pgEnum('bed_status', ['available', 'occupied', 'reserved', 'blocked', 'housekeeping']);
+export const bedStatusEnum = pgEnum('bed_status', ['available', 'occupied', 'reserved', 'blocked', 'housekeeping', 'terminal_cleaning', 'maintenance']);
 
 export const bedReleaseReasonEnum = pgEnum('bed_release_reason', ['discharge', 'transfer', 'death', 'lama']);
+
+export const locationWardTypeEnum = pgEnum('ward_type', ['general', 'icu', 'nicu', 'pacu', 'dialysis', 'day_care', 'maternity', 'step_down']);
+
+export const roomTypeEnum = pgEnum('room_type', ['private', 'semi_private', 'suite', 'icu_room', 'nicu_room', 'pacu_bay', 'dialysis_station', 'general']);
+
+export const roomTagEnum = pgEnum('room_tag', ['none', 'day_care', 'maternity', 'isolation']);
 
 export const coverageTypeEnum = pgEnum('coverage_type', ['capitated', 'insured', 'self_pay']);
 
@@ -220,17 +226,44 @@ export const locations = pgTable('locations', {
   hospital_id: text('hospital_id').notNull().references(() => hospitals.hospital_id, { onDelete: 'restrict' }),
   location_type: locationType('location_type').notNull(),
   parent_location_id: uuid('parent_location_id'), // Self-ref to locations.id for hierarchical nesting
-  code: text('code').notNull(), // e.g., 'ICU', 'A1', '301'
+  code: text('code').notNull(), // e.g., 'ICU', '1-04', '1-01A'
   name: text('name').notNull(),
-  capacity: integer('capacity'), // For wards/rooms
+  capacity: integer('capacity'), // For wards/rooms (semi-private = 2, private/suite = 1)
   status: locationStatusEnum('status').default('active'),
   bed_status: bedStatusEnum('bed_status').default('available'), // Denormalized for beds; null for non-bed locations
+  // BM.1 additions — Ward/Room/Bed management
+  ward_type: locationWardTypeEnum('ward_type'), // For ward-type locations: general, icu, nicu, pacu, dialysis
+  room_type: roomTypeEnum('room_type'), // For room-type locations: private, semi_private, suite, icu_room, etc.
+  floor_number: integer('floor_number'), // Physical floor number (1-4 at EHRC)
+  room_tag: roomTagEnum('room_tag').default('none'), // Temporary tag: day_care, maternity, isolation
+  infrastructure_flags: jsonb('infrastructure_flags'), // e.g., { ventilator: true, cardiac_monitor: true }
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   hospitalIdIdx: index('idx_locations_hospital_id').on(table.hospital_id),
   typeIdx: index('idx_locations_location_type').on(table.location_type),
   parentIdx: index('idx_locations_parent_location_id').on(table.parent_location_id),
   codeIdx: uniqueIndex('idx_locations_code_hospital').on(table.code, table.hospital_id),
+}));
+
+// ============================================================
+// BED STRUCTURE AUDIT (Tracks structural changes: room added, converted, decommissioned)
+// ============================================================
+
+export const bedStructureAudit = pgTable('bed_structure_audit', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  hospital_id: text('hospital_id').notNull().references(() => hospitals.hospital_id, { onDelete: 'restrict' }),
+  action: text('action').notNull(), // e.g., 'room_added', 'room_converted', 'ward_created', 'bed_decommissioned'
+  entity_type: text('entity_type').notNull(), // 'ward', 'room', 'bed'
+  entity_id: uuid('entity_id').notNull(),
+  old_values: jsonb('old_values'),
+  new_values: jsonb('new_values'),
+  performed_by_user_id: uuid('performed_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  performed_at: timestamp('performed_at', { withTimezone: true }).notNull().defaultNow(),
+  reason: text('reason'),
+}, (table) => ({
+  hospitalIdIdx: index('idx_bed_struct_audit_hospital').on(table.hospital_id),
+  entityIdx: index('idx_bed_struct_audit_entity').on(table.entity_type, table.entity_id),
+  performedAtIdx: index('idx_bed_struct_audit_at').on(table.performed_at),
 }));
 
 // ============================================================
