@@ -143,6 +143,40 @@ export default async function DashboardPage() {
             </div>
           )}
 
+          {/* Bed Management */}
+          <div className="mt-8 pt-8 border-t border-gray-200">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Bed Management</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <a href="/admin/bed-board" className="block p-5 bg-green-50 rounded-lg border border-green-200 hover:bg-green-100 hover:border-green-300 transition-colors">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-3xl">🛏</span>
+                  <p className="text-base font-semibold text-green-900">Bed Board</p>
+                </div>
+                <p className="text-xs text-green-800 leading-relaxed">
+                  Live 3-tier grid (Floor → Ward → Room → Bed) with patient details, status colors, and one-click assign / transfer / discharge. Use this as the operational control panel.
+                </p>
+              </a>
+              <a href="/admin/bed-structure" className="block p-5 bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100 hover:border-blue-300 transition-colors">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-3xl">🏗</span>
+                  <p className="text-base font-semibold text-blue-900">Bed Structure</p>
+                </div>
+                <p className="text-xs text-blue-800 leading-relaxed">
+                  Admin-only tree editor to add, rename, move, convert or decommission wards / rooms / beds, update clinical infrastructure flags, and review the full structural audit trail.
+                </p>
+              </a>
+              <a href="/admin/bed-rack" className="block p-5 bg-purple-50 rounded-lg border border-purple-200 hover:bg-purple-100 hover:border-purple-300 transition-colors">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-3xl">📊</span>
+                  <p className="text-base font-semibold text-purple-900">Bed Rack Chart</p>
+                </div>
+                <p className="text-xs text-purple-800 leading-relaxed">
+                  Gantt-style timeline of every bed over a 7/14/30-day window with occupancy trend, LOS, turnover, and 2-hour terminal-cleaning SLA breaches highlighted in red.
+                </p>
+              </a>
+            </div>
+          </div>
+
           {/* Master Data */}
           {isAdmin && (
             <div className="mt-8 pt-8 border-t border-gray-200">
@@ -203,13 +237,6 @@ export default async function DashboardPage() {
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Dedup Queue</p>
                   <p className="text-xs text-gray-500">Review & merge duplicates</p>
-                </div>
-              </a>
-              <a href="/admin/bed-board" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-green-50 hover:border-green-200 transition-colors">
-                <span className="text-2xl">🛏</span>
-                <div>
-                  <p className="text-sm font-semibold text-gray-800">Bed Board</p>
-                  <p className="text-xs text-gray-500">Real-time bed grid</p>
                 </div>
               </a>
               <a href="/admin/wristbands" className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-purple-50 hover:border-purple-200 transition-colors">

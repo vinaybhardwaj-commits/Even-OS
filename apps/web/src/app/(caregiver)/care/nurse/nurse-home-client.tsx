@@ -460,6 +460,7 @@ export default function NurseHomeClient({
       }}>
         {[
           { label: 'Nurse Station', href: '/care/nurse/bedside', icon: '🖥️', desc: 'Bedside documentation' },
+          { label: 'Bed Board', href: '/admin/bed-board', icon: '🛏', desc: 'Floor view, assign & transfer' },
           { label: 'Shift Worksheet', href: '/care/nurse/worksheet', icon: '📝', desc: 'Shift tasks & notes' },
           { label: 'Patient Registry', href: '/admin/patients', icon: '📂', desc: 'All patients (read-only)' },
           { label: 'Schedule', href: '/care/schedule', icon: '📅', desc: 'View shift schedule' },

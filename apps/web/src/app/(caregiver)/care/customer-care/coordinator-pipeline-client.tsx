@@ -1167,6 +1167,25 @@ export default function CoordinatorPipelineClient({
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
+          <a
+            href="/admin/bed-board"
+            style={{
+              padding: '8px 16px',
+              borderRadius: 6,
+              border: '1px solid #2e7d32',
+              backgroundColor: '#2e7d32',
+              color: '#fff',
+              fontWeight: 700,
+              fontSize: '12px',
+              cursor: 'pointer',
+              textDecoration: 'none',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            🛏 Bed Board
+          </a>
           <button
             onClick={() => handleSwitchView('gantt')}
             style={{

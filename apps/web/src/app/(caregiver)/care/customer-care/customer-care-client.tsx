@@ -160,6 +160,25 @@ export default function CustomerCareClient({ userId, userRole, userName }: Props
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <a
+            href="/admin/bed-board"
+            style={{
+              padding: '8px 16px',
+              borderRadius: 6,
+              border: '1px solid #2e7d32',
+              backgroundColor: '#2e7d32',
+              color: '#fff',
+              fontWeight: 700,
+              fontSize: 12,
+              cursor: 'pointer',
+              textDecoration: 'none',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            🛏 Bed Board
+          </a>
           <button
             onClick={() => handleSwitchView('gantt')}
             style={{
@@ -344,6 +363,7 @@ export default function CustomerCareClient({ userId, userRole, userName }: Props
       }}>
         {[
           { key: 'journey', label: 'Journey', icon: '🏥', href: '/care/customer-care' },
+          { key: 'beds', label: 'Beds', icon: '🛏', href: '/admin/bed-board' },
           { key: 'home', label: 'Home', icon: '⌂', href: '/care/home' },
         ].map(tab => (
           <a key={tab.key} href={tab.href} style={{
