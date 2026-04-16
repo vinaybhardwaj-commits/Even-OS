@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
     // Password hash for 'test1234' using bcrypt (12 rounds, matching app's SALT_ROUNDS)
     const testPasswordHash = '$2a$12$QMfh5kOplN8JQysNr7akwOffKSKCOfL1ie/FgTCePiGvyGEPu2F52';
 
-    const testUsers = [
+    const testUsers: { email: string; name: string; role: string; dept: string; mcp?: boolean }[] = [
       { email: 'charge.nurse@even.in', name: 'Priya Sharma', role: 'charge_nurse', dept: 'Nursing' },
       { email: 'nurse.a@even.in', name: 'Deepa Kumari', role: 'nurse', dept: 'Nursing' },
       { email: 'nurse.b@even.in', name: 'Asha Devi', role: 'nurse', dept: 'Nursing' },
@@ -144,19 +144,23 @@ export async function POST(req: NextRequest) {
       { email: 'dr.resident@even.in', name: 'Dr. Meera Singh', role: 'resident', dept: 'Medicine' },
       { email: 'pharmacist@even.in', name: 'Ravi Kumar', role: 'pharmacist', dept: 'Pharmacy' },
       { email: 'reception@even.in', name: 'Sunita Rao', role: 'receptionist', dept: 'Front Office' },
+      // BM testing: IPD Coordinator in Customer Care. mcp=false so test1234 works on first login.
+      { email: 'test.ipd@even.in', name: 'Test IPD Coordinator', role: 'ip_coordinator', dept: 'Customer Care', mcp: false },
     ];
 
     for (const u of testUsers) {
       const rolesArr = `{${u.role}}`;
+      const mcp = u.mcp ?? true;
       await sql`
         INSERT INTO users (hospital_id, email, full_name, roles, department, password_hash, status, must_change_password)
-        VALUES (${hospitalId}, ${u.email}, ${u.name}, ${rolesArr}::text[], ${u.dept}, ${testPasswordHash}, 'active', true)
+        VALUES (${hospitalId}, ${u.email}, ${u.name}, ${rolesArr}::text[], ${u.dept}, ${testPasswordHash}, 'active', ${mcp})
         ON CONFLICT (email, hospital_id) DO UPDATE SET roles = ${rolesArr}::text[], full_name = ${u.name}, department = ${u.dept},
           password_hash = CASE WHEN users.password_hash IS NULL OR users.password_hash = '' THEN ${testPasswordHash} ELSE users.password_hash END,
-          status = 'active'
+          status = 'active',
+          must_change_password = CASE WHEN users.login_count = 0 THEN ${mcp} ELSE users.must_change_password END
       `;
     }
-    results.push(`✅ 7 test users created/updated`);
+    results.push(`✅ ${testUsers.length} test users created/updated`);
 
     // Ensure test.nurse is a regular nurse (not charge_nurse)
     await sql`UPDATE users SET roles = '{nurse}'::text[] WHERE email = 'test.nurse@even.in' AND hospital_id = ${hospitalId}`;
