@@ -21,6 +21,7 @@
 import { useEffect, useCallback } from 'react';
 import { useChat } from '@/providers/ChatProvider';
 import { ChatToggleButton } from './ChatToggleButton';
+import { ChatSidebar } from './ChatSidebar';
 
 const SIDEBAR_WIDTH = 300;
 
@@ -107,12 +108,9 @@ export function ChatShell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
 
-          {/* Sidebar body — will be populated in OC.2b (channel list) */}
-          <div className="flex-1 overflow-y-auto px-2 py-3">
-            <div className="text-center text-white/40 text-xs mt-8">
-              <p className="text-lg mb-2">💬</p>
-              <p>Channel list coming in OC.2b</p>
-            </div>
+          {/* Sidebar body — channel list (OC.2b) */}
+          <div className="flex-1 overflow-y-auto py-2">
+            <ChatSidebar />
           </div>
 
           {/* Sidebar footer — user presence indicator */}
