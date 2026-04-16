@@ -194,7 +194,7 @@ export const bedRouter = router({
     .query(async ({ ctx, input }) => {
       const hospitalId = ctx.user.hospital_id;
       const floorFilter = input.floor_number != null
-        ? sql`AND floor_number = ${input.floor_number}`
+        ? sql`AND w.floor_number = ${input.floor_number}`
         : sql``;
 
       // Global stats
@@ -1490,6 +1490,10 @@ export const bedRouter = router({
         return { hierarchy: [], segments: [], from: fromIso, to: toIso };
       }
 
+      // Neon HTTP + Drizzle can't bind JS string[] directly to uuid[]; build a
+      // Postgres array literal string and cast it on the server side instead.
+      const bedIdsLiteral = `{${bedIds.join(',')}}`;
+
       // ── Segments: derive from bed_status_history via LEAD window ──
       const segRes = await db.execute(sql`
         WITH events AS (
@@ -1542,7 +1546,7 @@ export const bedRouter = router({
           AND (ba.released_at IS NULL OR ba.released_at >= seg.seg_start)
         LEFT JOIN encounters e ON e.id = ba.encounter_id
         LEFT JOIN patients pt ON pt.id = e.patient_id
-        WHERE seg.location_id = ANY(${bedIds}::uuid[])
+        WHERE seg.location_id = ANY(${bedIdsLiteral}::uuid[])
         ORDER BY seg.location_id, seg.seg_start
       `);
       const segRows = ((segRes as any).rows || segRes) as any[];
