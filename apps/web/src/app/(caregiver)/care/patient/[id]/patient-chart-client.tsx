@@ -199,58 +199,147 @@ function getActionButtonsForRole(role: string): { label: string; icon: string }[
   return [{ label: 'Add Note', icon: '📝' }];
 }
 
-// ── Sample timeline events (hardcoded for this sprint) ──────────────────────
-function getSampleTimelineEvents(): { time: string; title: string; description: string; category: 'escalation' | 'medication' | 'note' | 'lab' | 'routine' }[] {
-  return [
-    {
-      time: '08:45',
+// ── Timeline event categories ─────────────────────────────────────────────
+type TimelineCategory = 'escalation' | 'medication' | 'lab' | 'vitals' | 'note' | 'order' | 'procedure' | 'assessment' | 'handoff' | 'alert';
+
+interface TimelineEvent {
+  id: string;
+  time: string;         // "08:45"
+  timestamp: number;    // epoch ms — for sorting
+  title: string;
+  description: string;
+  category: TimelineCategory;
+  source?: string;      // originating tab to deep-link to
+}
+
+const TIMELINE_CATEGORY_META: Record<TimelineCategory, { color: string; icon: string; label: string }> = {
+  escalation:  { color: '#DC2626', icon: '🚨', label: 'Escalations' },
+  medication:  { color: '#0B8A3E', icon: '💊', label: 'Medications' },
+  lab:         { color: '#D97706', icon: '🧪', label: 'Lab Results' },
+  vitals:      { color: '#7C3AED', icon: '📊', label: 'Vitals' },
+  note:        { color: '#0055FF', icon: '📝', label: 'Notes' },
+  order:       { color: '#059669', icon: '📋', label: 'Orders' },
+  procedure:   { color: '#DB2777', icon: '🔬', label: 'Procedures' },
+  assessment:  { color: '#6366F1', icon: '✅', label: 'Assessments' },
+  handoff:     { color: '#64748B', icon: '🔄', label: 'Handoffs' },
+  alert:       { color: '#EA580C', icon: '⚠️', label: 'Alerts' },
+};
+
+/** Synthesise a unified timeline from real patient data.
+ *  Falls back to demo data when no real events are available. */
+function synthesizeTimeline(
+  vitals: VitalData[],
+  medications: MedicationData[],
+  notes: NoteData[],
+  allergies: AllergyData[],
+  news2Score: number | null,
+): TimelineEvent[] {
+  const events: TimelineEvent[] = [];
+  const fmt = (d: Date): string => {
+    const h = d.getHours();
+    const m = String(d.getMinutes()).padStart(2, '0');
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const hr = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    return `${hr}:${m} ${ampm}`;
+  };
+
+  // NEWS2 escalation (if score ≥ 5)
+  if (news2Score !== null && news2Score >= 5) {
+    events.push({
+      id: 'news2-esc',
+      time: fmt(new Date()),
+      timestamp: Date.now(),
       title: 'NEWS2 Escalation',
-      description: 'Score 8, SpO₂ dropping to 93%',
+      description: `Score ${news2Score}${news2Score >= 7 ? ' — Urgent clinical review' : ' — Increased monitoring'}`,
       category: 'escalation',
-    },
-    {
-      time: '08:00',
-      title: 'Medication Given',
-      description: 'Metoprolol 25mg PO (Nurse Priya)',
-      category: 'medication',
-    },
-    {
-      time: '07:30',
-      title: 'Progress Note',
-      description: 'Dr. Sharma: reports reduced chest discomfort, vitals stable',
-      category: 'note',
-    },
-    {
-      time: '07:15',
-      title: 'Lab Results',
-      description: 'CBC + RFT: Hb 10.2↓, Cr 1.8↑, INR 2.8↑',
-      category: 'lab',
-    },
-    {
-      time: '06:00',
-      title: 'Medication Given',
-      description: 'Pantoprazole 40mg IV (Nurse Priya)',
-      category: 'medication',
-    },
-    {
-      time: '06:00',
-      title: 'Shift Handoff',
-      description: 'Night → Day (SBAR completed)',
-      category: 'routine',
-    },
-    {
-      time: '04:00',
-      title: 'PRN Medication',
-      description: 'Morphine 2mg IV for pain 7/10',
-      category: 'medication',
-    },
-    {
-      time: '02:00',
+      source: 'vitals',
+    });
+  }
+
+  // Vitals
+  const vitalsByTime: Record<string, VitalData[]> = {};
+  vitals.forEach(v => {
+    const key = v.effective_datetime;
+    (vitalsByTime[key] = vitalsByTime[key] || []).push(v);
+  });
+  Object.entries(vitalsByTime).forEach(([dt, vGroup]) => {
+    const d = new Date(dt);
+    const labels = vGroup.map(v => {
+      const label = v.observation_type.replace('vital_', '').replace(/_/g, ' ').toUpperCase();
+      return `${label}: ${v.value}${v.unit || ''}`;
+    });
+    events.push({
+      id: `vitals-${dt}`,
+      time: fmt(d),
+      timestamp: d.getTime(),
       title: 'Vitals Recorded',
-      description: 'BP 138/82, HR 96, SpO₂ 93%, NEWS2=5',
-      category: 'routine',
-    },
-  ];
+      description: labels.join(', '),
+      category: 'vitals',
+      source: 'vitals',
+    });
+  });
+
+  // Medications
+  medications.forEach(m => {
+    const d = m.scheduled_time ? new Date(m.scheduled_time) : new Date();
+    const statusLabel = m.status === 'given' ? 'Given' : m.status === 'overdue' ? 'OVERDUE' : m.status === 'due' ? 'Due' : m.status;
+    events.push({
+      id: `med-${m.id}`,
+      time: fmt(d),
+      timestamp: d.getTime(),
+      title: m.status === 'overdue' ? 'Overdue Medication' : m.status === 'given' ? 'Medication Given' : 'Medication Scheduled',
+      description: `${m.medication_name} ${m.dose} ${m.route} — ${statusLabel}`,
+      category: 'medication',
+      source: 'emar',
+    });
+  });
+
+  // Notes
+  notes.forEach(n => {
+    const d = new Date(n.created_at);
+    events.push({
+      id: `note-${n.id}`,
+      time: fmt(d),
+      timestamp: d.getTime(),
+      title: n.note_type === 'soap' ? 'SOAP Note' : n.note_type === 'nursing' ? 'Nursing Note' : 'Progress Note',
+      description: `${n.created_by}: ${(n.content || '').slice(0, 80)}${(n.content || '').length > 80 ? '…' : ''}`,
+      category: 'note',
+      source: 'notes',
+    });
+  });
+
+  // Allergy alerts (static — shown once)
+  if (allergies.length > 0) {
+    events.push({
+      id: 'allergy-alert',
+      time: '',
+      timestamp: Date.now() - 1000, // slightly earlier so escalation stays on top
+      title: 'Active Allergies',
+      description: allergies.map(a => `${a.allergen} (${a.severity})`).join(', '),
+      category: 'alert',
+    });
+  }
+
+  // Sort newest first
+  events.sort((a, b) => b.timestamp - a.timestamp);
+
+  // Fallback: hardcoded demo data when no real events exist
+  if (events.length === 0) {
+    const now = new Date();
+    const demoEvents: Omit<TimelineEvent, 'id'>[] = [
+      { time: '08:45 AM', timestamp: now.getTime() - 15 * 60000, title: 'NEWS2 Escalation', description: 'Score 8, SpO₂ dropping to 93%', category: 'escalation' },
+      { time: '08:00 AM', timestamp: now.getTime() - 60 * 60000, title: 'Medication Given', description: 'Metoprolol 25mg PO (Nurse Priya)', category: 'medication' },
+      { time: '07:30 AM', timestamp: now.getTime() - 90 * 60000, title: 'Progress Note', description: 'Dr. Sharma: reports reduced chest discomfort, vitals stable', category: 'note' },
+      { time: '07:15 AM', timestamp: now.getTime() - 105 * 60000, title: 'Lab Results', description: 'CBC + RFT: Hb 10.2↓, Cr 1.8↑, INR 2.8↑', category: 'lab' },
+      { time: '06:00 AM', timestamp: now.getTime() - 180 * 60000, title: 'Medication Given', description: 'Pantoprazole 40mg IV (Nurse Priya)', category: 'medication' },
+      { time: '06:00 AM', timestamp: now.getTime() - 180 * 60000, title: 'Shift Handoff', description: 'Night → Day (SBAR completed)', category: 'handoff' },
+      { time: '04:00 AM', timestamp: now.getTime() - 300 * 60000, title: 'PRN Medication', description: 'Morphine 2mg IV for pain 7/10', category: 'medication' },
+      { time: '02:00 AM', timestamp: now.getTime() - 420 * 60000, title: 'Vitals Recorded', description: 'BP 138/82, HR 96, SpO₂ 93%, NEWS2=5', category: 'vitals' },
+    ];
+    return demoEvents.map((e, i) => ({ ...e, id: `demo-${i}` }));
+  }
+
+  return events;
 }
 
 // ── NEWS2 Score Calculation ─────────────────────────────────────────────────
@@ -1210,6 +1299,15 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   const [news2Score, setNews2Score] = useState<number | null>(null);
   const [news2RiskLevel, setNews2RiskLevel] = useState<'low' | 'medium' | 'high' | null>(null);
 
+  // Timeline filter state
+  const [tlFilterOpen, setTlFilterOpen] = useState(false);
+  const [tlSearch, setTlSearch] = useState('');
+  const [tlActiveCategories, setTlActiveCategories] = useState<Set<TimelineCategory>>(
+    new Set(Object.keys(TIMELINE_CATEGORY_META) as TimelineCategory[]),
+  );
+  const [tlExpandedId, setTlExpandedId] = useState<string | null>(null);
+  const [tlShowCount, setTlShowCount] = useState(20);
+
   // eMAR state
   const [emarGiveModal, setEmarGiveModal] = useState<{ med_id: string; med_name: string; dose: string; route: string } | null>(null);
   const [emarHoldModal, setEmarHoldModal] = useState<{ med_id: string; med_name: string } | null>(null);
@@ -1337,78 +1435,79 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
       <header style={{
         background: '#002054',
         color: 'white',
-        padding: '12px 24px',
+        padding: '10px 20px',
         display: 'flex',
-        justifyContent: 'space-between',
         alignItems: 'center',
-        gap: 16,
+        gap: 12,
+        flexWrap: 'wrap',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
-          {/* Avatar */}
-          <div style={{
-            width: 48,
-            height: 48,
-            borderRadius: '50%',
-            background: '#0055FF',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            fontWeight: 700,
-            fontSize: 18,
+        {/* Back button */}
+        <button
+          onClick={() => window.history.back()}
+          style={{
+            width: 36, height: 36, borderRadius: 8,
+            background: 'rgba(255,255,255,0.12)',
+            border: 'none', color: '#fff',
+            fontSize: 18, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
             flexShrink: 0,
-          }}>
-            {(patient.name_full || patient.full_name || patient.name_given || 'P')[0]?.toUpperCase() || 'P'}
-          </div>
+          }}
+          title="Go back"
+        >
+          ←
+        </button>
 
-          {/* Patient info */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
-              {patient.name_full || patient.full_name || `${patient.name_given || ''} ${patient.name_family || ''}`.trim() || 'Patient'}
-            </div>
-            <div style={{ fontSize: 12, opacity: 0.7, margin: '2px 0 0' }}>
-              UHID: {patient.uhid} · {age}y {(patient.sex || patient.gender || '').toUpperCase()} · {encounter?.chief_complaint || encounter?.preliminary_diagnosis_icd10 || patient.primary_diagnosis || 'No diagnosis'}
-            </div>
+        {/* Avatar */}
+        <div style={{
+          width: 44, height: 44, borderRadius: '50%',
+          background: '#0055FF',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'white', fontWeight: 700, fontSize: 17, flexShrink: 0,
+        }}>
+          {(patient.name_full || patient.full_name || patient.name_given || 'P')[0]?.toUpperCase() || 'P'}
+        </div>
+
+        {/* Patient info — grows to fill available space */}
+        <div style={{ flex: 1, minWidth: 120 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
+            {patient.name_full || patient.full_name || `${patient.name_given || ''} ${patient.name_family || ''}`.trim() || 'Patient'}
+          </div>
+          <div style={{ fontSize: 12, opacity: 0.7, margin: '2px 0 0', lineHeight: 1.3 }}>
+            {patient.uhid} · {age}y {(patient.sex || patient.gender || '').toUpperCase()} · {encounter?.chief_complaint || encounter?.preliminary_diagnosis_icd10 || patient.primary_diagnosis || ''}
           </div>
         </div>
 
-        {/* Bed badge */}
-        {encounter && (
-          <div style={{
-            background: 'white',
-            color: '#002054',
-            padding: '6px 12px',
-            borderRadius: 6,
-            fontWeight: 600,
-            fontSize: 13,
-            whiteSpace: 'nowrap',
-          }}>
-            {encounter.bed_code || encounter.bed_name || encounter.assigned_bed || 'Bed'}
-          </div>
-        )}
-
-        {/* Day counter badge */}
-        {encounter && (
-          <div style={{
-            background: '#D97706',
-            color: 'white',
-            padding: '6px 12px',
-            borderRadius: 6,
-            fontWeight: 600,
-            fontSize: 13,
-            whiteSpace: 'nowrap',
-          }}>
-            Day {daysSinceAdmission + 1}
-          </div>
-        )}
-
-        {/* Attending doctor */}
-        {encounter && (
-          <div style={{ fontSize: 12, opacity: 0.8, minWidth: 0 }}>
-            <div style={{ fontWeight: 600 }}>{encounter.attending_physician_name || 'Unassigned'}</div>
-            <div style={{ opacity: 0.7 }}>Attending</div>
-          </div>
-        )}
+        {/* Right-side badges — wrap on narrow screens */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
+          {encounter && (
+            <div style={{
+              background: 'white', color: '#002054',
+              padding: '5px 10px', borderRadius: 6,
+              fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap',
+            }}>
+              🛏 {encounter.bed_code || encounter.bed_name || encounter.assigned_bed || 'Bed'}
+            </div>
+          )}
+          {encounter && (
+            <div style={{
+              background: '#D97706', color: 'white',
+              padding: '5px 10px', borderRadius: 6,
+              fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap',
+            }}>
+              Day {daysSinceAdmission + 1}
+            </div>
+          )}
+          {encounter && (
+            <div style={{
+              background: 'rgba(255,255,255,0.1)',
+              padding: '5px 10px', borderRadius: 6,
+              fontSize: 12, whiteSpace: 'nowrap',
+            }}>
+              <span style={{ fontWeight: 600 }}>{encounter.attending_physician_name || 'Unassigned'}</span>
+              <span style={{ opacity: 0.65, marginLeft: 4 }}>Attending</span>
+            </div>
+          )}
+        </div>
       </header>
 
       {/* ── Header: Row 2 - Acuity + Journey ────────────────────────────────── */}
@@ -1451,32 +1550,37 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
           </div>
         </div>
 
-        {/* Journey Strip */}
+        {/* Journey Strip — horizontally scrollable on narrow screens */}
         {journey && (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 12 }}>
-            {['Start', 'Admit', 'Assess', 'Treat', 'Progress', 'Stabilize', 'DC Plan', 'Ready', 'Exit'].map((phase, idx) => (
-              <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 48 }}>
-                <div style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: '50%',
-                  background: idx < journey.completed_steps ? '#0B8A3E' : idx === journey.completed_steps ? '#0055FF' : '#e0e0e0',
-                  border: idx === journey.completed_steps ? '2px solid #0055FF' : 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'white',
-                  fontWeight: 600,
-                  fontSize: 12,
-                  animation: idx === journey.completed_steps ? 'pulse 2s infinite' : 'none',
-                }}>
-                  {idx < journey.completed_steps ? '✓' : idx + 1}
+          <div style={{ flex: 1, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 'max-content', padding: '0 4px' }}>
+              {['Start', 'Admit', 'Assess', 'Treat', 'Progress', 'Stabilize', 'DC Plan', 'Ready', 'Exit'].map((phase, idx, arr) => (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 44 }}>
+                    <div style={{
+                      width: 32, height: 32, borderRadius: '50%',
+                      background: idx < journey.completed_steps ? '#0B8A3E' : idx === journey.completed_steps ? '#0055FF' : '#e0e0e0',
+                      border: idx === journey.completed_steps ? '2px solid #0055FF' : 'none',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: 'white', fontWeight: 600, fontSize: 11,
+                      animation: idx === journey.completed_steps ? 'pulse 2s infinite' : 'none',
+                    }}>
+                      {idx < journey.completed_steps ? '✓' : idx + 1}
+                    </div>
+                    <div style={{ fontSize: 9, textAlign: 'center', color: '#666', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                      {phase}
+                    </div>
+                  </div>
+                  {idx < arr.length - 1 && (
+                    <div style={{
+                      width: 16, height: 2, borderRadius: 1,
+                      background: idx < journey.completed_steps ? '#0B8A3E' : '#e0e0e0',
+                      flexShrink: 0,
+                    }} />
+                  )}
                 </div>
-                <div style={{ fontSize: 10, textAlign: 'center', color: '#666', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
-                  {phase}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -1497,42 +1601,53 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
       <div style={{
         background: 'white',
         borderBottom: '1px solid #e0e0e0',
-        padding: '0 24px',
+        padding: '0 20px',
         display: 'flex',
-        gap: 24,
+        gap: 4,
         overflowX: 'auto',
-        marginTop: 16,
+        marginTop: 0,
+        WebkitOverflowScrolling: 'touch',
       }}>
         {tabs.map((tab) => (
           <button
             key={tab.id}
+            className="patient-chart-tab-btn"
             onClick={() => setActiveTab(tab.id)}
             style={{
-              padding: '12px 0',
-              fontSize: 14,
-              fontWeight: activeTab === tab.id ? 600 : 500,
+              padding: '12px 10px',
+              minHeight: 44,
+              fontSize: 13,
+              fontWeight: activeTab === tab.id ? 700 : 500,
               color: activeTab === tab.id ? '#0055FF' : '#666',
-              borderBottom: activeTab === tab.id ? '2px solid #0055FF' : 'none',
+              borderBottom: activeTab === tab.id ? '3px solid #0055FF' : '3px solid transparent',
               background: 'none',
               border: 'none',
+              borderBottomStyle: 'solid',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
-              transition: 'all 0.2s',
+              transition: 'color 0.15s',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
             }}
           >
-            {tab.icon} {tab.label}
+            <span style={{ fontSize: 15 }}>{tab.icon}</span>
+            <span>{tab.label}</span>
           </button>
         ))}
       </div>
 
       {/* ── Overview Tab Content ──────────────────────────────────────────────── */}
       {activeTab === 'overview' && (
-        <div style={{
-          padding: '24px',
+        <div className="patient-chart-overview-grid" style={{
+          padding: '20px 24px',
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: 24,
+          gridTemplateColumns: 'minmax(0, 2fr) minmax(280px, 1fr)',
+          gap: 20,
         }}>
+          {/* ──── LEFT: main content area (timeline on top, vitals below) ──── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20, minWidth: 0 }}>
+
           {/* LEFT COLUMN: Vitals */}
           <div style={{
             background: 'white',
@@ -1575,52 +1690,260 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
             </div>
           </div>
 
-          {/* CENTER COLUMN: Timeline */}
-          <div style={{
-            background: 'white',
-            borderRadius: 12,
-            padding: 20,
-            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            gridColumn: 'span 1',
-          }}>
-            <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 16px', textTransform: 'uppercase', color: '#666' }}>What's Happening</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {getSampleTimelineEvents().map((event, idx) => {
-                const colorMap: Record<string, string> = {
-                  escalation: '#DC2626',
-                  medication: '#0B8A3E',
-                  note: '#0055FF',
-                  lab: '#D97706',
-                  routine: '#999',
-                };
-                return (
-                  <div key={idx} style={{
-                    display: 'flex',
-                    gap: 12,
-                    paddingLeft: 12,
-                    borderLeft: `3px solid ${colorMap[event.category]}`,
-                  }}>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#666', minWidth: 36 }}>
-                        {event.time}
-                      </div>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#002054' }}>
-                        {event.title}
-                      </div>
-                      <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>
-                        {event.description}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          {/* CENTER COLUMN: What's Happening Timeline (with filter) */}
+          {(() => {
+            const allEvents = synthesizeTimeline(vitals, medications, notes, allergies, news2Score);
+            const searchLower = tlSearch.toLowerCase().trim();
+            const filtered = allEvents.filter(ev => {
+              if (!tlActiveCategories.has(ev.category)) return false;
+              if (searchLower && !ev.title.toLowerCase().includes(searchLower) && !ev.description.toLowerCase().includes(searchLower)) return false;
+              return true;
+            });
+            const visible = filtered.slice(0, tlShowCount);
+            const hasMore = filtered.length > tlShowCount;
 
-          {/* RIGHT COLUMN: Tasks, Journey, Care Team */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            // Count per category (for badge numbers)
+            const catCounts: Partial<Record<TimelineCategory, number>> = {};
+            allEvents.forEach(ev => { catCounts[ev.category] = (catCounts[ev.category] || 0) + 1; });
+
+            return (
+              <div style={{
+                background: 'white',
+                borderRadius: 12,
+                boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                display: 'flex',
+                flexDirection: 'column',
+                maxHeight: 'calc(100vh - 220px)',
+                overflow: 'hidden',
+              }}>
+                {/* Sticky header: title + filter toggle + search */}
+                <div style={{
+                  padding: '16px 20px 0',
+                  flexShrink: 0,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, textTransform: 'uppercase', color: '#666' }}>
+                      What&apos;s Happening
+                      <span style={{ fontSize: 11, fontWeight: 500, color: '#999', marginLeft: 6 }}>
+                        {filtered.length} event{filtered.length !== 1 ? 's' : ''}
+                      </span>
+                    </h3>
+                    <button
+                      onClick={() => setTlFilterOpen(!tlFilterOpen)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 4,
+                        padding: '5px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                        background: tlFilterOpen ? '#EEF2FF' : '#f5f5f5',
+                        color: tlFilterOpen ? '#4338CA' : '#666',
+                        border: tlFilterOpen ? '1px solid #C7D2FE' : '1px solid #e0e0e0',
+                        cursor: 'pointer', transition: 'all 0.15s',
+                      }}
+                    >
+                      {tlFilterOpen ? '✕ Close' : '⚙ Filter'}
+                      {tlActiveCategories.size < Object.keys(TIMELINE_CATEGORY_META).length && (
+                        <span style={{
+                          width: 6, height: 6, borderRadius: '50%',
+                          background: '#4338CA', display: 'inline-block', marginLeft: 2,
+                        }} />
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Collapsible filter drawer */}
+                  {tlFilterOpen && (
+                    <div style={{
+                      background: '#F8FAFC', borderRadius: 10,
+                      padding: '12px 14px', marginBottom: 12,
+                      border: '1px solid #E2E8F0',
+                    }}>
+                      {/* Search input */}
+                      <div style={{ position: 'relative', marginBottom: 10 }}>
+                        <input
+                          type="text"
+                          placeholder="Search events…"
+                          value={tlSearch}
+                          onChange={e => { setTlSearch(e.target.value); setTlShowCount(20); }}
+                          style={{
+                            width: '100%', padding: '8px 12px 8px 32px',
+                            border: '1px solid #CBD5E1', borderRadius: 8,
+                            fontSize: 13, background: '#fff', boxSizing: 'border-box',
+                          }}
+                        />
+                        <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: '#94A3B8', pointerEvents: 'none' }}>
+                          🔍
+                        </span>
+                      </div>
+
+                      {/* Category pills */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {/* All / None toggle */}
+                        <button
+                          onClick={() => {
+                            const allCats = new Set(Object.keys(TIMELINE_CATEGORY_META) as TimelineCategory[]);
+                            setTlActiveCategories(tlActiveCategories.size === allCats.size ? new Set() : allCats);
+                            setTlShowCount(20);
+                          }}
+                          style={{
+                            padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+                            background: tlActiveCategories.size === Object.keys(TIMELINE_CATEGORY_META).length ? '#002054' : '#fff',
+                            color: tlActiveCategories.size === Object.keys(TIMELINE_CATEGORY_META).length ? '#fff' : '#374151',
+                            border: '1px solid #CBD5E1', cursor: 'pointer',
+                          }}
+                        >
+                          All
+                        </button>
+                        {(Object.entries(TIMELINE_CATEGORY_META) as [TimelineCategory, typeof TIMELINE_CATEGORY_META[TimelineCategory]][]).map(([cat, meta]) => {
+                          const active = tlActiveCategories.has(cat);
+                          const count = catCounts[cat] || 0;
+                          return (
+                            <button
+                              key={cat}
+                              onClick={() => {
+                                const next = new Set(tlActiveCategories);
+                                if (active) next.delete(cat); else next.add(cat);
+                                setTlActiveCategories(next);
+                                setTlShowCount(20);
+                              }}
+                              style={{
+                                padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+                                background: active ? meta.color + '18' : '#fff',
+                                color: active ? meta.color : '#9CA3AF',
+                                border: `1px solid ${active ? meta.color + '40' : '#E5E7EB'}`,
+                                cursor: 'pointer', transition: 'all 0.15s',
+                                display: 'flex', alignItems: 'center', gap: 4,
+                                opacity: count === 0 ? 0.5 : 1,
+                              }}
+                            >
+                              <span>{meta.icon}</span>
+                              <span>{meta.label}</span>
+                              {count > 0 && (
+                                <span style={{
+                                  fontSize: 10, fontWeight: 700, padding: '0 5px',
+                                  borderRadius: 10, background: active ? meta.color : '#E5E7EB',
+                                  color: active ? '#fff' : '#6B7280',
+                                  lineHeight: '16px',
+                                }}>
+                                  {count}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Scrollable event list */}
+                <div className="tl-scroll" style={{
+                  flex: 1, overflowY: 'auto',
+                  padding: '0 20px 16px',
+                  WebkitOverflowScrolling: 'touch',
+                }}>
+                  {visible.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '32px 12px', color: '#9ca3af' }}>
+                      <div style={{ fontSize: 28, marginBottom: 8 }}>{tlSearch ? '🔍' : '📋'}</div>
+                      <div style={{ fontSize: 13 }}>{tlSearch ? 'No events match your search' : 'No events in selected categories'}</div>
+                      {tlSearch && (
+                        <button
+                          onClick={() => setTlSearch('')}
+                          style={{ marginTop: 8, fontSize: 12, color: '#0055FF', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                        >
+                          Clear search
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {visible.map((event) => {
+                        const meta = TIMELINE_CATEGORY_META[event.category];
+                        const isExpanded = tlExpandedId === event.id;
+                        return (
+                          <div
+                            key={event.id}
+                            onClick={() => setTlExpandedId(isExpanded ? null : event.id)}
+                            style={{
+                              display: 'flex', gap: 10,
+                              padding: '10px 12px',
+                              borderLeft: `3px solid ${meta.color}`,
+                              borderRadius: '0 8px 8px 0',
+                              background: isExpanded ? meta.color + '08' : 'transparent',
+                              cursor: 'pointer',
+                              transition: 'background 0.15s',
+                            }}
+                            onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = '#f9fafb'; }}
+                            onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = 'transparent'; }}
+                          >
+                            <div style={{ minWidth: 60, flexShrink: 0 }}>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', fontFamily: 'monospace' }}>
+                                {event.time}
+                              </div>
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 12 }}>{meta.icon}</span>
+                                <span style={{ fontSize: 13, fontWeight: 600, color: '#002054' }}>
+                                  {event.title}
+                                </span>
+                              </div>
+                              <div style={{
+                                fontSize: 12, color: '#666', marginTop: 3,
+                                overflow: isExpanded ? 'visible' : 'hidden',
+                                textOverflow: isExpanded ? 'clip' : 'ellipsis',
+                                whiteSpace: isExpanded ? 'normal' : 'nowrap',
+                                lineHeight: 1.5,
+                              }}>
+                                {event.description}
+                              </div>
+                              {/* Expanded: show source link + timestamp */}
+                              {isExpanded && event.source && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveTab(event.source as PatientTab);
+                                    setTlExpandedId(null);
+                                  }}
+                                  style={{
+                                    marginTop: 8, fontSize: 11, fontWeight: 600,
+                                    color: meta.color, background: 'none',
+                                    border: `1px solid ${meta.color}40`,
+                                    borderRadius: 6, padding: '3px 10px',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  Open in {event.source.charAt(0).toUpperCase() + event.source.slice(1)} →
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* Load more */}
+                      {hasMore && (
+                        <button
+                          onClick={() => setTlShowCount(c => c + 20)}
+                          style={{
+                            marginTop: 8, padding: '8px 0', borderRadius: 8,
+                            border: '1px solid #e0e0e0', background: '#fafafa',
+                            fontSize: 12, fontWeight: 600, color: '#666',
+                            cursor: 'pointer', textAlign: 'center',
+                          }}
+                        >
+                          Load more ({filtered.length - tlShowCount} remaining)
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          </div>{/* close left content area */}
+
+          {/* ──── RIGHT: sidebar (tasks, journey, care team) ──── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {/* My Tasks */}
             <div style={{
               background: 'white',
@@ -5529,12 +5852,29 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
         </div>
       )}
 
-      {/* CSS for pulse animation */}
+      {/* CSS for pulse animation + responsive overrides */}
       <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.7; }
         }
+        /* Collapse overview grid on narrow screens (tablets portrait and phones) */
+        @media (max-width: 860px) {
+          .patient-chart-overview-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        /* Comfortable touch targets on tablets */
+        @media (pointer: coarse) {
+          .patient-chart-tab-btn {
+            min-height: 44px !important;
+            padding: 12px 4px !important;
+          }
+        }
+        /* Smooth scrolling on timeline */
+        .tl-scroll::-webkit-scrollbar { width: 4px; }
+        .tl-scroll::-webkit-scrollbar-track { background: transparent; }
+        .tl-scroll::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
       `}</style>
     </div>
   );
