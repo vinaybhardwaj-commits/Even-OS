@@ -14,6 +14,20 @@ async function trpcQuery(path: string, input?: any) {
   return json.result?.data?.json;
 }
 
+async function trpcMutate(path: string, input: any) {
+  const res = await fetch(`/api/trpc/${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ json: input }),
+  });
+  const json = await res.json();
+  if (json.error) {
+    const msg = json.error?.message || json.error?.json?.message || 'Operation failed';
+    throw new Error(msg);
+  }
+  return json.result?.data?.json;
+}
+
 // ── Types ───────────────────────────────────────────────────────────────────
 interface PatientData {
   id: string;
@@ -625,10 +639,14 @@ function LabPanel({ title, timestamp, isOpen, onToggle, tests }: LabPanelProps) 
 interface NotesTabProps {
   userRole: string;
   userName: string;
+  userId: string;
+  patientId: string;
+  encounterId: string | null;
+  notes: any[];
   onNoteSaved: () => void;
 }
 
-function NotesTab({ userRole, userName, onNoteSaved }: NotesTabProps) {
+function NotesTab({ userRole, userName, userId, patientId, encounterId, notes, onNoteSaved }: NotesTabProps) {
   const doctorRoles = ['resident', 'senior_resident', 'intern', 'visiting_consultant', 'hospitalist', 'specialist_cardiologist', 'specialist_neurologist', 'specialist_orthopedic', 'surgeon', 'anaesthetist'];
   const nurseRoles = ['nurse', 'senior_nurse', 'charge_nurse', 'nursing_supervisor', 'nursing_manager', 'ot_nurse'];
   const isDoctor = doctorRoles.includes(userRole);
@@ -648,75 +666,42 @@ function NotesTab({ userRole, userName, onNoteSaved }: NotesTabProps) {
   const [noteType, setNoteType] = useState('General');
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
 
-  // Sample notes data
-  const sampleNotes = [
-    {
-      id: '1',
-      author: 'Dr. Sharma',
-      role: 'Cardiology',
-      time: '14 Apr 07:30',
-      type: 'SOAP',
-      badge: 'SOAP',
-      badgeColor: '#0055FF',
-      content: 'S: Reports reduced chest discomfort, pain 4/10 from 6/10 yesterday. Tolerated liquids.\nO: BP 142/88, HR 108, SpO₂ 89%, T 37.8. NEWS2 8. Hb 10.2, Cr 1.8, INR 2.8...\nA: POD-3 post CABG. SpO₂ dropping, tachycardia. Cr rising — possible contrast nephropathy.\nP: Increase O₂, hold Enoxaparin if INR >3, nephrology consult, repeat CBC+RFT AM.',
-      signed: true,
-    },
-    {
-      id: '2',
-      author: 'Nurse Priya',
-      role: 'Nursing',
-      time: '14 Apr 06:00',
-      type: 'Nursing',
-      badge: 'Nursing',
-      badgeColor: '#0B8A3E',
-      content: 'Shift handoff: Patient cooperative, wound dressing clean, drain output 150mL overnight. Pain managed with Morphine 2mg at 04:00. Blood sugar 145mg/dL fasting.',
-      signed: false,
-    },
-    {
-      id: '3',
-      author: 'Dr. Priya Mehta',
-      role: 'RMO',
-      time: '13 Apr 20:00',
-      type: 'Progress',
-      badge: 'Progress',
-      badgeColor: '#0055FF',
-      content: 'Evening review. Vitals stable. SpO₂ maintained at 93% on 2L O₂. Pain controlled...',
-      signed: true,
-    },
-    {
-      id: '4',
-      author: 'Nurse Meera',
-      role: 'Nursing',
-      time: '13 Apr 18:00',
-      type: 'Wound Care',
-      badge: 'Wound Care',
-      badgeColor: '#D97706',
-      content: 'Sternotomy wound: clean, no erythema, no discharge. Drain site intact. Dressing changed.',
-      signed: false,
-    },
-    {
-      id: '5',
-      author: 'Physiotherapist',
-      role: 'Rehab',
-      time: '13 Apr 14:00',
-      type: 'Session',
-      badge: 'Physio',
-      badgeColor: '#9333EA',
-      content: 'Session 2: Mobilized to chair for 15 min. Breathing exercises demonstrated. Tolerated well.',
-      signed: null,
-    },
-    {
-      id: '6',
-      author: 'Dr. Sharma',
-      role: 'Cardiology',
-      time: '13 Apr 08:00',
-      type: 'SOAP',
-      badge: 'SOAP',
-      badgeColor: '#0055FF',
-      content: 'S: Reports chest discomfort, pain 6/10... [expandable]',
-      signed: true,
-    },
-  ];
+  // Transform notes from DB format to display format
+  const displayNotes = (notes || []).map((note: any) => {
+    let role = 'Clinical';
+    let badge = 'Note';
+    let badgeColor = '#0055FF';
+    let content = '';
+
+    if (note.note_type === 'soap_note') {
+      role = 'Doctor';
+      badge = 'SOAP';
+      badgeColor = '#0055FF';
+      content = `S: ${note.subjective || ''}\nO: ${note.objective || ''}\nA: ${note.assessment || ''}\nP: ${note.plan || ''}`;
+    } else if (note.note_type === 'nursing_note') {
+      role = 'Nursing';
+      badge = 'Nursing';
+      badgeColor = '#0B8A3E';
+      content = note.shift_summary || '';
+    } else if (note.note_type === 'progress_note') {
+      role = 'Doctor';
+      badge = 'Progress';
+      badgeColor = '#0055FF';
+      content = note.procedure_name || '';
+    }
+
+    return {
+      id: note.id,
+      author: note.author_id || 'Unknown',
+      role,
+      time: note.created_at ? new Date(note.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '',
+      type: badge,
+      badge,
+      badgeColor,
+      content,
+      signed: note.status === 'signed' ? true : (note.status === 'draft' ? false : null),
+    };
+  });
 
   const quickChips = {
     s: ['Pain improved', 'Nausea', 'SOB', 'Tolerated diet', 'Slept well', 'Fever resolved'],
@@ -734,24 +719,49 @@ function NotesTab({ userRole, userName, onNoteSaved }: NotesTabProps) {
     }
   };
 
-  const handleSaveNote = () => {
+  const handleSaveNote = async () => {
     if (isDoctor) {
       if (!subjective.trim() || !assessment.trim() || !plan.trim()) {
         alert('Please fill in all SOAP sections');
         return;
       }
+      if (!encounterId) { alert('No active encounter'); return; }
+      try {
+        await trpcMutate('clinicalNotes.createSoap', {
+          patient_id: patientId,
+          encounter_id: encounterId,
+          subjective: subjective.trim(),
+          objective: objective.trim(),
+          assessment: assessment.trim(),
+          plan: plan.trim(),
+          required_signer_id: userId,
+        });
+        setSubjective('');
+        setObjective('');
+        setAssessment('');
+        setPlan('');
+        onNoteSaved();
+      } catch (err: any) {
+        alert(`Failed to save note: ${err.message}`);
+      }
+    } else {
+      const nursingText = (document.querySelector('textarea[data-nursing-note]') as HTMLTextAreaElement)?.value || '';
+      if (!nursingText.trim()) { alert('Please write a note'); return; }
+      if (!encounterId) { alert('No active encounter'); return; }
+      try {
+        await trpcMutate('clinicalNotes.createNursing', {
+          patient_id: patientId,
+          encounter_id: encounterId,
+          shift_summary: nursingText.trim(),
+          pain_assessment: 'See vitals',
+        });
+        const ta = document.querySelector('textarea[data-nursing-note]') as HTMLTextAreaElement;
+        if (ta) ta.value = '';
+        onNoteSaved();
+      } catch (err: any) {
+        alert(`Failed to save note: ${err.message}`);
+      }
     }
-    alert('Note saved successfully');
-    setSubjective('');
-    setObjective(
-      'Vitals (08:00): BP 142/88, HR 108↑, SpO₂ 89%↓, Temp 37.8°C, RR 22, Pain 6/10.\n' +
-      'NEWS2: 8 (↑ from 5 yesterday).\n' +
-      'Labs (06:00): Hb 10.2↓ (ref 13-17), Cr 1.8↑ (ref 0.7-1.3), INR 2.8↑ (ref 0.8-1.2).\n' +
-      'I/O (24h): Intake 1,850 mL, Output 1,420 mL, Net +430 mL.\n' +
-      'Wound: [describe].'
-    );
-    setAssessment('');
-    setPlan('');
   };
 
   const toggleNoteExpanded = (noteId: string) => {
@@ -1087,6 +1097,7 @@ function NotesTab({ userRole, userName, onNoteSaved }: NotesTabProps) {
             {/* Quick Note for Other Roles */}
             <div style={{ marginBottom: 16 }}>
               <textarea
+                data-nursing-note
                 value={subjective}
                 onChange={(e) => setSubjective(e.target.value)}
                 placeholder="Write a note..."
@@ -1142,7 +1153,11 @@ function NotesTab({ userRole, userName, onNoteSaved }: NotesTabProps) {
         </h3>
 
         <div style={{ display: 'grid', gap: 16 }}>
-          {sampleNotes.map((note) => {
+          {displayNotes.length === 0 ? (
+            <div style={{ padding: '40px 20px', textAlign: 'center', color: '#999' }}>
+              No clinical notes yet.
+            </div>
+          ) : displayNotes.map((note) => {
             const isExpanded = expandedNotes.has(note.id);
             const contentLines = note.content.split('\n');
             const shouldShowReadMore = contentLines.length > 3;
@@ -1226,6 +1241,17 @@ function NotesTab({ userRole, userName, onNoteSaved }: NotesTabProps) {
                     {note.signed === false && isDoctor && (
                       <>
                         <button
+                          onClick={async () => {
+                            try {
+                              await trpcMutate('clinicalNotes.signNote', {
+                                note_id: note.id,
+                                signature_hash: `${userId}-${Date.now()}`,
+                              });
+                              onNoteSaved();
+                            } catch (err: any) {
+                              alert(`Co-sign failed: ${err.message}`);
+                            }
+                          }}
                           style={{
                             padding: '6px 12px',
                             background: '#0055FF',
@@ -1307,6 +1333,17 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   );
   const [tlExpandedId, setTlExpandedId] = useState<string | null>(null);
   const [tlShowCount, setTlShowCount] = useState(20);
+
+  // Vitals form state
+  const [vitalsForm, setVitalsForm] = useState({ bp_systolic: '', bp_diastolic: '', pulse: '', spo2: '', temperature: '', rr: '', pain_score: '' });
+  const [vitalsSubmitting, setVitalsSubmitting] = useState(false);
+
+  // Order form state
+  const [medOrderForm, setMedOrderForm] = useState({ drug_name: '', dose: '', route: 'PO', frequency: 'QD', duration: '', prn_condition: '', instructions: '' });
+  const [labOrderForm, setLabOrderForm] = useState({ panel_name: '', individual_tests: '', urgency: 'routine', clinical_indication: '', fasting: false, special_instructions: '' });
+  const [imagingOrderForm, setImagingOrderForm] = useState({ study_name: '', clinical_indication: '', urgency: 'routine', special_instructions: '' });
+  const [consultOrderForm, setConsultOrderForm] = useState({ specialty: '', reason: '', urgency: 'routine', clinical_summary: '' });
+  const [orderSubmitting, setOrderSubmitting] = useState(false);
 
   // eMAR state
   const [emarGiveModal, setEmarGiveModal] = useState<{ med_id: string; med_name: string; dose: string; route: string } | null>(null);
@@ -2087,6 +2124,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                   <input
                     type="number"
                     placeholder="120"
+                    value={vitalsForm.bp_systolic}
+                    onChange={(e) => setVitalsForm({ ...vitalsForm, bp_systolic: e.target.value })}
                     style={{
                       width: '100%',
                       height: 48,
@@ -2107,6 +2146,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                   <input
                     type="number"
                     placeholder="80"
+                    value={vitalsForm.bp_diastolic}
+                    onChange={(e) => setVitalsForm({ ...vitalsForm, bp_diastolic: e.target.value })}
                     style={{
                       width: '100%',
                       height: 48,
@@ -2127,6 +2168,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                   <input
                     type="number"
                     placeholder="80"
+                    value={vitalsForm.pulse}
+                    onChange={(e) => setVitalsForm({ ...vitalsForm, pulse: e.target.value })}
                     style={{
                       width: '100%',
                       height: 48,
@@ -2147,6 +2190,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                   <input
                     type="number"
                     placeholder="97"
+                    value={vitalsForm.spo2}
+                    onChange={(e) => setVitalsForm({ ...vitalsForm, spo2: e.target.value })}
                     style={{
                       width: '100%',
                       height: 48,
@@ -2168,6 +2213,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                     type="number"
                     step="0.1"
                     placeholder="37"
+                    value={vitalsForm.temperature}
+                    onChange={(e) => setVitalsForm({ ...vitalsForm, temperature: e.target.value })}
                     style={{
                       width: '100%',
                       height: 48,
@@ -2188,6 +2235,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                   <input
                     type="number"
                     placeholder="16"
+                    value={vitalsForm.rr}
+                    onChange={(e) => setVitalsForm({ ...vitalsForm, rr: e.target.value })}
                     style={{
                       width: '100%',
                       height: 48,
@@ -2210,6 +2259,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                     min="0"
                     max="10"
                     placeholder="2"
+                    value={vitalsForm.pain_score}
+                    onChange={(e) => setVitalsForm({ ...vitalsForm, pain_score: e.target.value })}
                     style={{
                       width: '100%',
                       height: 48,
@@ -2263,21 +2314,51 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
 
               {/* Save Button */}
               <button
+                onClick={async () => {
+                  if (!encounter?.id) { alert('No active encounter'); return; }
+                  const v = vitalsForm;
+                  if (!v.bp_systolic && !v.pulse && !v.spo2 && !v.temperature && !v.rr) {
+                    alert('Please enter at least one vital sign');
+                    return;
+                  }
+                  setVitalsSubmitting(true);
+                  try {
+                    await trpcMutate('observations.createVitals', {
+                      patient_id: patientId,
+                      encounter_id: encounter.id,
+                      effective_datetime: new Date().toISOString(),
+                      ...(v.bp_systolic ? { bp_systolic: parseInt(v.bp_systolic) } : {}),
+                      ...(v.bp_diastolic ? { bp_diastolic: parseInt(v.bp_diastolic) } : {}),
+                      ...(v.pulse ? { pulse: parseInt(v.pulse) } : {}),
+                      ...(v.spo2 ? { spo2: parseFloat(v.spo2) } : {}),
+                      ...(v.temperature ? { temperature: parseFloat(v.temperature) } : {}),
+                      ...(v.rr ? { rr: parseInt(v.rr) } : {}),
+                      ...(v.pain_score ? { pain_score: parseInt(v.pain_score) } : {}),
+                    });
+                    setVitalsForm({ bp_systolic: '', bp_diastolic: '', pulse: '', spo2: '', temperature: '', rr: '', pain_score: '' });
+                    loadData();
+                  } catch (err: any) {
+                    alert(`Failed to save vitals: ${err.message}`);
+                  } finally {
+                    setVitalsSubmitting(false);
+                  }
+                }}
+                disabled={vitalsSubmitting}
                 style={{
                   padding: '12px 24px',
-                  background: '#0055FF',
+                  background: vitalsSubmitting ? '#9CA3AF' : '#0055FF',
                   color: 'white',
                   border: 'none',
                   borderRadius: 8,
                   fontSize: 13,
                   fontWeight: 600,
-                  cursor: 'pointer',
+                  cursor: vitalsSubmitting ? 'not-allowed' : 'pointer',
                   transition: 'background 0.2s',
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = '#003DBF')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = '#0055FF')}
+                onMouseEnter={(e) => !vitalsSubmitting && (e.currentTarget.style.background = '#003DBF')}
+                onMouseLeave={(e) => !vitalsSubmitting && (e.currentTarget.style.background = '#0055FF')}
               >
-                Save Vitals
+                {vitalsSubmitting ? 'Saving...' : 'Save Vitals'}
               </button>
             </div>
           )}
@@ -2915,7 +2996,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
           {['doctor', 'senior_doctor', 'department_head', 'medical_director'].includes(userRole) && (
             <div style={{ marginBottom: 24 }}>
               <button
-                onClick={() => alert('Coming in PC.4: Lab ordering engine')}
+                onClick={() => setOrderPanel('labs')}
                 style={{
                   padding: '12px 20px',
                   background: '#0055FF',
@@ -3399,7 +3480,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
 
       {/* ── Notes Tab ────────────────────────────────────────────────────────────── */}
       {activeTab === 'notes' && (
-        <NotesTab userRole={userRole} userName={userName} onNoteSaved={loadData} />
+        <NotesTab userRole={userRole} userName={userName} userId={userId} patientId={patientId} encounterId={encounter?.id || null} notes={notes} onNoteSaved={loadData} />
       )}
 
       {/* ── eMAR Tab (Medication Administration Record) ────────────────────────── */}
@@ -3733,11 +3814,27 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               {/* Buttons */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <button
-                  onClick={() => {
-                    alert('Medication administered successfully');
-                    setEmarGiveModal(null);
-                    setEmarBarcode('');
-                    setEmarAdminSite('');
+                  onClick={async () => {
+                    if (!encounter?.id) return;
+                    try {
+                      await trpcMutate('medicationOrders.emarRecord', {
+                        medication_request_id: emarGiveModal!.med_id,
+                        encounter_id: encounter.id,
+                        patient_id: patientId,
+                        scheduled_datetime: new Date().toISOString(),
+                        dose_given: parseFloat(emarGiveModal!.dose) || 0,
+                        dose_unit: emarGiveModal!.dose.replace(/[0-9.]/g, '').trim() || 'mg',
+                        route: emarGiveModal!.route,
+                        administration_site: emarAdminSite || undefined,
+                        medication_barcode_scanned: !!emarBarcode,
+                      });
+                      setEmarGiveModal(null);
+                      setEmarBarcode('');
+                      setEmarAdminSite('');
+                      loadData();
+                    } catch (err: any) {
+                      alert(`Failed to record: ${err.message}`);
+                    }
                   }}
                   style={{
                     padding: '12px 16px',
@@ -3825,10 +3922,22 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <button
-                  onClick={() => {
-                    alert('Medication held successfully');
-                    setEmarHoldModal(null);
-                    setEmarHoldReason('');
+                  onClick={async () => {
+                    if (!encounter?.id || !emarHoldReason) { alert('Please select a reason'); return; }
+                    try {
+                      await trpcMutate('medicationOrders.emarHold', {
+                        medication_request_id: emarHoldModal!.med_id,
+                        encounter_id: encounter.id,
+                        patient_id: patientId,
+                        scheduled_datetime: new Date().toISOString(),
+                        hold_reason: emarHoldReason,
+                      });
+                      setEmarHoldModal(null);
+                      setEmarHoldReason('');
+                      loadData();
+                    } catch (err: any) {
+                      alert(`Failed to hold: ${err.message}`);
+                    }
                   }}
                   style={{
                     padding: '12px 16px',
@@ -3914,10 +4023,22 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <button
-                  onClick={() => {
-                    alert('Medication refusal recorded');
-                    setEmarRefuseModal(null);
-                    setEmarRefuseReason('');
+                  onClick={async () => {
+                    if (!encounter?.id || !emarRefuseReason) { alert('Please select a reason'); return; }
+                    try {
+                      await trpcMutate('medicationOrders.emarRefuse', {
+                        medication_request_id: emarRefuseModal!.med_id,
+                        encounter_id: encounter.id,
+                        patient_id: patientId,
+                        scheduled_datetime: new Date().toISOString(),
+                        not_done_reason: emarRefuseReason,
+                      });
+                      setEmarRefuseModal(null);
+                      setEmarRefuseReason('');
+                      loadData();
+                    } catch (err: any) {
+                      alert(`Failed to record refusal: ${err.message}`);
+                    }
                   }}
                   style={{
                     padding: '12px 16px',
@@ -5156,9 +5277,31 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               Cancel
             </button>
             <button
-              onClick={() => {
-                alert('Medication order placed successfully!');
-                setOrderPanel('none');
+              onClick={async () => {
+                if (!encounter?.id) { alert('No active encounter'); return; }
+                const drugEl = document.querySelector('input[placeholder="Search drug name..."]') as HTMLInputElement;
+                const doseEl = document.querySelector('input[placeholder*="25mg"]') as HTMLInputElement;
+                const drugName = drugEl?.value?.trim();
+                const dose = doseEl?.value?.trim();
+                if (!drugName) { alert('Please enter a drug name'); return; }
+                setOrderSubmitting(true);
+                try {
+                  await trpcMutate('medicationOrders.createMedicationOrder', {
+                    patient_id: patientId,
+                    encounter_id: encounter.id,
+                    drug_name: drugName,
+                    dose_quantity: dose ? parseFloat(dose) || undefined : undefined,
+                    dose_unit: dose ? dose.replace(/[0-9.]/g, '').trim() || 'mg' : undefined,
+                    route: 'PO',
+                    instructions: undefined,
+                  });
+                  setOrderPanel('none');
+                  loadData();
+                } catch (err: any) {
+                  alert(`Failed to place order: ${err.message}`);
+                } finally {
+                  setOrderSubmitting(false);
+                }
               }}
               style={{
                 flex: 1,
@@ -5384,9 +5527,29 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               Cancel
             </button>
             <button
-              onClick={() => {
-                alert('Lab order placed successfully!');
-                setOrderPanel('none');
+              onClick={async () => {
+                if (!encounter?.id) { alert('No active encounter'); return; }
+                const testEl = document.querySelector('input[placeholder="Search individual test..."]') as HTMLInputElement;
+                const indicationEl = document.querySelector('textarea[placeholder*="Baseline before"]') as HTMLTextAreaElement;
+                const testName = testEl?.value?.trim();
+                if (!testName) { alert('Please enter a test name'); return; }
+                setOrderSubmitting(true);
+                try {
+                  await trpcMutate('medicationOrders.createServiceRequest', {
+                    patient_id: patientId,
+                    encounter_id: encounter.id,
+                    request_type: 'lab',
+                    order_name: testName,
+                    clinical_indication: indicationEl?.value?.trim() || undefined,
+                    priority: 'routine',
+                  });
+                  setOrderPanel('none');
+                  loadData();
+                } catch (err: any) {
+                  alert(`Failed to place lab order: ${err.message}`);
+                } finally {
+                  setOrderSubmitting(false);
+                }
               }}
               style={{
                 flex: 1,
@@ -5608,9 +5771,30 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               Cancel
             </button>
             <button
-              onClick={() => {
-                alert('Imaging order placed successfully!');
-                setOrderPanel('none');
+              onClick={async () => {
+                if (!encounter?.id) { alert('No active encounter'); return; }
+                const studyEl = document.querySelector('input[placeholder*="Chest PA"]') as HTMLInputElement;
+                const imgIndicationEl = document.querySelector('input[placeholder*="Fever, SOB"]') as HTMLInputElement;
+                const studyName = studyEl?.value?.trim();
+                if (!studyName) { alert('Please enter a study name'); return; }
+                setOrderSubmitting(true);
+                try {
+                  await trpcMutate('medicationOrders.createServiceRequest', {
+                    patient_id: patientId,
+                    encounter_id: encounter.id,
+                    request_type: 'imaging',
+                    order_name: studyName,
+                    clinical_indication: imgIndicationEl?.value?.trim() || undefined,
+                    priority: 'routine',
+                    body_part: studyName,
+                  });
+                  setOrderPanel('none');
+                  loadData();
+                } catch (err: any) {
+                  alert(`Failed to place imaging order: ${err.message}`);
+                } finally {
+                  setOrderSubmitting(false);
+                }
               }}
               style={{
                 flex: 1,
@@ -5830,9 +6014,29 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               Cancel
             </button>
             <button
-              onClick={() => {
-                alert('Consult request sent successfully!');
-                setOrderPanel('none');
+              onClick={async () => {
+                if (!encounter?.id) { alert('No active encounter'); return; }
+                const reasonEl = document.querySelector('textarea[placeholder*="Rising creatinine"]') as HTMLTextAreaElement;
+                const reason = reasonEl?.value?.trim();
+                if (!reason) { alert('Please enter a reason for consult'); return; }
+                setOrderSubmitting(true);
+                try {
+                  await trpcMutate('medicationOrders.createServiceRequest', {
+                    patient_id: patientId,
+                    encounter_id: encounter.id,
+                    request_type: 'consult',
+                    order_name: 'Consult Request',
+                    referral_reason: reason,
+                    clinical_indication: reason,
+                    priority: 'routine',
+                  });
+                  setOrderPanel('none');
+                  loadData();
+                } catch (err: any) {
+                  alert(`Failed to request consult: ${err.message}`);
+                } finally {
+                  setOrderSubmitting(false);
+                }
               }}
               style={{
                 flex: 1,
