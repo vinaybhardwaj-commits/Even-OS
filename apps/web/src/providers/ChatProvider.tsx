@@ -90,6 +90,7 @@ export interface ChatContextValue {
   typing: TypingIndicator[];
   isLoading: boolean;
   isAuthenticated: boolean;
+  currentUserId: string | null;
   error: string | null;
 
   // Actions
@@ -107,6 +108,7 @@ export interface ChatContextValue {
   markRead: (channelId: string) => Promise<void>;
   setTyping: (channelId: string, isTyping: boolean) => Promise<void>;
   refreshChannels: () => Promise<void>;
+  loadOlderMessages: (channelId: string) => Promise<boolean>; // returns true if more exist
 }
 
 // ============================================================
@@ -128,6 +130,7 @@ export function useChat(): ChatContextValue {
       typing: [],
       isLoading: false,
       isAuthenticated: false,
+      currentUserId: null,
       error: null,
       setChatState: () => {},
       openChannel: () => {},
@@ -136,6 +139,7 @@ export function useChat(): ChatContextValue {
       markRead: async () => {},
       setTyping: async () => {},
       refreshChannels: async () => {},
+      loadOlderMessages: async () => false,
     };
   }
   return ctx;
@@ -179,14 +183,15 @@ class ChatErrorBoundary extends React.Component<
 // AUTH CHECK (lightweight — just verifies cookie is valid)
 // ============================================================
 
-async function checkAuth(): Promise<boolean> {
+async function checkAuth(): Promise<{ ok: boolean; userId?: string }> {
   try {
     const res = await fetch('/api/trpc/auth.me', { credentials: 'same-origin' });
-    if (!res.ok) return false;
+    if (!res.ok) return { ok: false };
     const json = await res.json();
-    return !!json.result?.data?.json?.id;
+    const id = json.result?.data?.json?.id;
+    return id ? { ok: true, userId: id } : { ok: false };
   } catch {
-    return false;
+    return { ok: false };
   }
 }
 
@@ -204,6 +209,7 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
   const [typing, setTyping] = useState<TypingIndicator[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const pollEngineRef = useRef<ChatPollEngine | null>(null);
@@ -294,16 +300,17 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
 
     async function init() {
       // 1. Check authentication
-      const authed = await checkAuth();
+      const authResult = await checkAuth();
       if (!mounted) return;
 
-      if (!authed) {
+      if (!authResult.ok) {
         setIsAuthenticated(false);
         setIsLoading(false);
         return;
       }
 
       setIsAuthenticated(true);
+      setCurrentUserId(authResult.userId || null);
 
       // 2. Restore chat state from sessionStorage
       try {
@@ -444,6 +451,26 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     await loadChannels();
   }, [loadChannels]);
 
+  const loadOlderMessages = useCallback(async (channelId: string): Promise<boolean> => {
+    try {
+      const oldestMsg = activeMessages[0];
+      if (!oldestMsg) return false;
+
+      const params = `?input=${encodeURIComponent(JSON.stringify({ json: { channelId, cursor: oldestMsg.id, limit: 50 } }))}`;
+      const res = await fetch(`/api/trpc/chat.listMessages${params}`);
+      const json = await res.json();
+      const older: ChatMessage[] = json.result?.data?.json || [];
+
+      if (older.length === 0) return false;
+
+      setActiveMessages(prev => [...older, ...prev]);
+      return older.length >= 50; // more might exist
+    } catch (err) {
+      console.error('[ChatProvider] Failed to load older messages:', err);
+      return false;
+    }
+  }, [activeMessages]);
+
   // ── Context value ───────────────────────────────────────────
   const value: ChatContextValue = {
     chatState,
@@ -454,6 +481,7 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     typing,
     isLoading,
     isAuthenticated,
+    currentUserId,
     error,
     setChatState,
     openChannel,
@@ -462,6 +490,7 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     markRead,
     setTyping: setTypingAction,
     refreshChannels,
+    loadOlderMessages,
   };
 
   return (

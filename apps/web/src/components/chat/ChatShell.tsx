@@ -22,6 +22,7 @@ import { useEffect, useCallback } from 'react';
 import { useChat } from '@/providers/ChatProvider';
 import { ChatToggleButton } from './ChatToggleButton';
 import { ChatSidebar } from './ChatSidebar';
+import { ChatRoom } from './ChatRoom';
 
 const SIDEBAR_WIDTH = 300;
 
@@ -134,7 +135,14 @@ export function ChatShell({ children }: { children: React.ReactNode }) {
           containerType: 'inline-size',
         }}
       >
-        {children}
+        {/* State 3: chatroom replaces main content; State 1/2: normal page */}
+        {showChat && chatState === 'chatroom' ? (
+          <div className="h-screen">
+            <ChatRoom />
+          </div>
+        ) : (
+          children
+        )}
       </div>
     </>
   );
