@@ -18,7 +18,10 @@ import { SystemMessage } from './SystemMessage';
 interface MessageListProps {
   messages: ChatMessage[];
   currentUserId: string;
+  channelType: string;
+  channelId: string;
   onLoadOlder: () => Promise<boolean>;
+  onMessageUpdated?: () => void;
 }
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -42,7 +45,7 @@ function getDateKey(dateStr: string): string {
 
 // ── Component ───────────────────────────────────────────────
 
-export function MessageList({ messages, currentUserId, onLoadOlder }: MessageListProps) {
+export function MessageList({ messages, currentUserId, channelType, channelId, onLoadOlder, onMessageUpdated }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
@@ -141,6 +144,9 @@ export function MessageList({ messages, currentUserId, onLoadOlder }: MessageLis
                 message={msg}
                 isOwnMessage={isOwnMessage}
                 showSender={showSender}
+                channelType={channelType}
+                channelId={channelId}
+                onMessageUpdated={onMessageUpdated}
               />
             )}
           </div>

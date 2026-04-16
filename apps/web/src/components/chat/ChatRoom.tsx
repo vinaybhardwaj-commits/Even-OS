@@ -1,17 +1,18 @@
 'use client';
 
 /**
- * ChatRoom — OC.3a
+ * ChatRoom — OC.3a + OC.3b
  *
  * Container component for the chatroom view (State 3).
- * Fetches channel details, renders header + message list.
- * Composer placeholder included for OC.3b.
+ * Renders header + message list + typing indicator + composer.
  */
 
 import { useMemo, useCallback } from 'react';
 import { useChat, ChatChannel } from '@/providers/ChatProvider';
 import { ChatRoomHeader } from './ChatRoomHeader';
 import { MessageList } from './MessageList';
+import { MessageComposer } from './MessageComposer';
+import { TypingIndicator } from './TypingIndicator';
 
 export function ChatRoom() {
   const {
@@ -22,6 +23,8 @@ export function ChatRoom() {
     typing,
     closeChannel,
     loadOlderMessages,
+    sendMessage,
+    setTyping: setTypingAction,
   } = useChat();
 
   // Find active channel object from groups
@@ -41,6 +44,11 @@ export function ChatRoom() {
     if (!activeChannelId) return false;
     return loadOlderMessages(activeChannelId);
   }, [activeChannelId, loadOlderMessages]);
+
+  const handleMessageUpdated = useCallback(() => {
+    // Force a poll to refresh messages after edit/delete/retract
+    // The poll engine will pick up changes on next tick
+  }, []);
 
   // Active typing users (exclude self)
   const typingNames = useMemo(() => {
@@ -69,28 +77,22 @@ export function ChatRoom() {
       <MessageList
         messages={activeMessages}
         currentUserId={currentUserId || ''}
+        channelType={activeChannel.channel_type}
+        channelId={activeChannel.channel_id}
         onLoadOlder={handleLoadOlder}
+        onMessageUpdated={handleMessageUpdated}
       />
 
       {/* Typing indicator */}
-      {typingNames.length > 0 && (
-        <div className="px-4 py-1.5 border-t border-white/5">
-          <span className="text-xs text-white/40 italic">
-            {typingNames.length === 1
-              ? `${typingNames[0]} is typing...`
-              : typingNames.length === 2
-                ? `${typingNames[0]} and ${typingNames[1]} are typing...`
-                : `${typingNames[0]} and ${typingNames.length - 1} others are typing...`}
-          </span>
-        </div>
-      )}
+      <TypingIndicator names={typingNames} />
 
-      {/* Composer placeholder — will be built in OC.3b */}
-      <div className="shrink-0 border-t border-white/10 px-4 py-3">
-        <div className="bg-white/5 rounded-lg px-4 py-2.5 text-sm text-white/30">
-          Message composer coming in OC.3b...
-        </div>
-      </div>
+      {/* Composer */}
+      <MessageComposer
+        channelId={activeChannel.channel_id}
+        channelType={activeChannel.channel_type}
+        onSend={sendMessage}
+        onTyping={setTypingAction}
+      />
     </div>
   );
 }

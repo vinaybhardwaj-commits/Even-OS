@@ -692,4 +692,37 @@ export const chatRouter = router({
 
       return { added, total: input.userIds.length };
     }),
+
+  // ─── TOGGLE REACTION (OC.3b) ───────────────────────────────
+  toggleReaction: protectedProcedure
+    .input(z.object({
+      messageId: z.number(),
+      channelId: z.string(),
+      emoji: z.string().max(10),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const userId = ctx.user.sub;
+
+      // Check if reaction already exists
+      const [existing] = await sql`
+        SELECT id FROM chat_reactions
+        WHERE message_id = ${input.messageId}
+          AND user_id = ${userId}
+          AND emoji = ${input.emoji}
+      `;
+
+      if (existing) {
+        // Remove reaction
+        await sql`DELETE FROM chat_reactions WHERE id = ${existing.id}`;
+        return { action: 'removed' };
+      } else {
+        // Add reaction
+        await sql`
+          INSERT INTO chat_reactions (message_id, user_id, emoji)
+          VALUES (${input.messageId}, ${userId}, ${input.emoji})
+        `;
+        return { action: 'added' };
+      }
+    }),
 });
