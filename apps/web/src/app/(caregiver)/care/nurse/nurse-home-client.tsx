@@ -150,9 +150,53 @@ export default function NurseHomeClient({
         trpcQuery('bed.stats'),
         trpcQuery('shifts.getCurrentShift'),
       ]);
-      setWards(boardData?.wards || []);
+
+      // bed.board returns { floors: [{ wards: [{ rooms: [{ beds: [] }] }] }] } after
+      // the 3-tier refactor (BM.2). Flatten floors→wards and rooms→beds so the nurse
+      // home's flat Ward[] shape still works.
+      const flatWards: Ward[] = [];
+      for (const floor of boardData?.floors || []) {
+        for (const w of floor.wards || []) {
+          const beds: Bed[] = [];
+          for (const r of w.rooms || []) {
+            for (const b of r.beds || []) {
+              beds.push({
+                id: b.id,
+                code: b.code,
+                name: b.name,
+                bed_status: b.bed_status,
+                patient_id: b.patient_id || null,
+                patient_uhid: b.patient_uhid || null,
+                patient_name: b.patient_name || null,
+                patient_gender: b.patient_gender || null,
+                encounter_id: b.encounter_id || null,
+                encounter_class: b.encounter_class || null,
+                admission_at: b.admission_at || null,
+                diagnosis: b.chief_complaint || b.diagnosis || null,
+              });
+            }
+          }
+          flatWards.push({
+            ward_id: w.id,
+            ward_code: w.code,
+            ward_name: w.name,
+            ward_capacity: w.capacity ?? beds.length,
+            beds,
+          });
+        }
+      }
+      setWards(flatWards);
       setMyPatients(patientsData || []);
-      setBedStats(statsData);
+
+      // bed.stats returns { global: { total, available, occupied, ... }, floor, wards }.
+      // The nurse home stats strip reads top-level total/available/occupied/maintenance.
+      const g = statsData?.global;
+      setBedStats(g ? {
+        total: g.total ?? 0,
+        available: g.available ?? 0,
+        occupied: g.occupied ?? 0,
+        maintenance: g.maintenance ?? 0,
+      } : null);
 
       // Check if current user is the charge nurse for this shift
       // Multiple checks: (1) admin role, (2) charge_nurse_id on shift instance,
