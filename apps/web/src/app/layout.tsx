@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import './globals.css';
 import { CockpitFab } from './(admin)/admin/test-cockpit/cockpit-fab';
+import { ChatProvider } from '@/providers/ChatProvider';
 
 export const metadata: Metadata = {
   title: 'Even OS',
@@ -16,7 +17,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="font-sans antialiased bg-gray-50 text-gray-900">
-        {children}
+        <ChatProvider>
+          {children}
+        </ChatProvider>
         <Suspense fallback={null}>
           <CockpitFab />
         </Suspense>
