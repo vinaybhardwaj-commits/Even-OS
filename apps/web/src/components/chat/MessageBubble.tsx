@@ -12,6 +12,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { ChatMessage } from '@/providers/ChatProvider';
 import { MessageTypeBadge } from './MessageTypeBadge';
+import { TaskCard } from './TaskCard';
+import { SlashResultCard } from './SlashResultCard';
 import { trpcMutate } from '@/lib/chat/poll';
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -80,10 +82,11 @@ interface MessageBubbleProps {
   showSender: boolean;
   channelType: string;
   channelId: string;
+  currentUserId: string;
   onMessageUpdated?: () => void;
 }
 
-export function MessageBubble({ message, isOwnMessage, showSender, channelType, channelId, onMessageUpdated }: MessageBubbleProps) {
+export function MessageBubble({ message, isOwnMessage, showSender, channelType, channelId, currentUserId, onMessageUpdated }: MessageBubbleProps) {
   const { id, sender_name, sender_department, sender_roles, message_type, content, created_at, is_edited, is_deleted, is_retracted, retracted_reason } = message;
 
   const [showActions, setShowActions] = useState(false);
@@ -266,7 +269,25 @@ export function MessageBubble({ message, isOwnMessage, showSender, channelType, 
               </div>
             )}
 
-            {!showSender && message_type !== 'chat' && (
+            {/* OC.5: Task card */}
+            {message_type === 'task' && message.metadata && (
+              <TaskCard
+                messageId={id}
+                metadata={message.metadata as any}
+                currentUserId={currentUserId}
+                onComplete={async (msgId) => {
+                  await trpcMutate('chat.completeTask', { messageId: msgId });
+                  onMessageUpdated?.();
+                }}
+              />
+            )}
+
+            {/* OC.5: Slash result card */}
+            {message_type === 'slash_result' && message.metadata && (
+              <SlashResultCard metadata={message.metadata as any} />
+            )}
+
+            {!showSender && message_type !== 'chat' && message_type !== 'task' && message_type !== 'slash_result' && (
               <div className="mt-0.5">
                 <MessageTypeBadge type={message_type} />
               </div>

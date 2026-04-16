@@ -11,7 +11,8 @@
  * - File attachment upload (OC.4c)
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { SlashCommandMenu } from './SlashCommandMenu';
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -23,9 +24,17 @@ interface AttachmentPreview {
   thumbnail_url?: string;
 }
 
+interface SlashCommandDef {
+  name: string;
+  description: string;
+  usage: string;
+  icon: string;
+}
+
 interface MessageComposerProps {
   channelId: string;
   channelType: string;
+  slashCommands?: SlashCommandDef[];
   onSend: (params: {
     channelId: string;
     content: string;
@@ -33,6 +42,7 @@ interface MessageComposerProps {
     priority?: string;
     attachments?: AttachmentPreview[];
   }) => Promise<any>;
+  onSlashCommand?: (channelId: string, commandText: string) => Promise<any>;
   onTyping: (channelId: string, isTyping: boolean) => Promise<void>;
 }
 
@@ -61,7 +71,7 @@ function formatFileSize(bytes: number): string {
 
 // ── Component ─────────────────────────────────────────────
 
-export function MessageComposer({ channelId, channelType, onSend, onTyping }: MessageComposerProps) {
+export function MessageComposer({ channelId, channelType, slashCommands, onSend, onSlashCommand, onTyping }: MessageComposerProps) {
   const [content, setContent] = useState('');
   const [messageType, setMessageType] = useState('chat');
   const [priority, setPriority] = useState('normal');
@@ -69,6 +79,8 @@ export function MessageComposer({ channelId, channelType, onSend, onTyping }: Me
   const [isSending, setIsSending] = useState(false);
   const [attachments, setAttachments] = useState<AttachmentPreview[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [showSlashMenu, setShowSlashMenu] = useState(false);
+  const [slashQuery, setSlashQuery] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -155,6 +167,13 @@ export function MessageComposer({ channelId, channelType, onSend, onTyping }: Me
     setAttachments(prev => prev.filter((_, i) => i !== index));
   }, []);
 
+  // ── Slash command selection ──────────────────────────────
+  const handleSlashSelect = useCallback((commandName: string) => {
+    setContent(`/${commandName} `);
+    setShowSlashMenu(false);
+    textareaRef.current?.focus();
+  }, []);
+
   // ── Send handler ───────────────────────────────────────
   const handleSend = useCallback(async () => {
     const trimmed = content.trim();
@@ -162,15 +181,21 @@ export function MessageComposer({ channelId, channelType, onSend, onTyping }: Me
 
     setIsSending(true);
     stopTyping();
+    setShowSlashMenu(false);
 
     try {
-      await onSend({
-        channelId,
-        content: trimmed || (attachments.length > 0 ? `📎 ${attachments.map(a => a.file_name).join(', ')}` : ''),
-        messageType: messageType !== 'chat' ? messageType : undefined,
-        priority: priority !== 'normal' ? priority : undefined,
-        attachments: attachments.length > 0 ? attachments : undefined,
-      });
+      // Detect slash command
+      if (trimmed.startsWith('/') && onSlashCommand) {
+        await onSlashCommand(channelId, trimmed);
+      } else {
+        await onSend({
+          channelId,
+          content: trimmed || (attachments.length > 0 ? `📎 ${attachments.map(a => a.file_name).join(', ')}` : ''),
+          messageType: messageType !== 'chat' ? messageType : undefined,
+          priority: priority !== 'normal' ? priority : undefined,
+          attachments: attachments.length > 0 ? attachments : undefined,
+        });
+      }
       setContent('');
       setMessageType('chat');
       setPriority('normal');
@@ -185,7 +210,7 @@ export function MessageComposer({ channelId, channelType, onSend, onTyping }: Me
       setIsSending(false);
       textareaRef.current?.focus();
     }
-  }, [content, attachments, isSending, channelId, messageType, priority, onSend, stopTyping]);
+  }, [content, attachments, isSending, channelId, messageType, priority, onSend, onSlashCommand, stopTyping]);
 
   // ── Keyboard handling ──────────────────────────────────
   const handleKeyDown = useCallback(
@@ -200,13 +225,29 @@ export function MessageComposer({ channelId, channelType, onSend, onTyping }: Me
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setContent(e.target.value);
+      const val = e.target.value;
+      setContent(val);
       resize();
-      if (e.target.value.trim()) {
+
+      // Slash command detection
+      if (val.startsWith('/') && !val.includes('\n') && slashCommands && slashCommands.length > 0) {
+        const spaceIdx = val.indexOf(' ');
+        const query = spaceIdx === -1 ? val.slice(1) : '';
+        if (spaceIdx === -1) {
+          setSlashQuery(query);
+          setShowSlashMenu(true);
+        } else {
+          setShowSlashMenu(false);
+        }
+      } else {
+        setShowSlashMenu(false);
+      }
+
+      if (val.trim()) {
         startTyping();
       }
     },
-    [resize, startTyping],
+    [resize, startTyping, slashCommands],
   );
 
   const selectedType = MESSAGE_TYPES.find(t => t.value === messageType) || MESSAGE_TYPES[0];
@@ -303,7 +344,17 @@ export function MessageComposer({ channelId, channelType, onSend, onTyping }: Me
       )}
 
       {/* Textarea + attach + send */}
-      <div className="flex items-end gap-2 px-4 pb-3">
+      <div className="relative flex items-end gap-2 px-4 pb-3">
+        {/* Slash command autocomplete menu */}
+        {slashCommands && slashCommands.length > 0 && (
+          <SlashCommandMenu
+            query={slashQuery}
+            commands={slashCommands}
+            onSelect={handleSlashSelect}
+            onClose={() => setShowSlashMenu(false)}
+            visible={showSlashMenu}
+          />
+        )}
         {/* Hidden file input */}
         <input
           ref={fileInputRef}

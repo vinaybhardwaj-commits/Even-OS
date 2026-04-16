@@ -15,6 +15,8 @@ const TYPE_CONFIG: Record<string, { label: string; bg: string; text: string }> =
   decision_needed: { label: 'Decision Needed', bg: 'bg-amber-100',  text: 'text-amber-700' },
   handoff:         { label: 'Handoff',         bg: 'bg-purple-100', text: 'text-purple-700' },
   alert:           { label: 'Alert',           bg: 'bg-orange-100', text: 'text-orange-700' },
+  task:            { label: 'Task',            bg: 'bg-violet-100', text: 'text-violet-700' },
+  slash_result:    { label: 'Slash Command',   bg: 'bg-cyan-100',   text: 'text-cyan-700' },
 };
 
 interface MessageTypeBadgeProps {

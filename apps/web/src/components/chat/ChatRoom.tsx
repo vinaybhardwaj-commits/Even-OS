@@ -7,12 +7,20 @@
  * Renders header + message list + typing indicator + composer.
  */
 
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect, useState } from 'react';
 import { useChat, ChatChannel } from '@/providers/ChatProvider';
 import { ChatRoomHeader } from './ChatRoomHeader';
 import { MessageList } from './MessageList';
 import { MessageComposer } from './MessageComposer';
 import { TypingIndicator } from './TypingIndicator';
+import { trpcMutate } from '@/lib/chat/poll';
+
+interface SlashCommandDef {
+  name: string;
+  description: string;
+  usage: string;
+  icon: string;
+}
 
 export function ChatRoom() {
   const {
@@ -48,6 +56,26 @@ export function ChatRoom() {
   const handleMessageUpdated = useCallback(() => {
     // Force a poll to refresh messages after edit/delete/retract
     // The poll engine will pick up changes on next tick
+  }, []);
+
+  // ── Slash commands ──────────────────────────────────────
+  const [slashCommands, setSlashCommands] = useState<SlashCommandDef[]>([]);
+
+  useEffect(() => {
+    // Fetch available slash commands for current user's role (tRPC query via GET)
+    const input = encodeURIComponent(JSON.stringify({ json: {} }));
+    fetch(`/api/trpc/chat.getSlashCommands?input=${input}`)
+      .then(r => r.json())
+      .then((data: any) => {
+        if (data?.result?.data?.json) {
+          setSlashCommands(data.result.data.json);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSlashCommand = useCallback(async (channelId: string, commandText: string) => {
+    await trpcMutate('chat.executeSlashCommand', { channelId, commandText });
   }, []);
 
   // Active typing users (exclude self)
@@ -90,7 +118,9 @@ export function ChatRoom() {
       <MessageComposer
         channelId={activeChannel.channel_id}
         channelType={activeChannel.channel_type}
+        slashCommands={slashCommands}
         onSend={sendMessage}
+        onSlashCommand={handleSlashCommand}
         onTyping={setTypingAction}
       />
     </div>

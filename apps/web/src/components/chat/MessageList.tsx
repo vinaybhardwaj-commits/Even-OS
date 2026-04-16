@@ -146,6 +146,7 @@ export function MessageList({ messages, currentUserId, channelType, channelId, o
                 showSender={showSender}
                 channelType={channelType}
                 channelId={channelId}
+                currentUserId={currentUserId}
                 onMessageUpdated={onMessageUpdated}
               />
             )}

@@ -3,6 +3,8 @@ import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure, adminProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { routeFileToMedicalRecord } from '@/lib/chat/file-to-record';
+import { createTask, completeTask, reassignTask } from '@/lib/chat/task-bridge';
+import { parseSlashCommand, executeSlashCommand as execSlash, getCommandsForRole, type SlashCommandDef } from '@/lib/chat/slash-commands';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -760,5 +762,156 @@ export const chatRouter = router({
         `;
         return { action: 'added' };
       }
+    }),
+
+  // ── OC.5: TASKS ──────────────────────────────────────────
+
+  /**
+   * Create a task via chat. Posts task message + creates task record.
+   */
+  createTask: protectedProcedure
+    .input(z.object({
+      channelId: z.string(),
+      assigneeId: z.string().uuid(),
+      assigneeName: z.string(),
+      description: z.string().min(1).max(2000),
+      dueAt: z.string().optional(),
+      priority: z.enum(['urgent', 'high', 'normal', 'low']).default('normal'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const userId = ctx.user.sub;
+      const hospitalId = ctx.user.hospital_id;
+
+      // Get channel internal ID
+      const [channel] = await sql`
+        SELECT id FROM chat_channels
+        WHERE channel_id = ${input.channelId} AND hospital_id = ${hospitalId}
+      `;
+      if (!channel) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Channel not found' });
+      }
+
+      return await createTask({
+        channel_id: channel.id as string,
+        hospital_id: hospitalId,
+        sender_id: userId,
+        sender_name: ctx.user.name,
+        assignee_id: input.assigneeId,
+        assignee_name: input.assigneeName,
+        description: input.description,
+        due_at: input.dueAt,
+        priority: input.priority,
+      });
+    }),
+
+  /**
+   * Complete a task. Updates metadata + posts system message.
+   */
+  completeTask: protectedProcedure
+    .input(z.object({
+      messageId: z.number(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return await completeTask({
+        message_id: input.messageId,
+        completed_by: ctx.user.sub,
+        completed_by_name: ctx.user.name,
+        hospital_id: ctx.user.hospital_id,
+      });
+    }),
+
+  /**
+   * Reassign a task. Updates assignee in metadata + posts system message.
+   */
+  reassignTask: protectedProcedure
+    .input(z.object({
+      messageId: z.number(),
+      newAssigneeId: z.string().uuid(),
+      newAssigneeName: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return await reassignTask({
+        message_id: input.messageId,
+        reassigned_by_name: ctx.user.name,
+        new_assignee_id: input.newAssigneeId,
+        new_assignee_name: input.newAssigneeName,
+        hospital_id: ctx.user.hospital_id,
+      });
+    }),
+
+  // ── OC.5: SLASH COMMANDS ─────────────────────────────────
+
+  /**
+   * Get available slash commands for the current user's role.
+   */
+  getSlashCommands: protectedProcedure
+    .query(({ ctx }) => {
+      return getCommandsForRole(ctx.user.role);
+    }),
+
+  /**
+   * Execute a slash command. Parses the command text and runs the executor.
+   * Posts the result as a slash_result message in the channel.
+   */
+  executeSlashCommand: protectedProcedure
+    .input(z.object({
+      channelId: z.string(),
+      commandText: z.string().min(2), // e.g., "/vitals Rajesh"
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const userId = ctx.user.sub;
+      const hospitalId = ctx.user.hospital_id;
+
+      // Parse the command
+      const parsed = parseSlashCommand(input.commandText);
+      if (!parsed) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Not a valid slash command' });
+      }
+
+      // Don't execute /task here — it's handled by createTask
+      if (parsed.command === 'task') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Use createTask endpoint for task creation' });
+      }
+
+      // Get channel internal ID
+      const [channel] = await sql`
+        SELECT id, channel_type FROM chat_channels
+        WHERE channel_id = ${input.channelId} AND hospital_id = ${hospitalId}
+      `;
+      if (!channel) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Channel not found' });
+      }
+
+      // Execute the command
+      const result = await execSlash(parsed.command, parsed.args, hospitalId, ctx.user.role, ctx.user.name);
+
+      // Post the result as a slash_result message
+      const [message] = await sql`
+        INSERT INTO chat_messages (
+          channel_id, sender_id, message_type, content, metadata, hospital_id
+        )
+        VALUES (
+          ${channel.id},
+          ${userId},
+          'slash_result',
+          ${'/' + parsed.command + (parsed.args ? ' ' + parsed.args : '')},
+          ${JSON.stringify(result)},
+          ${hospitalId}
+        )
+        RETURNING id, channel_id, sender_id, message_type, content, metadata, created_at
+      `;
+
+      await sql`
+        UPDATE chat_channels SET last_message_at = NOW(), updated_at = NOW()
+        WHERE id = ${channel.id}
+      `;
+
+      return {
+        ...message,
+        sender_name: ctx.user.name,
+        sender_department: ctx.user.department,
+      };
     }),
 });
