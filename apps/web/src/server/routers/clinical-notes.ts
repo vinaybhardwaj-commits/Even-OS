@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeAuditLog } from '@/lib/audit/logger';
+import { onClinicalNoteSaved } from '@/lib/chat/auto-events';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -136,6 +137,16 @@ export const clinicalNotesRouter = router({
           new_values: { patient_id: input.patient_id, encounter_id: input.encounter_id },
         });
 
+        // OC.4b: Post SOAP note event to patient channel (fire-and-forget)
+        if (input.encounter_id) {
+          onClinicalNoteSaved({
+            encounter_id: input.encounter_id,
+            hospital_id: ctx.user.hospital_id,
+            note_type: 'SOAP',
+            author_name: ctx.user.name,
+          }).catch(() => {});
+        }
+
         return {
           note_id: noteId,
           queue_id: queueId,
@@ -220,6 +231,16 @@ export const clinicalNotesRouter = router({
           row_id: noteId,
           new_values: { patient_id: input.patient_id, encounter_id: input.encounter_id },
         });
+
+        // OC.4b: Post nursing note event to patient channel (fire-and-forget)
+        if (input.encounter_id) {
+          onClinicalNoteSaved({
+            encounter_id: input.encounter_id,
+            hospital_id: ctx.user.hospital_id,
+            note_type: 'Nursing',
+            author_name: ctx.user.name,
+          }).catch(() => {});
+        }
 
         return {
           note_id: noteId,
@@ -334,6 +355,16 @@ export const clinicalNotesRouter = router({
             duration_minutes: operationDurationMinutes,
           },
         });
+
+        // OC.4b: Post operative note event to patient channel (fire-and-forget)
+        if (input.encounter_id) {
+          onClinicalNoteSaved({
+            encounter_id: input.encounter_id,
+            hospital_id: ctx.user.hospital_id,
+            note_type: 'Operative',
+            author_name: ctx.user.name,
+          }).catch(() => {});
+        }
 
         return {
           note_id: noteId,

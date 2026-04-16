@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure, adminProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
+import { onLabOrdered, onLabResultsVerified } from '@/lib/chat/auto-events';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -392,6 +393,17 @@ export const labRadiologyRouter = router({
         ]
       );
 
+      // OC.4b: Post lab order event to patient channel (fire-and-forget)
+      if (input.lo_encounter_id) {
+        onLabOrdered({
+          encounter_id: input.lo_encounter_id,
+          hospital_id: ctx.user.hospital_id,
+          panel_name: panel.panel_name as string,
+          urgency: input.lo_urgency,
+          ordered_by: ctx.user.name,
+        }).catch(() => {});
+      }
+
       return { id: loId, order_number: orderNumber, specimen_id: spId };
     }),
 
@@ -629,7 +641,7 @@ export const labRadiologyRouter = router({
 
       // Get order details
       const orderQuery = await getSql()(
-        `SELECT lo_ordered_at FROM lab_orders WHERE id = $1 AND hospital_id = $2`,
+        `SELECT lo_ordered_at, lo_encounter_id, lo_panel_name FROM lab_orders WHERE id = $1 AND hospital_id = $2`,
         [input.id, ctx.user.hospital_id]
       );
 
@@ -647,6 +659,17 @@ export const labRadiologyRouter = router({
          WHERE id = $4 AND hospital_id = $5`,
         [input.verified_by, now, tat_minutes_actual, input.id, ctx.user.hospital_id]
       );
+
+      // OC.4b: Post lab verified event to patient channel (fire-and-forget)
+      if (orderQuery[0].lo_encounter_id) {
+        onLabResultsVerified({
+          encounter_id: orderQuery[0].lo_encounter_id as string,
+          hospital_id: ctx.user.hospital_id,
+          panel_name: orderQuery[0].lo_panel_name as string,
+          tat_minutes: tat_minutes_actual,
+          verified_by: ctx.user.name,
+        }).catch(() => {});
+      }
 
       return { updated: 1, tat_minutes_actual };
     }),

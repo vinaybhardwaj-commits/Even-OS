@@ -4,6 +4,7 @@ import { router, protectedProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeEvent } from '@/lib/event-log';
 import { addCareTeamMember } from '@/lib/chat/channel-manager';
+import { onMedicationOrdered, onMedicationAdministered, onDietOrdered, onNursingOrderCreated } from '@/lib/chat/auto-events';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -278,6 +279,21 @@ export const medicationOrdersRouter = router({
           });
         } catch (error) {
           console.error('Failed to write event log for medication order creation:', error);
+        }
+
+        // OC.4b: Post medication order event to patient channel (fire-and-forget)
+        if (input.encounter_id) {
+          onMedicationOrdered({
+            encounter_id: input.encounter_id,
+            hospital_id: ctx.user.hospital_id,
+            drug_name: input.drug_name,
+            dose_quantity: input.dose_quantity,
+            dose_unit: input.dose_unit,
+            route: input.route,
+            frequency_code: input.frequency_code,
+            is_high_alert: input.is_high_alert,
+            ordered_by: ctx.user.name,
+          }).catch(() => {});
         }
 
         return {
@@ -582,9 +598,9 @@ export const medicationOrdersRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        // Get patient_id and encounter_id from medication_request
+        // Get patient_id, encounter_id, and drug_name from medication_request
         const mrResult = await getSql()`
-          SELECT patient_id, encounter_id
+          SELECT patient_id, encounter_id, drug_name
           FROM medication_requests
           WHERE id = ${input.medication_request_id}::uuid
             AND hospital_id = ${hospitalId}
@@ -597,6 +613,7 @@ export const medicationOrdersRouter = router({
         }
 
         const { patient_id, encounter_id } = mrRows[0];
+        const mrDrugName = mrRows[0].drug_name;
 
         // Determine status
         let status: 'pending' | 'completed' | 'not_done' | 'held' = 'pending';
@@ -666,6 +683,19 @@ export const medicationOrdersRouter = router({
             NOW()
           );
         `;
+
+        // OC.4b: Post eMAR event to patient channel (fire-and-forget)
+        if (encounter_id) {
+          onMedicationAdministered({
+            encounter_id,
+            hospital_id: hospitalId,
+            drug_name: mrDrugName,
+            dose_given: input.dose_given,
+            dose_unit: input.dose_unit,
+            status,
+            administered_by: ctx.user.name,
+          }).catch(() => {});
+        }
 
         return { id: rows[0].id };
       } catch (error) {
@@ -1231,6 +1261,17 @@ export const medicationOrdersRouter = router({
           );
         `;
 
+        // OC.4b: Post diet order event to patient channel (fire-and-forget)
+        if (input.encounter_id) {
+          onDietOrdered({
+            encounter_id: input.encounter_id,
+            hospital_id: hospitalId,
+            diet_type: input.diet_type,
+            restrictions: input.restrictions,
+            ordered_by: ctx.user.name,
+          }).catch(() => {});
+        }
+
         return { id: rows[0].id };
       } catch (error) {
         throw new TRPCError({
@@ -1344,6 +1385,17 @@ export const medicationOrdersRouter = router({
             NOW()
           );
         `;
+
+        // OC.4b: Post nursing order event to patient channel (fire-and-forget)
+        if (input.encounter_id) {
+          onNursingOrderCreated({
+            encounter_id: input.encounter_id,
+            hospital_id: hospitalId,
+            task_type: input.task_type,
+            description: input.description,
+            ordered_by: ctx.user.name,
+          }).catch(() => {});
+        }
 
         return { id: rows[0].id };
       } catch (error) {

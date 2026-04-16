@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeEvent } from '@/lib/event-log';
+import { onVitalsRecorded } from '@/lib/chat/auto-events';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -444,6 +445,24 @@ export const observationsRouter = router({
           }
         } catch (error) {
           console.error('Failed to write event log for vitals creation:', error);
+        }
+
+        // OC.4b: Post vitals event to patient channel (fire-and-forget)
+        if (input.encounter_id) {
+          const parts: string[] = [];
+          if (input.bp_systolic && input.bp_diastolic) parts.push(`BP ${input.bp_systolic}/${input.bp_diastolic}`);
+          if (input.pulse) parts.push(`HR ${input.pulse}`);
+          if (input.spo2) parts.push(`SpO2 ${input.spo2}%`);
+          if (input.temperature) parts.push(`Temp ${input.temperature}°F`);
+          if (input.rr) parts.push(`RR ${input.rr}`);
+          onVitalsRecorded({
+            encounter_id: input.encounter_id,
+            hospital_id: ctx.user.hospital_id,
+            vitals_summary: parts.join(', ') || 'recorded',
+            news2_score: news2Score?.total_score ?? null,
+            news2_risk: news2Score?.risk_level ?? null,
+            recorded_by: ctx.user.name,
+          }).catch(() => {});
         }
 
         return {
