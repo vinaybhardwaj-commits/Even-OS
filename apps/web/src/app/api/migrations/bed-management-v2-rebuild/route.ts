@@ -65,8 +65,33 @@ export async function POST(req: NextRequest) {
       steps.push(`✅ Released ${activeEncounterRows.length} bed assignments and detached encounters`);
     }
 
-    // ─── STEP 3: DELETE CORRUPTED / LEGACY BEDS ──────────────────────
-    // Self-referential beds created during the first run (e.g., ICU-01..05) — hard delete
+    // ─── STEP 3: QUARANTINE CORRUPTED / LEGACY ROWS ─────────────────
+    // We can't hard-delete because many tables FK to locations.id with ON DELETE RESTRICT
+    // (patient_assignments, encounters, bed_assignments, bed_status_history, etc.).
+    // Instead: rename the stale rows' code (so new seed inserts don't collide) and deactivate.
+    // The new unique index is (code, hospital_id, location_type), so renaming gets them
+    // out of the way for fresh inserts.
+
+    // Mark any patient_assignments whose status='active' as 'completed' so the nursing UI
+    // doesn't render stale rows — and so those rows won't block later status updates.
+    await sql(`
+      UPDATE patient_assignments pa
+      SET status = 'completed', completed_at = COALESCE(completed_at, now()), updated_at = now()
+      WHERE pa.hospital_id = $1
+        AND pa.status = 'active'
+        AND EXISTS (
+          SELECT 1 FROM locations l
+          WHERE l.id = pa.ward_id
+            AND (
+              l.location_type <> 'ward'
+              OR l.code IN ('PVT')
+              OR l.parent_location_id = l.id
+            )
+        )
+    `, [hospitalId]);
+    steps.push('✅ Closed stale active patient_assignments pointing at legacy/corrupted wards');
+
+    // Self-referential beds (ICU-01..05 from first run)
     const selfRefBeds = await sql(`
       SELECT id, code FROM locations
       WHERE hospital_id = $1
@@ -75,14 +100,24 @@ export async function POST(req: NextRequest) {
     `, [hospitalId]);
 
     if (selfRefBeds.length > 0) {
+      // Release any bed_assignments (status_history is fine to leave)
       const ids = selfRefBeds.map((r: any) => r.id);
-      await sql(`DELETE FROM bed_assignments WHERE location_id = ANY($1::uuid[])`, [ids]);
-      await sql(`DELETE FROM bed_status_history WHERE location_id = ANY($1::uuid[])`, [ids]);
-      await sql(`DELETE FROM locations WHERE id = ANY($1::uuid[])`, [ids]);
-      steps.push(`✅ Deleted ${selfRefBeds.length} self-referential corrupted beds: ${selfRefBeds.map((r: any) => r.code).join(', ')}`);
+      await sql(`
+        UPDATE bed_assignments SET released_at = now(), reason_released = 'transfer'
+        WHERE location_id = ANY($1::uuid[]) AND released_at IS NULL
+      `, [ids]);
+      // Rename code to ZOMBIE-<oldcode>-<uuid-suffix> and deactivate
+      await sql(`
+        UPDATE locations
+        SET code = 'ZOMBIE-' || code || '-' || substring(id::text, 1, 8),
+            status = 'inactive',
+            parent_location_id = NULL
+        WHERE id = ANY($1::uuid[])
+      `, [ids]);
+      steps.push(`✅ Quarantined ${selfRefBeds.length} self-referential corrupted beds`);
     }
 
-    // Legacy demo ICU-06..08 and PVT-* beds — hard delete (no encounters should remain after step 2)
+    // Legacy demo ICU-06..08, PVT-* beds — rename + deactivate
     const legacyBedIds = await sql(`
       SELECT id, code FROM locations
       WHERE hospital_id = $1
@@ -92,35 +127,35 @@ export async function POST(req: NextRequest) {
 
     if (legacyBedIds.length > 0) {
       const ids = legacyBedIds.map((r: any) => r.id);
-      await sql(`DELETE FROM bed_assignments WHERE location_id = ANY($1::uuid[])`, [ids]);
-      await sql(`DELETE FROM bed_status_history WHERE location_id = ANY($1::uuid[])`, [ids]);
-      await sql(`DELETE FROM locations WHERE id = ANY($1::uuid[])`, [ids]);
-      steps.push(`✅ Deleted ${legacyBedIds.length} legacy beds: ${legacyBedIds.map((r: any) => r.code).join(', ')}`);
+      await sql(`
+        UPDATE bed_assignments SET released_at = now(), reason_released = 'transfer'
+        WHERE location_id = ANY($1::uuid[]) AND released_at IS NULL
+      `, [ids]);
+      await sql(`
+        UPDATE locations
+        SET code = 'ZOMBIE-' || code || '-' || substring(id::text, 1, 8),
+            status = 'inactive',
+            parent_location_id = NULL
+        WHERE id = ANY($1::uuid[])
+      `, [ids]);
+      steps.push(`✅ Quarantined ${legacyBedIds.length} legacy beds`);
     }
 
-    // Legacy PVT ward and F1 floor — patient_assignments has FK onDelete: restrict,
-    // and other tables may reference these too. Safer to just deactivate (rather than delete).
-    // First: clean up patient_assignments pointing at any legacy ward that will disappear
-    // from the active set so stale rows don't hang around.
+    // Legacy PVT ward and F1 floor — rename + deactivate (keep IDs intact for FK integrity)
     const legacyParents = await sql(`
       SELECT id, code FROM locations
       WHERE hospital_id = $1 AND code IN ('PVT','F1')
     `, [hospitalId]);
 
     if (legacyParents.length > 0) {
-      const legacyParentIds = legacyParents.map((p: any) => p.id);
-      // Mark any patient_assignments pointing to PVT as completed (stale)
+      const ids = legacyParents.map((p: any) => p.id);
       await sql(`
-        UPDATE patient_assignments
-        SET status = 'completed', completed_at = COALESCE(completed_at, now())
-        WHERE ward_id = ANY($1::uuid[]) AND status = 'active'
-      `, [legacyParentIds]);
-      // Deactivate the legacy parent locations themselves
-      await sql(`
-        UPDATE locations SET status = 'inactive'
+        UPDATE locations
+        SET code = 'ZOMBIE-' || code || '-' || substring(id::text, 1, 8),
+            status = 'inactive'
         WHERE id = ANY($1::uuid[])
-      `, [legacyParentIds]);
-      steps.push(`✅ Deactivated legacy parents: ${legacyParents.map((p: any) => p.code).join(', ')}`);
+      `, [ids]);
+      steps.push(`✅ Quarantined legacy parents: ${legacyParents.map((p: any) => p.code).join(', ')}`);
     }
 
     // ─── STEP 4: DEACTIVATE REMAINING NON-HOSPITAL LOCATIONS ─────────
