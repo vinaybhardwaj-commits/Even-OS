@@ -58,6 +58,7 @@ import { shiftHandoffsRouter } from './shift-handoffs';
 import { doctorDashboardRouter } from './doctor-dashboard';
 import { templateManagementRouter } from './template-management';
 import { journeyEngineRouter } from './journey-engine';
+import { chatRouter } from './chat';
 
 export const appRouter = router({
   auth: authRouter,
@@ -119,6 +120,7 @@ export const appRouter = router({
   doctorDashboard: doctorDashboardRouter,
   templateManagement: templateManagementRouter,
   journeyEngine: journeyEngineRouter,
+  chat: chatRouter,
 });
 
 export type AppRouter = typeof appRouter;
