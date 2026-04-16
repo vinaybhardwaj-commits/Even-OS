@@ -242,7 +242,7 @@ export const locations = pgTable('locations', {
   hospitalIdIdx: index('idx_locations_hospital_id').on(table.hospital_id),
   typeIdx: index('idx_locations_location_type').on(table.location_type),
   parentIdx: index('idx_locations_parent_location_id').on(table.parent_location_id),
-  codeIdx: uniqueIndex('idx_locations_code_hospital').on(table.code, table.hospital_id),
+  codeIdx: uniqueIndex('idx_locations_code_hospital_type').on(table.code, table.hospital_id, table.location_type),
 }));
 
 // ============================================================
