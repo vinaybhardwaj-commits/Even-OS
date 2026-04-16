@@ -364,7 +364,7 @@ export async function POST(req: NextRequest) {
       WHERE hospital_id = $1
         AND status = 'in-progress'
         AND current_location_id IS NULL
-      ORDER BY start_time
+      ORDER BY admission_at NULLS LAST, created_at
     `, [hospitalId]);
 
     if (orphanedEncounters.length > 0) {
