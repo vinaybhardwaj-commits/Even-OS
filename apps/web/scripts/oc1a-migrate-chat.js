@@ -162,6 +162,9 @@ const statements = [
     mute_until TIMESTAMPTZ,
     UNIQUE(user_id, channel_id)
   )`,
+  // Partial unique index for global prefs (channel_id IS NULL)
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_notif_prefs_user_global
+   ON chat_notification_prefs (user_id) WHERE channel_id IS NULL`,
 ];
 
 async function run() {

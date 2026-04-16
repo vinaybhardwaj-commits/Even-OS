@@ -184,7 +184,12 @@ export const chatNotificationPrefs = pgTable('chat_notification_prefs', {
   sound_enabled: boolean('sound_enabled').notNull().default(true),
   mute_until: timestamp('mute_until', { withTimezone: true }),
 }, (table) => ({
-  userChannelIdx: uniqueIndex('idx_chat_notif_prefs_user_channel').on(table.user_id, table.channel_id),
+  // Non-NULL channel prefs: one row per (user, channel)
+  userChannelIdx: uniqueIndex('idx_chat_notif_prefs_user_channel')
+    .on(table.user_id, table.channel_id),
+  // Global prefs: one row per user where channel_id IS NULL
+  // NOTE: Drizzle doesn't support partial indexes natively.
+  //       The SQL migration creates: CREATE UNIQUE INDEX idx_chat_notif_prefs_user_global ON chat_notification_prefs (user_id) WHERE channel_id IS NULL
 }));
 
 // ============================================================

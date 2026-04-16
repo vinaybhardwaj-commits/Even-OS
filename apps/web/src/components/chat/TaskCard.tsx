@@ -1,11 +1,10 @@
 'use client';
 
 /**
- * TaskCard — OC.5a
+ * TaskCard — OC.5a (QA: dark theme fix + always-true fix)
  *
  * Renders inline task assignment card in chat messages.
- * Shows assignee, due date, priority, status, and action buttons
- * (Complete, Reassign, Snooze).
+ * Shows assignee, due date, priority, status, and action buttons.
  */
 
 import { useState, useCallback } from 'react';
@@ -29,19 +28,23 @@ interface TaskCardProps {
   onReassign?: (messageId: number) => void;
 }
 
-const PRIORITY_COLORS: Record<string, { bg: string; text: string; label: string }> = {
-  urgent: { bg: '#FEE2E2', text: '#991B1B', label: 'URGENT' },
-  high:   { bg: '#FEF3C7', text: '#92400E', label: 'HIGH' },
-  normal: { bg: '#E0E7FF', text: '#3730A3', label: 'NORMAL' },
-  low:    { bg: '#F3F4F6', text: '#6B7280', label: 'LOW' },
+const PRIORITY_STYLES: Record<string, string> = {
+  urgent: 'bg-red-500/20 text-red-300',
+  high:   'bg-amber-500/20 text-amber-300',
+  normal: 'bg-blue-500/20 text-blue-300',
+  low:    'bg-white/10 text-white/50',
 };
 
-const STATUS_CONFIG: Record<string, { icon: string; label: string; color: string }> = {
-  pending:     { icon: '⏳', label: 'Pending',    color: '#F59E0B' },
-  in_progress: { icon: '🔄', label: 'In Progress', color: '#3B82F6' },
-  completed:   { icon: '✅', label: 'Completed',  color: '#10B981' },
-  overdue:     { icon: '⚠️', label: 'Overdue',    color: '#EF4444' },
-  reassigned:  { icon: '🔄', label: 'Reassigned', color: '#8B5CF6' },
+const PRIORITY_LABEL: Record<string, string> = {
+  urgent: 'URGENT', high: 'HIGH', normal: 'NORMAL', low: 'LOW',
+};
+
+const STATUS_CONFIG: Record<string, { icon: string; label: string; cls: string }> = {
+  pending:     { icon: '⏳', label: 'Pending',     cls: 'text-amber-400' },
+  in_progress: { icon: '🔄', label: 'In Progress', cls: 'text-blue-400' },
+  completed:   { icon: '✅', label: 'Completed',   cls: 'text-emerald-400' },
+  overdue:     { icon: '⚠️', label: 'Overdue',     cls: 'text-red-400' },
+  reassigned:  { icon: '🔄', label: 'Reassigned',  cls: 'text-violet-400' },
 };
 
 function formatDueDate(dueAt: string | null): string {
@@ -58,7 +61,7 @@ function formatDueDate(dueAt: string | null): string {
 
 export function TaskCard({ messageId, metadata, currentUserId, onComplete, onReassign }: TaskCardProps) {
   const [completing, setCompleting] = useState(false);
-  const priority = PRIORITY_COLORS[metadata.priority] || PRIORITY_COLORS.normal;
+  const priorityCls = PRIORITY_STYLES[metadata.priority] || PRIORITY_STYLES.normal;
   const status = STATUS_CONFIG[metadata.status] || STATUS_CONFIG.pending;
   const isAssignee = metadata.assignee_id === currentUserId;
   const isCompleted = metadata.status === 'completed';
@@ -74,78 +77,56 @@ export function TaskCard({ messageId, metadata, currentUserId, onComplete, onRea
   }, [messageId, onComplete, completing]);
 
   return (
-    <div style={{
-      border: `1px solid ${isCompleted ? '#D1FAE5' : '#E5E7EB'}`,
-      borderLeft: `3px solid ${status.color}`,
-      borderRadius: 8,
-      padding: '10px 14px',
-      marginTop: 6,
-      background: isCompleted ? '#F0FDF4' : '#F9FAFB',
-    }}>
+    <div className={`border rounded-lg px-3.5 py-2.5 mt-1.5 border-l-[3px]
+      ${isCompleted ? 'border-emerald-500/30 border-l-emerald-500 bg-emerald-500/5' : 'border-white/15 border-l-blue-400 bg-white/5'}`}>
       {/* Header row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <span style={{ fontSize: 14 }}>☑️</span>
-        <span style={{ fontWeight: 600, fontSize: 12, color: '#111' }}>TASK</span>
-        <span style={{
-          padding: '1px 6px',
-          borderRadius: 4,
-          fontSize: 10,
-          fontWeight: 600,
-          background: priority.bg,
-          color: priority.text,
-        }}>
-          {priority.label}
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-sm">☑️</span>
+        <span className="font-semibold text-xs text-white">TASK</span>
+        <span className={`px-1.5 py-px rounded text-[10px] font-semibold ${priorityCls}`}>
+          {PRIORITY_LABEL[metadata.priority] || 'NORMAL'}
         </span>
-        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: status.color }}>
+        <span className={`ml-auto flex items-center gap-1 text-[11px] font-semibold ${status.cls}`}>
           <span>{status.icon}</span>
-          <span style={{ fontWeight: 600 }}>{status.label}</span>
+          <span>{status.label}</span>
         </span>
       </div>
 
       {/* Details */}
-      <div style={{ fontSize: 12, color: '#444', lineHeight: 1.6 }}>
+      <div className="text-xs text-white/60 leading-relaxed">
         <div>
-          <span style={{ color: '#666' }}>Assigned to: </span>
-          <span style={{ fontWeight: 600 }}>{metadata.assignee_name}</span>
-          {isAssignee && <span style={{ marginLeft: 4, fontSize: 10, color: '#3B82F6' }}>(you)</span>}
+          <span className="text-white/40">Assigned to: </span>
+          <span className="font-semibold text-white/80">{metadata.assignee_name}</span>
+          {isAssignee && <span className="ml-1 text-[10px] text-blue-400">(you)</span>}
         </div>
         {metadata.due_at && (
           <div>
-            <span style={{ color: '#666' }}>Due: </span>
-            <span style={{ fontWeight: 500 }}>
+            <span className="text-white/40">Due: </span>
+            <span className="font-medium text-white/70">
               {new Date(metadata.due_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
             </span>
-            <span style={{ marginLeft: 4, fontSize: 11, color: metadata.status === 'overdue' ? '#EF4444' : '#666' }}>
+            <span className={`ml-1 text-[11px] ${metadata.status === 'overdue' ? 'text-red-400' : 'text-white/40'}`}>
               ({formatDueDate(metadata.due_at)})
             </span>
           </div>
         )}
         {isCompleted && metadata.completed_by_name && (
-          <div style={{ color: '#10B981', fontWeight: 500 }}>
+          <div className="text-emerald-400 font-medium">
             Completed by {metadata.completed_by_name}
             {metadata.completed_at && ` at ${new Date(metadata.completed_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`}
           </div>
         )}
       </div>
 
-      {/* Action buttons */}
+      {/* Action buttons — only assignee can complete */}
       {!isCompleted && (
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          {(isAssignee || true) && (
+        <div className="flex gap-2 mt-2">
+          {isAssignee && (
             <button
               onClick={handleComplete}
               disabled={completing}
-              style={{
-                padding: '5px 12px',
-                background: '#10B981',
-                color: 'white',
-                border: 'none',
-                borderRadius: 5,
-                fontSize: 11,
-                fontWeight: 600,
-                cursor: 'pointer',
-                opacity: completing ? 0.6 : 1,
-              }}
+              className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white border-none rounded text-[11px] font-semibold
+                cursor-pointer transition-colors disabled:opacity-50"
             >
               {completing ? '...' : '✅ Complete'}
             </button>
@@ -153,16 +134,8 @@ export function TaskCard({ messageId, metadata, currentUserId, onComplete, onRea
           {onReassign && (
             <button
               onClick={() => onReassign(messageId)}
-              style={{
-                padding: '5px 12px',
-                background: 'transparent',
-                color: '#6B7280',
-                border: '1px solid #D1D5DB',
-                borderRadius: 5,
-                fontSize: 11,
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
+              className="px-3 py-1 bg-transparent text-white/50 border border-white/20 rounded text-[11px] font-medium
+                cursor-pointer hover:bg-white/5 hover:text-white/70 transition-colors"
             >
               🔄 Reassign
             </button>

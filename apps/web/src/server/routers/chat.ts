@@ -180,7 +180,10 @@ export const chatRouter = router({
       content: z.string().min(1).max(10000),
       messageType: messageTypeEnum.default('chat'),
       priority: messagePriorityEnum.default('normal'),
-      metadata: z.record(z.any()).optional(),
+      metadata: z.record(z.any()).optional().refine(
+        (obj) => !obj || JSON.stringify(obj).length < 10000,
+        'Metadata exceeds 10KB limit'
+      ),
       replyToId: z.number().optional(),
       attachments: z.array(z.object({
         file_name: z.string(),
@@ -249,7 +252,7 @@ export const chatRouter = router({
               file_url: att.file_url,
               uploaded_by: userId,
               hospital_id: hospitalId,
-            }).catch(() => {});
+            }).catch(err => console.warn('[chat.sendMessage] file-to-record failed:', err));
           }
         }
       }
@@ -549,6 +552,18 @@ export const chatRouter = router({
     .input(z.object({ channelId: z.string() }))
     .query(async ({ ctx, input }) => {
       const sql = getSql();
+      const userId = ctx.user.sub;
+
+      // Verify caller is a member of this channel
+      const [membership] = await sql`
+        SELECT 1 FROM chat_channel_members ccm
+        JOIN chat_channels cc ON cc.id = ccm.channel_id
+        WHERE cc.channel_id = ${input.channelId} AND ccm.user_id = ${userId} AND ccm.left_at IS NULL
+      `;
+      if (!membership) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Not a member of this channel' });
+      }
+
       return sql`
         SELECT u.id, u.full_name, u.department,
                CASE WHEN cp.last_seen_at > NOW() - INTERVAL '10 seconds' THEN 'online'
@@ -659,26 +674,20 @@ export const chatRouter = router({
       const sortedIds = [userId, input.targetUserId].sort();
       const dmChannelId = `dm-${sortedIds[0].slice(0, 8)}-${sortedIds[1].slice(0, 8)}`;
 
-      // Check if DM already exists
-      const [existing] = await sql`
-        SELECT id, channel_id FROM chat_channels WHERE channel_id = ${dmChannelId}
-      `;
-      if (existing) {
-        return { channel: existing, created: false };
-      }
-
-      // Create DM channel
+      // Upsert DM channel (race-safe via ON CONFLICT on unique channel_id)
       const [channel] = await sql`
         INSERT INTO chat_channels (channel_id, channel_type, name, hospital_id, created_by)
         VALUES (${dmChannelId}, 'direct', ${target.full_name}, ${hospitalId}, ${userId})
+        ON CONFLICT (channel_id) DO UPDATE SET updated_at = NOW()
         RETURNING id, channel_id, channel_type, name, created_at
       `;
 
-      // Add both users as members
+      // Add both users as members (idempotent via ON CONFLICT)
       await sql`
         INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES
         (${channel.id}, ${userId}, 'member'),
         (${channel.id}, ${input.targetUserId}, 'member')
+        ON CONFLICT (channel_id, user_id) DO NOTHING
       `;
 
       return { channel, created: true };

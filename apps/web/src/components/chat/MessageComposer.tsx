@@ -128,9 +128,14 @@ export function MessageComposer({ channelId, channelType, slashCommands, onSend,
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB per file
     setIsUploading(true);
     try {
       for (const file of Array.from(files)) {
+        if (file.size > MAX_FILE_SIZE) {
+          console.warn(`[Composer] File too large (${(file.size / 1024 / 1024).toFixed(1)}MB): ${file.name}`);
+          continue;
+        }
         const formData = new FormData();
         formData.append('file', file);
 

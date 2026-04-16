@@ -7,7 +7,7 @@
  * Filters commands by role and shows matching options.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
 interface SlashCommandDef {
   name: string;
@@ -40,8 +40,9 @@ export function SlashCommandMenu({ query, commands, onSelect, onClose, visible }
     setSelectedIndex(0);
   }, [filtered.length]);
 
-  // Keyboard navigation
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+  // Keyboard navigation — use stable ref to avoid listener churn
+  const handlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  handlerRef.current = (e: KeyboardEvent) => {
     if (!visible || filtered.length === 0) return;
 
     if (e.key === 'ArrowDown') {
@@ -59,14 +60,14 @@ export function SlashCommandMenu({ query, commands, onSelect, onClose, visible }
       e.preventDefault();
       onClose();
     }
-  }, [visible, filtered, selectedIndex, onSelect, onClose]);
+  };
 
   useEffect(() => {
-    if (visible) {
-      window.addEventListener('keydown', handleKeyDown, true);
-      return () => window.removeEventListener('keydown', handleKeyDown, true);
-    }
-  }, [visible, handleKeyDown]);
+    if (!visible) return;
+    const listener = (e: KeyboardEvent) => handlerRef.current(e);
+    window.addEventListener('keydown', listener, true);
+    return () => window.removeEventListener('keydown', listener, true);
+  }, [visible]);
 
   if (!visible || filtered.length === 0) return null;
 
