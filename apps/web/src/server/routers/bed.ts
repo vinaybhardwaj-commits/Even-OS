@@ -1393,6 +1393,222 @@ export const bedRouter = router({
       return { success: true, flags: newFlags };
     }),
 
+  // ═══════════════════════════════════════════════════════════
+  // BM.5 — RACK CHART (Gantt-style bed timeline over time window)
+  // ═══════════════════════════════════════════════════════════
+
+  // ─── RACK TIMELINE ─────────────────────────────────────────
+  // Returns:
+  //   hierarchy[]         — active Floor → Ward → Room → Bed, in display order
+  //   segments[]          — time segments for each bed derived from bed_status_history,
+  //                         clipped to [from, to]. Includes patient info for 'occupied'.
+  //                         For 'terminal_cleaning' segments, exceeded_sla = true if ≥120 min.
+  // Time window capped to 60 days on the backend for safety.
+  rackTimeline: protectedProcedure
+    .input(z.object({
+      from: z.string(),                                      // ISO string
+      to: z.string(),                                        // ISO string
+      floor_number: z.number().optional(),
+      ward_code: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      // Parse + clamp
+      const fromTs = new Date(input.from);
+      const toTs = new Date(input.to);
+      if (isNaN(fromTs.getTime()) || isNaN(toTs.getTime()) || toTs <= fromTs) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid time window' });
+      }
+      const windowDays = (toTs.getTime() - fromTs.getTime()) / 86400000;
+      if (windowDays > 60) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Window too large (max 60 days)' });
+      }
+      const fromIso = fromTs.toISOString();
+      const toIso = toTs.toISOString();
+
+      const floorFilter = input.floor_number
+        ? sql`AND f.floor_number = ${input.floor_number}`
+        : sql``;
+      const wardFilter = input.ward_code
+        ? sql`AND w.code = ${input.ward_code}`
+        : sql``;
+
+      // ── Hierarchy (active only) ─────────────────────────────
+      const hierRes = await db.execute(sql`
+        SELECT
+          f.id AS floor_id, f.code AS floor_code, f.name AS floor_name, f.floor_number,
+          w.id AS ward_id, w.code AS ward_code, w.name AS ward_name, w.ward_type,
+          r.id AS room_id, r.code AS room_code, r.name AS room_name, r.room_type, r.room_tag,
+          b.id AS bed_id, b.code AS bed_code, b.name AS bed_name, b.bed_status
+        FROM locations f
+        JOIN locations w ON w.parent_location_id = f.id AND w.location_type = 'ward' AND w.status = 'active'
+        JOIN locations r ON r.parent_location_id = w.id AND r.location_type = 'room' AND r.status = 'active'
+        JOIN locations b ON b.parent_location_id = r.id AND b.location_type = 'bed' AND b.status = 'active'
+        WHERE f.location_type = 'floor'
+          AND f.hospital_id = ${hospitalId}
+          AND f.status = 'active'
+          ${floorFilter}
+          ${wardFilter}
+        ORDER BY f.floor_number, w.code, r.code, b.code
+      `);
+      const hierRows = ((hierRes as any).rows || hierRes) as any[];
+
+      // Build hierarchy
+      type BedLite = { id: string; code: string; name: string; bed_status: string };
+      type RoomLite = { id: string; code: string; name: string; room_type: string | null; room_tag: string | null; beds: BedLite[] };
+      type WardLite = { id: string; code: string; name: string; ward_type: string | null; rooms: RoomLite[]; bed_ids: string[] };
+      type FloorLite = { id: string; code: string; name: string; floor_number: number; wards: WardLite[] };
+      const floorMap = new Map<string, FloorLite>();
+      const bedIds: string[] = [];
+
+      for (const row of hierRows) {
+        if (!floorMap.has(row.floor_id)) {
+          floorMap.set(row.floor_id, {
+            id: row.floor_id, code: row.floor_code, name: row.floor_name,
+            floor_number: row.floor_number, wards: [],
+          });
+        }
+        const floor = floorMap.get(row.floor_id)!;
+        let ward = floor.wards.find(w => w.id === row.ward_id);
+        if (!ward) {
+          ward = { id: row.ward_id, code: row.ward_code, name: row.ward_name, ward_type: row.ward_type, rooms: [], bed_ids: [] };
+          floor.wards.push(ward);
+        }
+        let room = ward.rooms.find(r => r.id === row.room_id);
+        if (!room) {
+          room = { id: row.room_id, code: row.room_code, name: row.room_name, room_type: row.room_type, room_tag: row.room_tag, beds: [] };
+          ward.rooms.push(room);
+        }
+        room.beds.push({ id: row.bed_id, code: row.bed_code, name: row.bed_name, bed_status: row.bed_status });
+        ward.bed_ids.push(row.bed_id);
+        bedIds.push(row.bed_id);
+      }
+      const hierarchy = Array.from(floorMap.values()).sort((a, b) => a.floor_number - b.floor_number);
+
+      if (bedIds.length === 0) {
+        return { hierarchy: [], segments: [], from: fromIso, to: toIso };
+      }
+
+      // ── Segments: derive from bed_status_history via LEAD window ──
+      const segRes = await db.execute(sql`
+        WITH events AS (
+          SELECT
+            h.location_id,
+            h.status,
+            h.reason,
+            h.changed_at,
+            LEAD(h.changed_at) OVER (PARTITION BY h.location_id ORDER BY h.changed_at) AS next_at
+          FROM bed_status_history h
+          WHERE h.hospital_id = ${hospitalId}
+        ),
+        clipped AS (
+          SELECT
+            location_id,
+            status,
+            reason,
+            GREATEST(changed_at, ${fromIso}::timestamptz) AS seg_start,
+            LEAST(COALESCE(next_at, NOW()), ${toIso}::timestamptz) AS seg_end,
+            changed_at AS original_start,
+            next_at AS original_end
+          FROM events
+          WHERE COALESCE(next_at, NOW()) > ${fromIso}::timestamptz
+            AND changed_at < ${toIso}::timestamptz
+        )
+        SELECT
+          seg.location_id,
+          seg.status,
+          seg.reason,
+          seg.seg_start,
+          seg.seg_end,
+          seg.original_start,
+          seg.original_end,
+          EXTRACT(EPOCH FROM (seg.seg_end - seg.seg_start))/60 AS duration_mins,
+          EXTRACT(EPOCH FROM (COALESCE(seg.original_end, NOW()) - seg.original_start))/60 AS full_duration_mins,
+          ba.encounter_id,
+          e.admission_at,
+          e.expected_los_days,
+          e.journey_type,
+          e.chief_complaint,
+          pt.id AS patient_id,
+          pt.uhid AS patient_uhid,
+          pt.name_full AS patient_name,
+          pt.gender AS patient_gender
+        FROM clipped seg
+        LEFT JOIN bed_assignments ba ON ba.location_id = seg.location_id
+          AND ba.hospital_id = ${hospitalId}
+          AND seg.status = 'occupied'
+          AND ba.assigned_at <= seg.seg_end
+          AND (ba.released_at IS NULL OR ba.released_at >= seg.seg_start)
+        LEFT JOIN encounters e ON e.id = ba.encounter_id
+        LEFT JOIN patients pt ON pt.id = e.patient_id
+        WHERE seg.location_id = ANY(${bedIds}::uuid[])
+        ORDER BY seg.location_id, seg.seg_start
+      `);
+      const segRows = ((segRes as any).rows || segRes) as any[];
+
+      const segments = segRows.map((r) => {
+        const durationMins = Number(r.duration_mins) || 0;
+        const fullDurationMins = Number(r.full_duration_mins) || 0;
+        const isTerminal = r.status === 'terminal_cleaning';
+        return {
+          bed_id: r.location_id,
+          status: r.status,
+          reason: r.reason,
+          start: r.seg_start instanceof Date ? r.seg_start.toISOString() : r.seg_start,
+          end: r.seg_end instanceof Date ? r.seg_end.toISOString() : r.seg_end,
+          duration_mins: durationMins,
+          full_duration_mins: fullDurationMins,
+          exceeded_sla: isTerminal && fullDurationMins >= 120,
+          encounter_id: r.encounter_id || undefined,
+          admission_at: r.admission_at instanceof Date ? r.admission_at.toISOString() : (r.admission_at || undefined),
+          expected_los_days: r.expected_los_days || undefined,
+          journey_type: r.journey_type || undefined,
+          chief_complaint: r.chief_complaint || undefined,
+          patient_id: r.patient_id || undefined,
+          patient_uhid: r.patient_uhid || undefined,
+          patient_name: r.patient_name || undefined,
+          patient_gender: r.patient_gender || undefined,
+        };
+      });
+
+      // Which beds have no segments at all in the window? Synthesize a single
+      // segment from their current bed_status so the rack row isn't blank.
+      const bedsWithSegments = new Set(segments.map(s => s.bed_id));
+      const now = new Date().toISOString();
+      for (const row of hierRows) {
+        if (bedsWithSegments.has(row.bed_id)) continue;
+        // Use current bed_status across the whole window (clamped to now)
+        const endIso = toIso < now ? toIso : now;
+        segments.push({
+          bed_id: row.bed_id,
+          status: row.bed_status || 'available',
+          reason: null,
+          start: fromIso,
+          end: endIso,
+          duration_mins: Math.max(0, (new Date(endIso).getTime() - fromTs.getTime()) / 60000),
+          full_duration_mins: 0,
+          exceeded_sla: false,
+          encounter_id: undefined,
+          admission_at: undefined,
+          expected_los_days: undefined,
+          journey_type: undefined,
+          chief_complaint: undefined,
+          patient_id: undefined,
+          patient_uhid: undefined,
+          patient_name: undefined,
+          patient_gender: undefined,
+        });
+      }
+
+      return {
+        hierarchy,
+        segments,
+        from: fromIso,
+        to: toIso,
+      };
+    }),
+
   // ─── ADMIN: ADD BED (overflow bed in an existing room) ───
   addBed: protectedProcedure
     .input(z.object({

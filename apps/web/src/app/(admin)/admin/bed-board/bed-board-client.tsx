@@ -1702,6 +1702,12 @@ function BedDrawer({
                   >
                     Edit Layout <span className="text-gray-400">(BM.4)</span>
                   </a>
+                  <a
+                    href="/admin/bed-rack"
+                    className="block w-full px-3 py-2 text-xs font-medium bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50 text-center"
+                  >
+                    Rack Chart <span className="text-gray-400">(BM.5)</span>
+                  </a>
                 </div>
               </div>
             )}
