@@ -8,6 +8,7 @@ import {
   patients, encounters, locations, users, shiftInstances, shiftRoster,
 } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
+import { addCareTeamMember, removeCareTeamMember } from '@/lib/chat/channel-manager';
 import { eq, and, sql, desc, asc, inArray, count } from 'drizzle-orm';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
@@ -107,6 +108,15 @@ export const patientAssignmentsRouter = router({
         reason: 'Patient assigned to nurse',
       });
 
+      // OC.4a: Add nurse to patient chat channel (fire-and-forget)
+      if (input.encounter_id) {
+        addCareTeamMember({
+          encounter_id: input.encounter_id,
+          user_id: input.nurse_id,
+          reason: 'Nurse assignment',
+        }).catch(() => {});
+      }
+
       return assignment;
     }),
 
@@ -187,6 +197,16 @@ export const patientAssignmentsRouter = router({
         new_values: { nurse_id: input.new_nurse_id },
         reason: `Reassignment: ${input.reason}`,
       });
+
+      // OC.4a: Swap nurses in patient chat channel (fire-and-forget)
+      if (existing.encounter_id) {
+        removeCareTeamMember(existing.encounter_id, existing.nurse_id).catch(() => {});
+        addCareTeamMember({
+          encounter_id: existing.encounter_id,
+          user_id: input.new_nurse_id,
+          reason: `Nurse reassignment: ${input.reason}`,
+        }).catch(() => {});
+      }
 
       return newAssignment;
     }),

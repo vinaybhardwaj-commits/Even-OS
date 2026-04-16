@@ -8,6 +8,7 @@ import {
   transferHistory, dischargeOrders,
 } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
+import { createPatientChannel, archivePatientChannel, onBedTransfer } from '@/lib/chat/channel-manager';
 import { eq, and, sql, desc, isNull } from 'drizzle-orm';
 
 const encounterClassValues = ['IMP', 'AMB', 'ED', 'HH', 'OBSENC'] as const;
@@ -201,6 +202,16 @@ export const encounterRouter = router({
           pre_auth_status: input.pre_auth_status,
         },
       });
+
+      // OC.4a: Create patient chat channel (fire-and-forget)
+      createPatientChannel({
+        encounter_id: encounter.id,
+        patient_name: patient.name_full,
+        patient_uhid: patient.uhid,
+        hospital_id: ctx.user.hospital_id,
+        attending_doctor_id: ctx.user.sub,
+        bed_label: bed.code,
+      }).catch(() => {});
 
       return {
         encounter_id: encounter.id,
@@ -498,6 +509,13 @@ export const encounterRouter = router({
         },
       });
 
+      // OC.4a: Notify patient channel of bed transfer (fire-and-forget)
+      onBedTransfer({
+        encounter_id: encounter.id,
+        hospital_id: hospitalId,
+        to_bed_label: toBed.code,
+      }).catch(() => {});
+
       return { encounter_id: encounter.id, from_bed: fromLocationId, to_bed_code: toBed.code };
     }),
 
@@ -752,6 +770,9 @@ export const encounterRouter = router({
         row_id: encounter.id,
         new_values: { status: 'finished', discharge_at: now.toISOString(), forced: input.force },
       });
+
+      // OC.4a: Archive patient chat channel (fire-and-forget)
+      archivePatientChannel(encounter.id).catch(() => {});
 
       return { encounter_id: encounter.id, status: 'finished', discharge_at: now };
     }),

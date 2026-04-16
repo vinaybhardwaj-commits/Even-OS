@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeEvent } from '@/lib/event-log';
+import { addCareTeamMember } from '@/lib/chat/channel-manager';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -1010,6 +1011,15 @@ export const medicationOrdersRouter = router({
             NOW()
           );
         `;
+
+        // OC.4a: Add specialist to patient channel on consult request (fire-and-forget)
+        if (input.request_type === 'consult' && input.encounter_id && input.referral_to_provider_id) {
+          addCareTeamMember({
+            encounter_id: input.encounter_id,
+            user_id: input.referral_to_provider_id,
+            reason: `Consult: ${input.order_name}`,
+          }).catch(() => {});
+        }
 
         return { id: rows[0].id };
       } catch (error) {
