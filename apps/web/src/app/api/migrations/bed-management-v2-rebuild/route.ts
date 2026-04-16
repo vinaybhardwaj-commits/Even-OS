@@ -98,19 +98,29 @@ export async function POST(req: NextRequest) {
       steps.push(`✅ Deleted ${legacyBedIds.length} legacy beds: ${legacyBedIds.map((r: any) => r.code).join(', ')}`);
     }
 
-    // Legacy PVT ward and F1 floor — delete if nothing references them
+    // Legacy PVT ward and F1 floor — patient_assignments has FK onDelete: restrict,
+    // and other tables may reference these too. Safer to just deactivate (rather than delete).
+    // First: clean up patient_assignments pointing at any legacy ward that will disappear
+    // from the active set so stale rows don't hang around.
     const legacyParents = await sql(`
       SELECT id, code FROM locations
       WHERE hospital_id = $1 AND code IN ('PVT','F1')
     `, [hospitalId]);
 
-    for (const p of legacyParents) {
-      // Detach any children
-      await sql(`UPDATE locations SET parent_location_id = NULL WHERE parent_location_id = $1`, [p.id]);
-      await sql(`DELETE FROM locations WHERE id = $1`, [p.id]);
-    }
     if (legacyParents.length > 0) {
-      steps.push(`✅ Deleted legacy parents: ${legacyParents.map((p: any) => p.code).join(', ')}`);
+      const legacyParentIds = legacyParents.map((p: any) => p.id);
+      // Mark any patient_assignments pointing to PVT as completed (stale)
+      await sql(`
+        UPDATE patient_assignments
+        SET status = 'completed', completed_at = COALESCE(completed_at, now())
+        WHERE ward_id = ANY($1::uuid[]) AND status = 'active'
+      `, [legacyParentIds]);
+      // Deactivate the legacy parent locations themselves
+      await sql(`
+        UPDATE locations SET status = 'inactive'
+        WHERE id = ANY($1::uuid[])
+      `, [legacyParentIds]);
+      steps.push(`✅ Deactivated legacy parents: ${legacyParents.map((p: any) => p.code).join(', ')}`);
     }
 
     // ─── STEP 4: DEACTIVATE REMAINING NON-HOSPITAL LOCATIONS ─────────
