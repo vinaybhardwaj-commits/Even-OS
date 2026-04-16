@@ -1544,6 +1544,27 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               <span style={{ opacity: 0.65, marginLeft: 4 }}>Attending</span>
             </div>
           )}
+          {/* OC.4c: Open patient chat channel */}
+          {encounter && (
+            <button
+              onClick={() => {
+                // Dispatch custom event to open chat sidebar on patient channel
+                window.dispatchEvent(new CustomEvent('open-patient-chat', {
+                  detail: { channelId: `patient-${encounter.id}` },
+                }));
+              }}
+              style={{
+                background: '#10B981', color: 'white',
+                padding: '5px 12px', borderRadius: 6,
+                fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap',
+                border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}
+              title="Open patient chat channel"
+            >
+              💬 Chat
+            </button>
+          )}
         </div>
       </header>
 

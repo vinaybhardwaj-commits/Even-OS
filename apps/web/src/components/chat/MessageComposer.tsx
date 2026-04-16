@@ -1,18 +1,27 @@
 'use client';
 
 /**
- * MessageComposer — OC.3b
+ * MessageComposer — OC.3b + OC.4c
  *
  * Auto-resizing textarea with:
  * - Message type selector dropdown (chat, request, update, escalation, etc.)
  * - Send button (Enter to send, Shift+Enter for newline)
  * - Typing indicator push (debounced)
  * - Priority selector for escalation/request types
+ * - File attachment upload (OC.4c)
  */
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 
 // ── Types ─────────────────────────────────────────────────
+
+interface AttachmentPreview {
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  file_url: string;
+  thumbnail_url?: string;
+}
 
 interface MessageComposerProps {
   channelId: string;
@@ -22,6 +31,7 @@ interface MessageComposerProps {
     content: string;
     messageType?: string;
     priority?: string;
+    attachments?: AttachmentPreview[];
   }) => Promise<any>;
   onTyping: (channelId: string, isTyping: boolean) => Promise<void>;
 }
@@ -43,6 +53,12 @@ const PRIORITY_OPTIONS = [
   { value: 'stat',     label: 'STAT' },
 ];
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
 // ── Component ─────────────────────────────────────────────
 
 export function MessageComposer({ channelId, channelType, onSend, onTyping }: MessageComposerProps) {
@@ -51,7 +67,10 @@ export function MessageComposer({ channelId, channelType, onSend, onTyping }: Me
   const [priority, setPriority] = useState('normal');
   const [showTypeMenu, setShowTypeMenu] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [attachments, setAttachments] = useState<AttachmentPreview[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
 
@@ -92,10 +111,54 @@ export function MessageComposer({ channelId, channelType, onSend, onTyping }: Me
     };
   }, []);
 
+  // ── File upload handler ────────────────────────────────
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const res = await fetch('/api/chat/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          console.error('[Composer] Upload failed:', err.error);
+          continue;
+        }
+
+        const data = await res.json();
+        setAttachments(prev => [...prev, {
+          file_name: data.file_name,
+          file_type: data.file_type,
+          file_size: data.file_size,
+          file_url: data.file_url,
+          thumbnail_url: data.thumbnail_url,
+        }]);
+      }
+    } catch (err) {
+      console.error('[Composer] Upload error:', err);
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }, []);
+
+  const removeAttachment = useCallback((index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  }, []);
+
   // ── Send handler ───────────────────────────────────────
   const handleSend = useCallback(async () => {
     const trimmed = content.trim();
-    if (!trimmed || isSending) return;
+    if ((!trimmed && attachments.length === 0) || isSending) return;
 
     setIsSending(true);
     stopTyping();
@@ -103,13 +166,15 @@ export function MessageComposer({ channelId, channelType, onSend, onTyping }: Me
     try {
       await onSend({
         channelId,
-        content: trimmed,
+        content: trimmed || (attachments.length > 0 ? `📎 ${attachments.map(a => a.file_name).join(', ')}` : ''),
         messageType: messageType !== 'chat' ? messageType : undefined,
         priority: priority !== 'normal' ? priority : undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
       });
       setContent('');
       setMessageType('chat');
       setPriority('normal');
+      setAttachments([]);
       // Reset textarea height
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
@@ -120,7 +185,7 @@ export function MessageComposer({ channelId, channelType, onSend, onTyping }: Me
       setIsSending(false);
       textareaRef.current?.focus();
     }
-  }, [content, isSending, channelId, messageType, priority, onSend, stopTyping]);
+  }, [content, attachments, isSending, channelId, messageType, priority, onSend, stopTyping]);
 
   // ── Keyboard handling ──────────────────────────────────
   const handleKeyDown = useCallback(
@@ -209,8 +274,64 @@ export function MessageComposer({ channelId, channelType, onSend, onTyping }: Me
         )}
       </div>
 
-      {/* Textarea + send */}
+      {/* Attachment previews */}
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-4 pb-2">
+          {attachments.map((att, i) => (
+            <div key={i} className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs">
+              {att.file_type.startsWith('image/') && att.thumbnail_url ? (
+                <img src={att.thumbnail_url} alt="" className="w-8 h-8 rounded object-cover" />
+              ) : (
+                <span className="text-lg">
+                  {att.file_type === 'application/pdf' ? '📄' : '📎'}
+                </span>
+              )}
+              <div className="flex flex-col">
+                <span className="text-white/80 truncate max-w-[120px]">{att.file_name}</span>
+                <span className="text-white/30">{formatFileSize(att.file_size)}</span>
+              </div>
+              <button
+                onClick={() => removeAttachment(i)}
+                className="text-white/30 hover:text-red-400 transition-colors ml-1"
+                title="Remove"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Textarea + attach + send */}
       <div className="flex items-end gap-2 px-4 pb-3">
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          onChange={handleFileSelect}
+          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
+          multiple
+          className="hidden"
+        />
+
+        {/* Attach button */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+          className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg
+            text-white/40 hover:text-white/70 hover:bg-white/5
+            disabled:opacity-30 transition-colors"
+          title="Attach file"
+        >
+          {isUploading ? (
+            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+            </svg>
+          )}
+        </button>
+
         <textarea
           ref={textareaRef}
           value={content}
@@ -227,7 +348,7 @@ export function MessageComposer({ channelId, channelType, onSend, onTyping }: Me
         />
         <button
           onClick={handleSend}
-          disabled={!content.trim() || isSending}
+          disabled={(!content.trim() && attachments.length === 0) || isSending}
           className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg
             bg-blue-500 text-white disabled:opacity-30 disabled:cursor-not-allowed
             hover:bg-blue-400 transition-colors"

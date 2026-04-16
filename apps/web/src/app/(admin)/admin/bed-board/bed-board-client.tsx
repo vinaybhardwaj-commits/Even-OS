@@ -1437,12 +1437,25 @@ function BedDrawer({
                   </div>
                 )}
                 {bed.encounter_id && (
-                  <a
-                    href={`/admin/encounters/${bed.encounter_id}`}
-                    className="inline-block mt-2 text-xs text-blue-700 hover:text-blue-900 font-medium"
-                  >
-                    View encounter →
-                  </a>
+                  <div className="flex items-center gap-3 mt-2">
+                    <a
+                      href={`/admin/encounters/${bed.encounter_id}`}
+                      className="text-xs text-blue-700 hover:text-blue-900 font-medium"
+                    >
+                      View encounter →
+                    </a>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        window.dispatchEvent(new CustomEvent('open-patient-chat', {
+                          detail: { channelId: `patient-${bed.encounter_id}` },
+                        }));
+                      }}
+                      className="text-xs text-emerald-600 hover:text-emerald-800 font-medium"
+                    >
+                      💬 Chat
+                    </button>
+                  </div>
                 )}
               </div>
             </div>

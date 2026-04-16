@@ -104,6 +104,7 @@ export interface ChatContextValue {
     priority?: string;
     metadata?: Record<string, any>;
     replyToId?: number;
+    attachments?: { file_name: string; file_type: string; file_size: number; file_url: string; thumbnail_url?: string }[];
   }) => Promise<any>;
   markRead: (channelId: string) => Promise<void>;
   setTyping: (channelId: string, isTyping: boolean) => Promise<void>;
@@ -377,6 +378,7 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     priority?: string;
     metadata?: Record<string, any>;
     replyToId?: number;
+    attachments?: { file_name: string; file_type: string; file_size: number; file_url: string; thumbnail_url?: string }[];
   }) => {
     try {
       const result = await trpcMutate('chat.sendMessage', {
@@ -386,6 +388,7 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
         priority: params.priority || 'normal',
         metadata: params.metadata,
         replyToId: params.replyToId,
+        attachments: params.attachments,
       });
 
       // Optimistic insert into active messages
@@ -470,6 +473,18 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
       return false;
     }
   }, [activeMessages]);
+
+  // ── OC.4c: Listen for open-patient-chat custom events ──────
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.channelId) {
+        openChannel(detail.channelId);
+      }
+    };
+    window.addEventListener('open-patient-chat', handler);
+    return () => window.removeEventListener('open-patient-chat', handler);
+  }, [openChannel]);
 
   // ── Context value ───────────────────────────────────────────
   const value: ChatContextValue = {

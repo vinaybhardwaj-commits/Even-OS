@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure, adminProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
+import { routeFileToMedicalRecord } from '@/lib/chat/file-to-record';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -179,6 +180,13 @@ export const chatRouter = router({
       priority: messagePriorityEnum.default('normal'),
       metadata: z.record(z.any()).optional(),
       replyToId: z.number().optional(),
+      attachments: z.array(z.object({
+        file_name: z.string(),
+        file_type: z.string(),
+        file_size: z.number(),
+        file_url: z.string(),
+        thumbnail_url: z.string().optional(),
+      })).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const sql = getSql();
@@ -217,6 +225,33 @@ export const chatRouter = router({
                   reply_to_id, created_at
       `;
 
+      // Insert attachments if provided
+      if (input.attachments && input.attachments.length > 0) {
+        for (const att of input.attachments) {
+          const [inserted] = await sql`
+            INSERT INTO chat_attachments (message_id, file_name, file_type, file_size, file_url, thumbnail_url)
+            VALUES (${message.id}, ${att.file_name}, ${att.file_type}, ${att.file_size},
+                    ${att.file_url}, ${att.thumbnail_url || null})
+            RETURNING id
+          `;
+
+          // OC.4c: Auto-route to medical record for patient channels (fire-and-forget)
+          if (inserted && channel.channel_type === 'patient') {
+            routeFileToMedicalRecord({
+              attachment_id: inserted.id,
+              message_id: message.id,
+              channel_id: input.channelId,
+              file_name: att.file_name,
+              file_type: att.file_type,
+              file_size: att.file_size,
+              file_url: att.file_url,
+              uploaded_by: userId,
+              hospital_id: hospitalId,
+            }).catch(() => {});
+          }
+        }
+      }
+
       // Update channel last_message_at
       await sql`
         UPDATE chat_channels SET last_message_at = NOW(), updated_at = NOW()
@@ -227,6 +262,7 @@ export const chatRouter = router({
         ...message,
         sender_name: ctx.user.name,
         sender_department: ctx.user.department,
+        attachments: input.attachments || [],
       };
     }),
 
