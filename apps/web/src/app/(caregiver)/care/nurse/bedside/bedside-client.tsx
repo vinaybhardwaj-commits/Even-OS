@@ -210,7 +210,9 @@ export default function BedsideClient({
   const loadPatients = useCallback(async () => {
     setLoading(true);
     try {
-      const shift = await trpcQuery('shifts.getCurrentShift');
+      // getCurrentShift returns an array; pick the first shift.
+      const shiftArr = await trpcQuery('shifts.getCurrentShift');
+      const shift = Array.isArray(shiftArr) && shiftArr.length > 0 ? shiftArr[0] : null;
       if (shift?.instance_id) {
         const data = await trpcQuery('patientAssignments.myPatients', {
           shift_instance_id: shift.instance_id,

@@ -172,8 +172,9 @@ export default function NurseStationClient({
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Get current shift
-      const shift = await trpcQuery('shifts.getCurrentShift');
+      // 1. Get current shift (returns array → pick first)
+      const shiftArr = await trpcQuery('shifts.getCurrentShift');
+      const shift = Array.isArray(shiftArr) && shiftArr.length > 0 ? shiftArr[0] : null;
       setCurrentShift(shift);
 
       if (shift?.instance_id) {

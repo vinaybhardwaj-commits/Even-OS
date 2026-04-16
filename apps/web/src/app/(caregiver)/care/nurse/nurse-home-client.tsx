@@ -129,10 +129,31 @@ export default function NurseHomeClient({
   // Assignment flow (charge nurse)
   const [showAssignPopup, setShowAssignPopup] = useState(false);
   const [assignBed, setAssignBed] = useState<Bed | null>(null);
-  const [onShiftNurses, setOnShiftNurses] = useState<{ id: string; name: string; patient_count: number }[]>([]);
+  const [assignShiftInstanceId, setAssignShiftInstanceId] = useState<string | null>(null);
+  const [onShiftNurses, setOnShiftNurses] = useState<{ id: string; name: string; role: string }[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
   const [selectedNurseId, setSelectedNurseId] = useState('');
   const [assigning, setAssigning] = useState(false);
   const [assignError, setAssignError] = useState('');
+  // Transfer flow
+  const [showTransferPopup, setShowTransferPopup] = useState(false);
+  const [transferBed, setTransferBed] = useState<Bed | null>(null);
+  const [transferDestId, setTransferDestId] = useState('');
+  const [transferReason, setTransferReason] = useState('');
+  const [transferring, setTransferring] = useState(false);
+  const [transferError, setTransferError] = useState('');
+
+  // Role gates
+  const NURSING_ROLES = [
+    'nurse', 'charge_nurse', 'icu_nurse', 'ot_nurse',
+    'nicu_nurse', 'dialysis_nurse', 'cath_lab_nurse', 'endoscopy_nurse',
+    'staff_nurse', 'nursing_supervisor',
+  ];
+  const isUserANurse = NURSING_ROLES.includes(userRole);
+  const CAN_TRANSFER = [
+    'super_admin', 'hospital_admin', 'admin', 'charge_nurse', 'nursing_supervisor',
+    'medical_director', 'unit_head', 'ip_coordinator', 'receptionist',
+  ].includes(userRole);
 
   // Refresh clock every minute
   useEffect(() => {
@@ -144,12 +165,18 @@ export default function NurseHomeClient({
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [boardData, patientsData, statsData, shiftData] = await Promise.all([
+      const [boardData, patientsData, statsData, shiftArr] = await Promise.all([
         trpcQuery('bed.board', {}),
         trpcQuery('patientAssignments.myPatients', {}),
         trpcQuery('bed.stats'),
         trpcQuery('shifts.getCurrentShift'),
       ]);
+
+      // getCurrentShift returns an array (up to 3 shifts/day per user).
+      // Pick the first rostered shift for this user. Admins typically have
+      // no roster entries → shiftData is null and per-ward shift lookup is
+      // used when they open an assignment popup.
+      const shiftData = Array.isArray(shiftArr) && shiftArr.length > 0 ? shiftArr[0] : null;
 
       // bed.board returns { floors: [{ wards: [{ rooms: [{ beds: [] }] }] }] } after
       // the 3-tier refactor (BM.2). Flatten floors→wards and rooms→beds so the nurse
@@ -201,7 +228,7 @@ export default function NurseHomeClient({
       // Check if current user is the charge nurse for this shift
       // Multiple checks: (1) admin role, (2) charge_nurse_id on shift instance,
       // (3) user's permanent role is charge_nurse, (4) role_during_shift in roster
-      const isAdmin = ['hospital_admin', 'admin', 'super_admin'].includes(userRole);
+      const isAdmin = ['hospital_admin', 'admin', 'super_admin', 'nursing_supervisor'].includes(userRole);
       const isChargeOnShift = shiftData?.charge_nurse_id === userId;
       const isChargeRole = userRole === 'charge_nurse';
       const isChargeRoster = shiftData?.role_during_shift === 'charge_nurse';
@@ -209,24 +236,10 @@ export default function NurseHomeClient({
       setIsChargeThisShift(isCharge);
       setCurrentShiftInstanceId(shiftData?.instance_id || null);
 
-      // If no shift data but user is charge_nurse role, try to find any active shift instance
-      if (isCharge && !shiftData?.instance_id) {
-        // Fallback: find any active shift instance for today where this user is charge
-        const fallbackShift = await trpcQuery('bed.board', {});
-        // We'll use the first ward's shift instance if available
-      }
-
-      // Load on-shift nurses for assignment (charge nurse only)
-      if (isCharge && shiftData?.instance_id) {
-        try {
-          const statsData2 = await trpcQuery('patientAssignments.stats', { shift_instance_id: shiftData.instance_id });
-          if (statsData2?.nurse_loads) {
-            setOnShiftNurses(statsData2.nurse_loads.map((n: any) => ({
-              id: n.nurse_id, name: n.nurse_name, patient_count: n.patient_count,
-            })));
-          }
-        } catch { /* stats not critical */ }
-      }
+      // Note: the per-ward roster is fetched lazily when the user opens
+      // an assignment popup (see openAssignForBed below) because the right
+      // shift instance is the one for the BED's ward — which is not
+      // necessarily the current user's rostered ward.
     } catch (err) {
       console.error('Nurse home load error:', err);
     } finally {
@@ -235,6 +248,65 @@ export default function NurseHomeClient({
   }, [userId, userRole]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Open assign-to-nurse popup for a given bed. Fetches the per-ward shift
+  // instance + roster so we show the nurses rostered on THAT ward's shift,
+  // not the logged-in user's shift (which may not exist for admins).
+  const openAssignForBed = useCallback(async (bed: Bed) => {
+    const wardId = wards.find(w => w.beds.some(b => b.id === bed.id))?.ward_id;
+    if (!wardId) {
+      setAssignError('Could not resolve ward for this bed');
+      return;
+    }
+    setAssignBed(bed);
+    setShowAssignPopup(true);
+    setClickedBed(null);
+    setSelectedNurseId('');
+    setAssignError('');
+    setOnShiftNurses([]);
+    setAssignShiftInstanceId(null);
+    setRosterLoading(true);
+    try {
+      const data = await trpcQuery('shifts.getActiveShiftForWard', { ward_id: wardId });
+      if (!data) {
+        setAssignError('No active or planned shift for this ward today. Create a shift instance in Admin → Shifts.');
+        setOnShiftNurses([]);
+        return;
+      }
+      setAssignShiftInstanceId(data.instance_id);
+      // Filter roster to nurse roles only. Match against either the
+      // role_during_shift field OR — for cases where the roster role is
+      // blank/generic — include anyone whose role_during_shift contains 'nurse'.
+      const nurses = (data.roster || [])
+        .filter((r: any) => {
+          const role = (r.role_during_shift || '').toLowerCase();
+          return NURSING_ROLES.includes(role) || role.includes('nurse');
+        })
+        .map((r: any) => ({
+          id: r.user_id,
+          name: r.user_name,
+          role: r.role_during_shift || 'nurse',
+        }));
+      setOnShiftNurses(nurses);
+      if (nurses.length === 0) {
+        setAssignError('No nurses rostered on this ward\'s shift. Add staff via Admin → Shifts → Roster.');
+      }
+    } catch (e) {
+      setAssignError(e instanceof Error ? e.message : 'Failed to load roster');
+    } finally {
+      setRosterLoading(false);
+    }
+  }, [wards]);
+
+  // Open transfer popup for a given bed (must be occupied).
+  const openTransferForBed = useCallback((bed: Bed) => {
+    setTransferBed(bed);
+    setShowTransferPopup(true);
+    setClickedBed(null);
+    setTransferDestId('');
+    setTransferReason('');
+    setTransferError('');
+  }, []);
 
   // Filter wards
   const visibleWards = selectedWard
@@ -576,16 +648,10 @@ export default function NurseHomeClient({
                 🩺 Bedside View
               </Link>
             </div>
-            {/* Assign to Nurse — charge nurse only */}
+            {/* Assign to Nurse — charge nurse / admins */}
             {isChargeThisShift && (
               <button
-                onClick={() => {
-                  setAssignBed(clickedBed);
-                  setShowAssignPopup(true);
-                  setClickedBed(null);
-                  setSelectedNurseId('');
-                  setAssignError('');
-                }}
+                onClick={() => clickedBed && openAssignForBed(clickedBed)}
                 style={{
                   width: '100%', marginTop: '10px', padding: '12px', borderRadius: '10px',
                   background: '#f59e0b', color: '#fff', fontWeight: '600', fontSize: '14px',
@@ -593,6 +659,19 @@ export default function NurseHomeClient({
                 }}
               >
                 👩‍⚕️ Assign to Nurse
+              </button>
+            )}
+            {/* Transfer Bed — charge / admins / coordinators */}
+            {CAN_TRANSFER && (
+              <button
+                onClick={() => clickedBed && openTransferForBed(clickedBed)}
+                style={{
+                  width: '100%', marginTop: '8px', padding: '12px', borderRadius: '10px',
+                  background: '#8b5cf6', color: '#fff', fontWeight: '600', fontSize: '14px',
+                  border: 'none', cursor: 'pointer',
+                }}
+              >
+                🔀 Transfer Bed
               </button>
             )}
             <button
@@ -636,46 +715,48 @@ export default function NurseHomeClient({
             )}
 
             <label style={{ fontSize: '12px', fontWeight: '600', color: '#374151', display: 'block', marginBottom: '6px' }}>
-              Select Nurse (on shift)
+              Select Nurse (rostered on this ward's shift)
             </label>
             <select
               value={selectedNurseId}
               onChange={(e) => setSelectedNurseId(e.target.value)}
+              disabled={rosterLoading}
               style={{
                 width: '100%', padding: '10px 12px', borderRadius: '8px',
                 border: '1px solid #d1d5db', fontSize: '14px', marginBottom: '8px',
+                background: rosterLoading ? '#f9fafb' : '#fff',
               }}
             >
-              <option value="">— Select a nurse —</option>
-              {/* Self-assign option */}
-              <option value={userId}>
-                {userName} (me)
+              <option value="">
+                {rosterLoading ? 'Loading roster…' : '— Select a nurse —'}
               </option>
-              {onShiftNurses.filter(n => n.id !== userId).map(n => (
+              {/* Self-assign option only if current user is a nurse role */}
+              {isUserANurse && onShiftNurses.every(n => n.id !== userId) && (
+                <option value={userId}>
+                  {userName} (me)
+                </option>
+              )}
+              {onShiftNurses.map(n => (
                 <option key={n.id} value={n.id}>
-                  {n.name} ({n.patient_count} patients)
+                  {n.name}{n.id === userId ? ' (me)' : ''} — {n.role.replace(/_/g, ' ')}
                 </option>
               ))}
             </select>
 
             <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
               <button
-                disabled={!selectedNurseId || assigning}
+                disabled={!selectedNurseId || assigning || !assignShiftInstanceId}
                 onClick={async () => {
                   if (!selectedNurseId || !assignBed.patient_id || !assignBed.encounter_id) return;
                   setAssigning(true);
                   setAssignError('');
                   try {
-                    // Find ward_id for this bed
                     const wardId = wards.find(w => w.beds.some(b => b.id === assignBed.id))?.ward_id;
                     if (!wardId) throw new Error('Ward not found for this bed');
-
-                    // Find shift instance for this ward
-                    const shiftForWard = currentShiftInstanceId;
-                    if (!shiftForWard) throw new Error('No active shift found');
+                    if (!assignShiftInstanceId) throw new Error('No active shift for this ward today');
 
                     await trpcMutate('patientAssignments.assign', {
-                      shift_instance_id: shiftForWard,
+                      shift_instance_id: assignShiftInstanceId,
                       nurse_id: selectedNurseId,
                       patient_id: assignBed.patient_id,
                       encounter_id: assignBed.encounter_id,
@@ -693,9 +774,9 @@ export default function NurseHomeClient({
                 }}
                 style={{
                   flex: 1, padding: '12px', borderRadius: '10px', border: 'none',
-                  background: selectedNurseId ? '#3b82f6' : '#d1d5db',
+                  background: selectedNurseId && assignShiftInstanceId ? '#3b82f6' : '#d1d5db',
                   color: '#fff', fontWeight: '600', fontSize: '14px',
-                  cursor: selectedNurseId ? 'pointer' : 'default',
+                  cursor: selectedNurseId && assignShiftInstanceId ? 'pointer' : 'default',
                   opacity: assigning ? 0.6 : 1,
                 }}
               >
@@ -703,6 +784,128 @@ export default function NurseHomeClient({
               </button>
               <button
                 onClick={() => { setShowAssignPopup(false); setAssignBed(null); }}
+                style={{
+                  padding: '12px 20px', borderRadius: '10px', border: '1px solid #e5e7eb',
+                  background: '#fff', color: '#6b7280', fontSize: '14px', cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TRANSFER BED POPUP ── */}
+      {showTransferPopup && transferBed && (
+        <div
+          onClick={() => setShowTransferPopup(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{
+            background: '#fff', borderRadius: '16px', padding: '24px', width: '420px',
+            maxHeight: '85vh', overflowY: 'auto',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+          }}>
+            <h3 style={{ fontSize: '16px', fontWeight: '700', margin: '0 0 4px', color: '#111827' }}>
+              🔀 Transfer to Another Bed
+            </h3>
+            <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '14px' }}>
+              From: <b>{transferBed.code}</b> · {transferBed.patient_name} ({transferBed.patient_uhid})
+            </div>
+
+            {transferError && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '8px 12px', fontSize: '13px', color: '#dc2626', marginBottom: '12px' }}>
+                {transferError}
+              </div>
+            )}
+
+            <label style={{ fontSize: '12px', fontWeight: '600', color: '#374151', display: 'block', marginBottom: '6px' }}>
+              Destination Bed (available beds across wards)
+            </label>
+            <select
+              value={transferDestId}
+              onChange={(e) => setTransferDestId(e.target.value)}
+              style={{
+                width: '100%', padding: '10px 12px', borderRadius: '8px',
+                border: '1px solid #d1d5db', fontSize: '14px', marginBottom: '10px',
+              }}
+            >
+              <option value="">— Select destination bed —</option>
+              {wards.map(w => {
+                const avail = w.beds.filter(b =>
+                  b.id !== transferBed.id &&
+                  b.bed_status !== 'maintenance' &&
+                  !b.encounter_id,
+                );
+                if (avail.length === 0) return null;
+                return (
+                  <optgroup key={w.ward_id} label={w.ward_name}>
+                    {avail.map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.code} — {b.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                );
+              })}
+            </select>
+
+            <label style={{ fontSize: '12px', fontWeight: '600', color: '#374151', display: 'block', marginBottom: '6px' }}>
+              Reason (optional)
+            </label>
+            <textarea
+              value={transferReason}
+              onChange={(e) => setTransferReason(e.target.value)}
+              rows={2}
+              placeholder="e.g., Isolation precaution, Upgrade to private, Patient request"
+              style={{
+                width: '100%', padding: '10px 12px', borderRadius: '8px',
+                border: '1px solid #d1d5db', fontSize: '13px', marginBottom: '12px',
+                fontFamily: 'inherit', resize: 'vertical',
+              }}
+            />
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                disabled={!transferDestId || transferring}
+                onClick={async () => {
+                  if (!transferDestId || !transferBed.encounter_id) return;
+                  setTransferring(true);
+                  setTransferError('');
+                  try {
+                    await trpcMutate('encounter.transfer', {
+                      encounter_id: transferBed.encounter_id,
+                      to_bed_id: transferDestId,
+                      transfer_type: 'bed',
+                      reason: transferReason || undefined,
+                    });
+                    setShowTransferPopup(false);
+                    setTransferBed(null);
+                    setTransferDestId('');
+                    setTransferReason('');
+                    loadData();
+                  } catch (err) {
+                    setTransferError(err instanceof Error ? err.message : 'Transfer failed');
+                  } finally {
+                    setTransferring(false);
+                  }
+                }}
+                style={{
+                  flex: 1, padding: '12px', borderRadius: '10px', border: 'none',
+                  background: transferDestId ? '#8b5cf6' : '#d1d5db',
+                  color: '#fff', fontWeight: '600', fontSize: '14px',
+                  cursor: transferDestId ? 'pointer' : 'default',
+                  opacity: transferring ? 0.6 : 1,
+                }}
+              >
+                {transferring ? 'Transferring…' : 'Confirm Transfer'}
+              </button>
+              <button
+                onClick={() => { setShowTransferPopup(false); setTransferBed(null); }}
                 style={{
                   padding: '12px 20px', borderRadius: '10px', border: '1px solid #e5e7eb',
                   background: '#fff', color: '#6b7280', fontSize: '14px', cursor: 'pointer',

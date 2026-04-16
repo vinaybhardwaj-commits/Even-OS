@@ -96,12 +96,16 @@ export default function WorksheetClient({ userId, userRole, userName }: Props) {
   // ── Load shift + patients + task statuses ─────────────────────────────
   const loadData = useCallback(async () => {
     try {
-      // 1. Get current shift
-      const shift = await trpcQuery('shifts.getCurrentShift');
-      if (!shift?.id) {
+      // 1. Get current shift (returns array → pick first)
+      const shiftArr = await trpcQuery('shifts.getCurrentShift');
+      const shift = Array.isArray(shiftArr) && shiftArr.length > 0 ? shiftArr[0] : null;
+      // getCurrentShift returns instance_id (not id). Accept either for
+      // backward-compatibility in case any field mapping drifts.
+      if (!shift || !(shift.id || shift.instance_id)) {
         setLoading(false);
         return;
       }
+      shift.id = shift.id || shift.instance_id;
       setShiftId(shift.id);
       setShiftLabel(`${shift.shift_type?.toUpperCase() || 'SHIFT'} — ${new Date(shift.start_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} to ${new Date(shift.end_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`);
 

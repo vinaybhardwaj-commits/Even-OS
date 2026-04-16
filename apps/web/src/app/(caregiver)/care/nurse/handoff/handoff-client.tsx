@@ -149,7 +149,10 @@ export default function HandoffClient({ userId, userRole, userName }: Props) {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const shiftData = await trpcQuery('shifts.getCurrentShift', {});
+    // getCurrentShift returns an array (user may have multiple shifts today);
+    // for handoff view, pick the first one.
+    const shiftArr = await trpcQuery('shifts.getCurrentShift', {});
+    const shiftData = Array.isArray(shiftArr) && shiftArr.length > 0 ? shiftArr[0] : null;
     if (!shiftData) { setShift(null); setLoading(false); return; }
     setShift(shiftData);
 

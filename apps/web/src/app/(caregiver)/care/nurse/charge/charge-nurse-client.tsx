@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ConfirmModal, EmptyState } from '@/components/caregiver';
+import { ConfirmModal } from '@/components/caregiver';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -151,8 +151,12 @@ export default function ChargeNurseClient({ userId, userRole, userName }: Props)
     try {
       setLoading(true);
 
-      // Get current shift
-      const shiftData = await trpcQuery('shifts.getCurrentShift', {});
+      // Get current shift. getCurrentShift returns an array (a user may have
+      // up to 3 shifts today); for charge-nurse view pick the first rostered
+      // shift. Admins/super_admins typically have no roster entries → empty
+      // array → render the "No Active Shift" empty state below.
+      const shiftArr = await trpcQuery('shifts.getCurrentShift', {});
+      const shiftData = Array.isArray(shiftArr) && shiftArr.length > 0 ? shiftArr[0] : null;
       if (!shiftData) {
         setShift(null);
         setLoading(false);
@@ -268,9 +272,52 @@ export default function ChargeNurseClient({ userId, userRole, userName }: Props)
   }
 
   if (!shift) {
+    const isAdmin = ['super_admin', 'hospital_admin', 'admin', 'nursing_supervisor'].includes(userRole);
     return (
-      <div className="caregiver-theme" style={{ padding: 24 }}>
-        <EmptyState title="No Active Shift" message="You're not rostered on any shift right now." icon="📋" />
+      <div className="caregiver-theme" style={{ padding: 24, maxWidth: 640, margin: '0 auto' }}>
+        <div style={{
+          background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB',
+          padding: '32px 24px', textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1E293B', margin: '0 0 8px' }}>
+            No Active Shift
+          </h2>
+          <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.6, margin: '0 0 20px' }}>
+            {isAdmin ? (
+              <>
+                You&apos;re viewing the Ward Command Center as <b>{userRole.replace(/_/g, ' ')}</b>, but no shift is rostered for you today.<br />
+                The Ward Command Center is a per-ward, per-shift view. Ask the Nursing Supervisor to generate today&apos;s shift instances and assign a charge nurse, or use the admin tools below.
+              </>
+            ) : (
+              <>You&apos;re not rostered on any shift right now. If this is unexpected, contact your nursing supervisor or admin.</>
+            )}
+          </p>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <a href="/care/nurse" style={{
+              padding: '10px 20px', borderRadius: 8, background: '#3B82F6', color: '#fff',
+              fontWeight: 600, fontSize: 14, textDecoration: 'none',
+            }}>
+              ← Back to Nurse Home
+            </a>
+            {isAdmin && (
+              <>
+                <a href="/admin/shifts" style={{
+                  padding: '10px 20px', borderRadius: 8, background: '#fff', color: '#374151',
+                  fontWeight: 600, fontSize: 14, textDecoration: 'none', border: '1px solid #D1D5DB',
+                }}>
+                  Open Shift Admin
+                </a>
+                <a href="/admin/bed-board" style={{
+                  padding: '10px 20px', borderRadius: 8, background: '#fff', color: '#374151',
+                  fontWeight: 600, fontSize: 14, textDecoration: 'none', border: '1px solid #D1D5DB',
+                }}>
+                  Open Bed Board
+                </a>
+              </>
+            )}
+          </div>
+        </div>
       </div>
     );
   }

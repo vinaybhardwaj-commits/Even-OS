@@ -517,6 +517,7 @@ export const shiftsRouter = router({
         instance_id: shiftInstances.id,
         instance_status: shiftInstances.status,
         ward_id: shiftInstances.ward_id,
+        ward_name: locations.name,
         shift_date: shiftInstances.shift_date,
         template_name: shiftTemplates.name,
         shift_name: shiftTemplates.shift_name,
@@ -528,6 +529,7 @@ export const shiftsRouter = router({
         .from(shiftRoster)
         .innerJoin(shiftInstances, eq(shiftRoster.shift_instance_id, shiftInstances.id))
         .innerJoin(shiftTemplates, eq(shiftInstances.template_id, shiftTemplates.id))
+        .leftJoin(locations, eq(shiftInstances.ward_id, locations.id))
         .where(and(
           eq(shiftRoster.user_id, ctx.user.sub),
           eq(shiftInstances.hospital_id, ctx.user.hospital_id),
@@ -539,6 +541,66 @@ export const shiftsRouter = router({
         .limit(3); // A user could have 1-2 shifts per day at most
 
       return rows;
+    }),
+
+  /**
+   * Get the active shift instance + nurse roster for a specific ward today.
+   * Non-user-specific — intended for admins/charge nurses who need to see
+   * who's on shift regardless of whether they themselves are rostered.
+   * Returns the first active/planned shift instance for the ward along with
+   * its full roster (all rostered users, with role hints so the caller can
+   * filter to nurse roles).
+   */
+  getActiveShiftForWard: protectedProcedure
+    .input(z.object({ ward_id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const today = new Date().toISOString().split('T')[0];
+
+      // Find the most relevant shift instance for this ward today.
+      // Prefer 'active' over 'planned'; sort by template start time.
+      const [instance] = await db.select({
+        instance_id: shiftInstances.id,
+        instance_status: shiftInstances.status,
+        ward_id: shiftInstances.ward_id,
+        ward_name: locations.name,
+        shift_date: shiftInstances.shift_date,
+        template_name: shiftTemplates.name,
+        shift_name: shiftTemplates.shift_name,
+        start_time: shiftTemplates.start_time,
+        end_time: shiftTemplates.end_time,
+        color: shiftTemplates.color,
+        charge_nurse_id: shiftInstances.charge_nurse_id,
+      })
+        .from(shiftInstances)
+        .innerJoin(shiftTemplates, eq(shiftInstances.template_id, shiftTemplates.id))
+        .leftJoin(locations, eq(shiftInstances.ward_id, locations.id))
+        .where(and(
+          eq(shiftInstances.hospital_id, ctx.user.hospital_id),
+          eq(shiftInstances.ward_id, input.ward_id),
+          eq(shiftInstances.shift_date, today),
+          inArray(shiftInstances.status, ['planned', 'active']),
+        ))
+        .orderBy(desc(shiftInstances.status), asc(shiftTemplates.start_time))
+        .limit(1);
+
+      if (!instance) return null;
+
+      const roster = await db.select({
+        roster_id: shiftRoster.id,
+        user_id: shiftRoster.user_id,
+        role_during_shift: shiftRoster.role_during_shift,
+        user_name: users.full_name,
+        user_email: users.email,
+      })
+        .from(shiftRoster)
+        .innerJoin(users, eq(shiftRoster.user_id, users.id))
+        .where(and(
+          eq(shiftRoster.shift_instance_id, instance.instance_id),
+          inArray(shiftRoster.status, ['scheduled', 'confirmed']),
+        ))
+        .orderBy(asc(shiftRoster.role_during_shift));
+
+      return { ...instance, roster };
     }),
 
   /**
