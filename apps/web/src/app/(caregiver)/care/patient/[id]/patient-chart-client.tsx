@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AlertBanner } from '@/components/caregiver';
 import DischargeChecklist from '@/components/discharge/DischargeChecklist';
+import { FormHistoryPanel } from '@/components/forms/FormHistoryPanel';
+import FormLauncher from '@/components/forms/FormLauncher';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -112,7 +114,7 @@ interface JourneyData {
   next_milestone: string;
 }
 
-type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan' | 'emar' | 'assessments' | 'billing' | 'journey';
+type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan' | 'emar' | 'assessments' | 'billing' | 'journey' | 'forms';
 
 interface Props {
   patientId: string;
@@ -138,6 +140,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
       { label: 'Assessments', id: 'assessments', icon: '✅' },
       { label: 'Notes', id: 'notes', icon: '📝' },
       { label: 'Tasks', id: 'orders', icon: '🎯' },
+      { label: 'Forms', id: 'forms', icon: '📋' },
     ];
   }
 
@@ -150,6 +153,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
       { label: 'Notes', id: 'notes', icon: '📝' },
       { label: 'Care Plan', id: 'plan', icon: '🗺️' },
       { label: 'Journey', id: 'journey', icon: '🗓️' },
+      { label: 'Forms', id: 'forms', icon: '📋' },
     ];
   }
 
@@ -184,6 +188,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
     { label: 'Orders', id: 'orders', icon: '📋' },
     { label: 'Notes', id: 'notes', icon: '📝' },
     { label: 'Plan', id: 'plan', icon: '🗺️' },
+    { label: 'Forms', id: 'forms', icon: '📋' },
   ];
 }
 
@@ -1313,6 +1318,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   const [activeTab, setActiveTab] = useState<PatientTab>('overview');
   const [loading, setLoading] = useState(true);
   const [orderPanel, setOrderPanel] = useState<'none' | 'medication' | 'labs' | 'imaging' | 'consult'>('none');
+  const [showFormLauncher, setShowFormLauncher] = useState(false);
+  const [formLauncherSlug, setFormLauncherSlug] = useState('');
 
   const [patient, setPatient] = useState<PatientData | null>(null);
   const [encounter, setEncounter] = useState<EncounterData | null>(null);
@@ -4940,6 +4947,21 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               </p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Forms Tab (SC.5) ──────────────────────────────────────────────────── */}
+      {activeTab === 'forms' && (
+        <div style={{ padding: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: '#002054' }}>Form Submissions</h2>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <FormLauncher slug="vitals" label="Log Vitals" icon={'📊'} patientId={patientId} encounterId={encounter?.id} variant="outline" size="sm" />
+              <FormLauncher slug="notes" label="Clinical Note" icon={'📝'} patientId={patientId} encounterId={encounter?.id} variant="outline" size="sm" />
+              <FormLauncher slug="meds" label="Medication" icon={'💊'} patientId={patientId} encounterId={encounter?.id} variant="outline" size="sm" />
+            </div>
+          </div>
+          <FormHistoryPanel patientId={patientId} encounterId={encounter?.id} />
         </div>
       )}
 
