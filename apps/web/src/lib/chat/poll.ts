@@ -1,14 +1,12 @@
 /**
- * Adaptive Polling Engine — OC.1c
+ * Chat API helpers — OC.1c → OC.8 (SSE)
  *
- * Manages poll intervals based on chat UI state:
- *   Chat room open → 2s (active conversation)
- *   Sidebar open   → 3s (browsing channels)
- *   Collapsed      → 5s (badge updates)
- *   Tab hidden     → 15s (background)
- *   Tab refocused  → immediate poll
+ * tRPC query/mutation wrappers and type definitions used across chat components.
+ * The ChatPollEngine class was removed in OC.8 — real-time delivery now uses
+ * ChatStreamEngine (SSE) in @/lib/chat/stream.
  *
- * Uses cursor-based polling (last_event_id) to avoid gaps/duplicates.
+ * This file is kept as `poll.ts` to avoid breaking 7+ component import paths.
+ * It exports: types, trpcMutate, trpcQuery, fetchChannels, fetchChannelDetails.
  */
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -43,24 +41,15 @@ export interface TypingIndicator {
   user_name: string;
 }
 
-// ── Interval Constants ──────────────────────────────────────────────────────
-
-const POLL_INTERVALS: Record<ChatUIState, number> = {
-  chatroom: 2000,
-  sidebar: 3000,
-  collapsed: 5000,
-};
-const BACKGROUND_INTERVAL = 15000;
-
-// ── tRPC helpers (match existing Even OS pattern) ───────────────────────────
+// ── tRPC helpers (used by 7+ components for mutations & queries) ────────────
 
 async function trpcQuery(path: string, input?: any): Promise<any> {
   const wrapped = input !== undefined ? { json: input } : { json: {} };
   const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
   const res = await fetch(`/api/trpc/${path}${params}`);
-  if (!res.ok) throw new Error(`Poll failed: ${res.status}`);
+  if (!res.ok) throw new Error(`Query failed: ${res.status}`);
   const json = await res.json();
-  if (json.error) throw new Error(json.error?.message || 'Poll error');
+  if (json.error) throw new Error(json.error?.message || 'Query error');
   return json.result?.data?.json;
 }
 
@@ -76,141 +65,7 @@ export async function trpcMutate(path: string, input: any): Promise<any> {
   return json.result?.data?.json;
 }
 
-// ── Polling Engine ──────────────────────────────────────────────────────────
-
-export class ChatPollEngine {
-  private intervalId: ReturnType<typeof setInterval> | null = null;
-  private lastEventId = 0;
-  private uiState: ChatUIState = 'collapsed';
-  private isTabVisible = true;
-  private onPollResult: ((result: PollResult) => void) | null = null;
-  private onError: ((error: Error) => void) | null = null;
-  private isPolling = false;
-  private consecutiveErrors = 0;
-  private maxConsecutiveErrors = 5;
-
-  constructor() {
-    // Track tab visibility for background throttling
-    if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', this.handleVisibility);
-    }
-  }
-
-  /** Start the polling loop */
-  start(
-    onResult: (result: PollResult) => void,
-    onError: (error: Error) => void,
-    initialLastEventId = 0,
-  ) {
-    this.onPollResult = onResult;
-    this.onError = onError;
-    this.lastEventId = initialLastEventId;
-    this.consecutiveErrors = 0;
-    this.scheduleNext();
-  }
-
-  /** Stop polling */
-  stop() {
-    if (this.intervalId) {
-      clearTimeout(this.intervalId);
-      this.intervalId = null;
-    }
-    if (typeof document !== 'undefined') {
-      document.removeEventListener('visibilitychange', this.handleVisibility);
-    }
-  }
-
-  /** Update UI state → changes poll interval on next tick */
-  setUIState(state: ChatUIState) {
-    if (this.uiState !== state) {
-      this.uiState = state;
-      // Restart with new interval
-      if (this.intervalId) {
-        clearTimeout(this.intervalId);
-        this.scheduleNext();
-      }
-    }
-  }
-
-  /** Get current last_event_id (for external use) */
-  getLastEventId() {
-    return this.lastEventId;
-  }
-
-  /** Force an immediate poll (e.g., after sending a message) */
-  async pollNow(): Promise<PollResult | null> {
-    return this.executePoll();
-  }
-
-  // ── Private ─────────────────────────────────────────────────────────────
-
-  private getInterval(): number {
-    if (!this.isTabVisible) return BACKGROUND_INTERVAL;
-    return POLL_INTERVALS[this.uiState];
-  }
-
-  private scheduleNext() {
-    this.intervalId = setTimeout(async () => {
-      await this.executePoll();
-      if (this.intervalId !== null) this.scheduleNext();
-    }, this.getInterval());
-  }
-
-  private async executePoll(): Promise<PollResult | null> {
-    if (this.isPolling) return null; // Skip overlapping polls
-    this.isPolling = true;
-
-    try {
-      const result: PollResult = await trpcQuery('chat.poll', {
-        lastEventId: this.lastEventId,
-      });
-
-      this.consecutiveErrors = 0;
-
-      if (result.lastEventId > this.lastEventId) {
-        this.lastEventId = result.lastEventId;
-      }
-
-      this.onPollResult?.(result);
-      return result;
-    } catch (err) {
-      this.consecutiveErrors++;
-      const error = err instanceof Error ? err : new Error(String(err));
-      this.onError?.(error);
-
-      // After too many consecutive errors, slow down polling
-      if (this.consecutiveErrors >= this.maxConsecutiveErrors) {
-        console.warn('[ChatPoll] Too many consecutive errors, slowing to 30s');
-      }
-      return null;
-    } finally {
-      this.isPolling = false;
-    }
-  }
-
-  private handleVisibility = () => {
-    const wasHidden = !this.isTabVisible;
-    this.isTabVisible = document.visibilityState === 'visible';
-
-    if (this.isTabVisible && wasHidden) {
-      // Tab refocused — poll immediately
-      this.executePoll();
-      // Restart with active interval
-      if (this.intervalId) {
-        clearTimeout(this.intervalId);
-        this.scheduleNext();
-      }
-    } else if (!this.isTabVisible) {
-      // Tab hidden — switch to background interval
-      if (this.intervalId) {
-        clearTimeout(this.intervalId);
-        this.scheduleNext();
-      }
-    }
-  };
-}
-
-// ── Channel list fetch (initial load) ───────────────────────────────────────
+// ── Channel list fetch (initial load + refresh) ─────────────────────────────
 
 export async function fetchChannels() {
   return trpcQuery('chat.listChannels');

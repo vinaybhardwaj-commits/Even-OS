@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * ChatProvider — OC.1c
+ * ChatProvider — OC.1c → OC.8c (SSE real-time)
  *
  * Root-level React context that powers the omnipresent chat system.
  * Provides: channels, messages, unread counts, presence, typing indicators,
@@ -10,7 +10,7 @@
  * Mounts at root layout level. Wrapped in error boundary — if this crashes,
  * the rest of the app continues to function normally without chat.
  *
- * Only activates when the user is authenticated (checks /api/trpc/auth.me).
+ * OC.8: Replaced ChatPollEngine (2-5s polling) with ChatStreamEngine (SSE, ~300ms).
  */
 
 import React, {
@@ -23,7 +23,6 @@ import React, {
   type ReactNode,
 } from 'react';
 import {
-  ChatPollEngine,
   fetchChannels,
   trpcMutate,
   type ChatUIState,
@@ -31,6 +30,7 @@ import {
   type PollResult,
   type TypingIndicator,
 } from '@/lib/chat/poll';
+import { ChatStreamEngine } from '@/lib/chat/stream';
 
 // ============================================================
 // TYPES
@@ -213,7 +213,7 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const pollEngineRef = useRef<ChatPollEngine | null>(null);
+  const streamEngineRef = useRef<ChatStreamEngine | null>(null);
   const activeChannelRef = useRef<string | null>(null);
 
   // Keep ref in sync
@@ -225,12 +225,12 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     try {
       sessionStorage.setItem('even_chat_state', state);
     } catch { /* noop */ }
-    // Update poll interval
-    pollEngineRef.current?.setUIState(state);
+    // Update stream interval (triggers reconnect with new uiState param)
+    streamEngineRef.current?.setUIState(state);
   }, []);
 
-  // ── Handle poll results ─────────────────────────────────────
-  const handlePollResult = useCallback((result: PollResult) => {
+  // ── Handle SSE stream results ───────────────────────────────
+  const handleStreamMessage = useCallback((result: PollResult) => {
     // Update typing indicators
     setTyping(result.typing);
 
@@ -239,37 +239,28 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
       // Update active channel messages if any new messages belong to it
       const activeId = activeChannelRef.current;
       if (activeId) {
-        const relevantMsgs = result.messages.filter(
-          (m: PollMessage) => {
-            // We need to match on channel UUID — messages come with channel_id (UUID)
-            // This is handled by refreshing channel details when active
-            return true; // We'll filter properly when we have the UUID mapping
-          }
-        );
-        if (relevantMsgs.length > 0) {
-          // Append new messages from poll (deduplicate by ID)
-          setActiveMessages(prev => {
-            const existingIds = new Set(prev.map(m => m.id));
-            const newMsgs: ChatMessage[] = relevantMsgs
-              .filter((m: PollMessage) => !existingIds.has(m.id))
-              .map((m: PollMessage) => ({
-                id: m.id,
-                sender_id: m.sender_id,
-                message_type: m.message_type,
-                priority: m.priority,
-                content: m.content_preview,
-                metadata: m.metadata,
-                is_edited: false,
-                is_deleted: false,
-                is_retracted: m.is_retracted,
-                created_at: m.created_at,
-                updated_at: m.created_at,
-                sender_name: m.sender_name,
-                sender_department: m.sender_department,
-              }));
-            return [...prev, ...newMsgs];
-          });
-        }
+        // Append new messages from stream (deduplicate by ID)
+        setActiveMessages(prev => {
+          const existingIds = new Set(prev.map(m => m.id));
+          const newMsgs: ChatMessage[] = result.messages
+            .filter((m: PollMessage) => !existingIds.has(m.id))
+            .map((m: PollMessage) => ({
+              id: m.id,
+              sender_id: m.sender_id,
+              message_type: m.message_type,
+              priority: m.priority,
+              content: m.content_preview,
+              metadata: m.metadata,
+              is_edited: false,
+              is_deleted: false,
+              is_retracted: m.is_retracted,
+              created_at: m.created_at,
+              updated_at: m.created_at,
+              sender_name: m.sender_name,
+              sender_department: m.sender_department,
+            }));
+          return [...prev, ...newMsgs];
+        });
       }
 
       // Refresh channel list to update unread counts and ordering
@@ -277,9 +268,9 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const handlePollError = useCallback((err: Error) => {
-    console.warn('[ChatPoll] Error:', err.message);
-    // Don't set error state for transient poll failures
+  const handleStreamError = useCallback((err: Error) => {
+    console.warn('[ChatStream] Error:', err.message);
+    // Don't set error state for transient stream failures — engine auto-reconnects
   }, []);
 
   // ── Load channels ───────────────────────────────────────────
@@ -314,10 +305,12 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
       setCurrentUserId(authResult.userId || null);
 
       // 2. Restore chat state from sessionStorage
+      let restoredState: ChatUIState = 'collapsed';
       try {
         const saved = sessionStorage.getItem('even_chat_state') as ChatUIState | null;
         if (saved && ['collapsed', 'sidebar', 'chatroom'].includes(saved)) {
           setChatStateRaw(saved);
+          restoredState = saved;
         }
       } catch { /* noop */ }
 
@@ -327,20 +320,21 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
 
       setIsLoading(false);
 
-      // 4. Start polling
-      const engine = new ChatPollEngine();
-      pollEngineRef.current = engine;
-      engine.start(handlePollResult, handlePollError, 0);
+      // 4. Start SSE stream (replaces polling engine)
+      const engine = new ChatStreamEngine();
+      streamEngineRef.current = engine;
+      engine.setUIState(restoredState);
+      engine.start(handleStreamMessage, handleStreamError, 0);
     }
 
     init();
 
     return () => {
       mounted = false;
-      pollEngineRef.current?.stop();
-      pollEngineRef.current = null;
+      streamEngineRef.current?.stop();
+      streamEngineRef.current = null;
     };
-  }, [loadChannels, handlePollResult, handlePollError]);
+  }, [loadChannels, handleStreamMessage, handleStreamError]);
 
   // ── Actions ─────────────────────────────────────────────────
 
@@ -414,8 +408,8 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
         ]);
       }
 
-      // Force immediate poll to sync state
-      pollEngineRef.current?.pollNow();
+      // SSE stream will deliver the message back within ~300ms.
+      // Optimistic insert above ensures the sender sees it immediately.
 
       return result;
     } catch (err) {

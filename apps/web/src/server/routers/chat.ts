@@ -455,77 +455,12 @@ export const chatRouter = router({
 
   // ── POLL ────────────────────────────────────────────────────
 
-  /**
-   * Poll for new messages, typing indicators, and presence.
-   * Returns ALL new messages in the hospital (no membership filter).
-   */
-  poll: protectedProcedure
-    .input(z.object({ lastEventId: z.number().default(0) }))
-    .query(async ({ ctx, input }) => {
-      const sql = getSql();
-      const userId = ctx.user.sub;
-      const hospitalId = ctx.user.hospital_id;
-
-      // 1. New messages since last_event_id — ALL channels in hospital
-      const newMessages = await sql`
-        SELECT m.id, m.channel_id, m.sender_id, m.message_type, m.priority,
-               LEFT(m.content, 200) as content_preview, m.created_at,
-               m.is_retracted, m.metadata,
-               u.full_name as sender_name, u.department as sender_department
-        FROM chat_messages m
-        LEFT JOIN users u ON u.id = m.sender_id
-        WHERE m.id > ${input.lastEventId}
-          AND m.hospital_id = ${hospitalId}
-        ORDER BY m.id ASC
-        LIMIT 100
-      `;
-
-      // 2. Typing indicators (active in last 5 seconds)
-      const typing = await sql`
-        SELECT ct.channel_id, ct.user_id, u.full_name as user_name
-        FROM chat_typing ct
-        JOIN users u ON u.id = ct.user_id
-        WHERE ct.started_at > NOW() - INTERVAL '5 seconds'
-          AND ct.user_id != ${userId}
-      `;
-
-      // 3. Update own presence (heartbeat)
-      await sql`
-        INSERT INTO chat_presence (user_id, status, last_seen_at, hospital_id)
-        VALUES (${userId}, 'online', NOW(), ${hospitalId})
-        ON CONFLICT (user_id)
-        DO UPDATE SET status = 'online', last_seen_at = NOW()
-      `;
-
-      // 4. Unread counts per channel (only channels with new messages)
-      const channelIds = [...new Set(newMessages.map((m: any) => m.channel_id))];
-      let unreadCounts: any[] = [];
-      if (channelIds.length > 0) {
-        unreadCounts = await sql`
-          SELECT cc.channel_id as cid,
-                 count(cm.id)::int as unread
-          FROM chat_channels cc
-          LEFT JOIN chat_channel_members ccm ON ccm.channel_id = cc.id AND ccm.user_id = ${userId}
-          JOIN chat_messages cm ON cm.channel_id = cc.id
-          WHERE cm.created_at > COALESCE(ccm.last_read_at, '1970-01-01'::timestamptz)
-            AND cm.sender_id != ${userId}
-            AND cc.id = ANY(${channelIds}::uuid[])
-          GROUP BY cc.channel_id
-        `;
-      }
-
-      const maxEventId = newMessages.length > 0
-        ? Math.max(...newMessages.map((m: any) => m.id))
-        : input.lastEventId;
-
-      return {
-        messages: newMessages,
-        typing,
-        unreadCounts: Object.fromEntries(unreadCounts.map((u: any) => [u.cid, u.unread])),
-        lastEventId: maxEventId,
-        serverTime: new Date().toISOString(),
-      };
-    }),
+  // NOTE: poll endpoint removed in OC.8 — replaced by SSE at /api/chat/stream.
+  // The SSE handler (apps/web/src/app/api/chat/stream/route.ts) now handles:
+  //   - Real-time message delivery (~300ms latency)
+  //   - Typing indicators
+  //   - Presence heartbeat
+  //   - Unread count computation
 
   // ── PRESENCE & TYPING ───────────────────────────────────────
 
