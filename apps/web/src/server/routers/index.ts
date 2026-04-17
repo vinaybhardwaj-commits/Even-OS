@@ -72,6 +72,7 @@ import { qcEnhancementRouter } from './qc-enhancement';
 import { labAnalyticsRouter } from './lab-analytics';
 import { financeChartRouter } from './finance-chart';
 import { journalEntriesRouter } from './journal-entries';
+import { vendorApRouter } from './vendor-ap';
 
 export const appRouter = router({
   auth: authRouter,
@@ -147,6 +148,7 @@ export const appRouter = router({
   labAnalytics: labAnalyticsRouter,
   financeChart: financeChartRouter,
   journalEntries: journalEntriesRouter,
+  vendorAp: vendorApRouter,
 });
 
 export type AppRouter = typeof appRouter;
