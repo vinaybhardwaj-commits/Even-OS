@@ -63,6 +63,7 @@ import { formsRouter } from './forms';
 import { insurersRouter } from './insurers';
 import { insurerRulesRouter } from './insurer-rules';
 import { billAdjustmentsRouter } from './bill-adjustments';
+import { implantsRouter } from './implants';
 
 export const appRouter = router({
   auth: authRouter,
@@ -129,6 +130,7 @@ export const appRouter = router({
   insurers: insurersRouter,
   insurerRules: insurerRulesRouter,
   billAdjustments: billAdjustmentsRouter,
+  implants: implantsRouter,
 });
 
 export type AppRouter = typeof appRouter;

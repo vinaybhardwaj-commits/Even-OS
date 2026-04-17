@@ -37,3 +37,4 @@ export * from './36-forms';
 export * from './37-insurers';
 export * from './38-insurer-rules';
 export * from './39-bill-adjustments';
+export * from './40-implant-billing';
