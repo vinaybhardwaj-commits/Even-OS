@@ -38,3 +38,4 @@ export * from './37-insurers';
 export * from './38-insurer-rules';
 export * from './39-bill-adjustments';
 export * from './40-implant-billing';
+export * from './41-external-labs';
