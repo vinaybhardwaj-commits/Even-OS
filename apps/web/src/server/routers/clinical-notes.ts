@@ -4,6 +4,7 @@ import { router, protectedProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { onClinicalNoteSaved } from '@/lib/chat/auto-events';
+import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -147,6 +148,13 @@ export const clinicalNotesRouter = router({
           } as any).catch(() => {});
         }
 
+        // N.5: Patient brief regen
+        void enqueueBriefRegenByText(getSql() as any, {
+          hospitalTextId: ctx.user.hospital_id,
+          patientId: input.patient_id,
+          trigger: 'new_note',
+        });
+
         return {
           note_id: noteId,
           queue_id: queueId,
@@ -241,6 +249,13 @@ export const clinicalNotesRouter = router({
             author_name: ctx.user.name,
           } as any).catch(() => {});
         }
+
+        // N.5: Patient brief regen
+        void enqueueBriefRegenByText(getSql() as any, {
+          hospitalTextId: ctx.user.hospital_id,
+          patientId: input.patient_id,
+          trigger: 'new_note',
+        });
 
         return {
           note_id: noteId,
@@ -366,6 +381,13 @@ export const clinicalNotesRouter = router({
           } as any).catch(() => {});
         }
 
+        // N.5: Patient brief regen
+        void enqueueBriefRegenByText(getSql() as any, {
+          hospitalTextId: ctx.user.hospital_id,
+          patientId: input.patient_id,
+          trigger: 'new_note',
+        });
+
         return {
           note_id: noteId,
           status: 'draft',
@@ -465,6 +487,13 @@ export const clinicalNotesRouter = router({
           table_name: 'clinical_impression',
           row_id: noteId,
           new_values: { patient_id: input.patient_id, encounter_id: input.encounter_id },
+        });
+
+        // N.5: Patient brief regen
+        void enqueueBriefRegenByText(getSql() as any, {
+          hospitalTextId: ctx.user.hospital_id,
+          patientId: input.patient_id,
+          trigger: 'new_note',
         });
 
         return {

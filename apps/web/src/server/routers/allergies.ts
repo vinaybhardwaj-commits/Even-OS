@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeEvent } from '@/lib/event-log';
+import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -100,7 +101,14 @@ export const allergiesRouter = router({
           throw new Error('Failed to create allergy record');
         }
 
-        // Log event (fire-and-forget)
+                // N.5: Patient brief regen
+        void enqueueBriefRegenByText(getSql() as any, {
+          hospitalTextId: ctx.user.hospital_id,
+          patientId: input.patient_id,
+          trigger: 'problem_list_change',
+        });
+
+// Log event (fire-and-forget)
         try {
           await writeEvent({
             hospital_id: ctx.user.hospital_id,

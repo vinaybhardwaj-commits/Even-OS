@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeEvent } from '@/lib/event-log';
+import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -115,6 +116,13 @@ export const conditionsRouter = router({
             message: 'Failed to create condition',
           });
         }
+
+        // N.5: Patient brief regen (fire-and-forget, never throws)
+        void enqueueBriefRegenByText(getSql() as any, {
+          hospitalTextId: hospitalId,
+          patientId: input.patient_id,
+          trigger: 'problem_list_change',
+        });
 
         // Log event (fire-and-forget)
         try {

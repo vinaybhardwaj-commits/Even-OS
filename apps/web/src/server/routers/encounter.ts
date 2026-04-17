@@ -10,6 +10,8 @@ import {
 import { writeAuditLog } from '@/lib/audit/logger';
 import { createPatientChannel, archivePatientChannel, onBedTransfer } from '@/lib/chat/channel-manager';
 import { eq, and, sql, desc, isNull } from 'drizzle-orm';
+import { neon } from '@neondatabase/serverless';
+import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
 
 const encounterClassValues = ['IMP', 'AMB', 'ED', 'HH', 'OBSENC'] as const;
 const admissionTypeValues = ['elective', 'emergency', 'day_care'] as const;
@@ -24,6 +26,12 @@ const DEFAULT_CHECKLIST_ITEMS = [
   { key: 'allergies_reviewed', label: 'Allergies reviewed', mandatory: false },
   { key: 'medications_reviewed', label: 'Current medications reviewed', mandatory: false },
 ];
+
+let _briefSql: any = null;
+function getBriefSql() {
+  if (!_briefSql) _briefSql = neon(process.env.DATABASE_URL!);
+  return _briefSql;
+}
 
 export const encounterRouter = router({
 
@@ -212,6 +220,13 @@ export const encounterRouter = router({
         attending_doctor_id: ctx.user.sub,
         bed_label: bed.code,
       }).catch(() => {});
+
+      // N.5: Patient brief regen — fresh admission
+      void enqueueBriefRegenByText(getBriefSql(), {
+        hospitalTextId: ctx.user.hospital_id,
+        patientId: input.patient_id,
+        trigger: 'admission',
+      });
 
       return {
         encounter_id: encounter.id,
@@ -773,6 +788,13 @@ export const encounterRouter = router({
 
       // OC.4a: Archive patient chat channel (fire-and-forget)
       archivePatientChannel(encounter.id).catch(() => {});
+
+      // N.5: Patient brief regen — discharge summary recap
+      void enqueueBriefRegenByText(getBriefSql(), {
+        hospitalTextId: ctx.user.hospital_id,
+        patientId: encounter.patient_id,
+        trigger: 'discharge',
+      });
 
       return { encounter_id: encounter.id, status: 'finished', discharge_at: now };
     }),

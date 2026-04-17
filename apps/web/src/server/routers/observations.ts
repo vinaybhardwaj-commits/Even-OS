@@ -4,6 +4,7 @@ import { router, protectedProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeEvent } from '@/lib/event-log';
 import { onVitalsRecorded } from '@/lib/chat/auto-events';
+import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -465,6 +466,20 @@ export const observationsRouter = router({
           }).catch(() => {});
         }
 
+        // N.5: Patient brief regen
+        void enqueueBriefRegenByText(getSql() as any, {
+          hospitalTextId: ctx.user.hospital_id,
+          patientId: input.patient_id,
+          trigger: 'vitals_abnormal',
+        });
+
+        // N.5: Patient brief regen
+        void enqueueBriefRegenByText(getSql() as any, {
+          hospitalTextId: ctx.user.hospital_id,
+          patientId: input.patient_id,
+          trigger: 'vitals_abnormal',
+        });
+
         return {
           success: true,
           vitals: insertedObs,
@@ -820,6 +835,13 @@ export const observationsRouter = router({
         } catch (error) {
           console.error('Failed to write event log for intake/output creation:', error);
         }
+
+        // N.5: Patient brief regen
+        void enqueueBriefRegenByText(getSql() as any, {
+          hospitalTextId: ctx.user.hospital_id,
+          patientId: input.patient_id,
+          trigger: 'vitals_abnormal',
+        });
 
         return {
           success: true,

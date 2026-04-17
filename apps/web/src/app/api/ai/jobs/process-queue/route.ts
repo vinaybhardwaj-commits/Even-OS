@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 import { generateInsight } from '@/lib/ai/llm-client';
 import { processIngestDocument } from '@/lib/document-ingest/worker';
+import { processRegenerateBrief } from '@/lib/patient-brief/worker';
 
 let _sql: any = null;
 function getSql() {
@@ -93,6 +94,31 @@ export async function POST(req: NextRequest) {
           }
           // Fall through to error handler with the worker's error message.
           throw new Error(ingestRes.error || 'ingest_document failed');
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // N.5 — regenerate_brief branch.
+        // Routes to the patient-brief worker, which gathers context,
+        // calls Qwen, runs structured grounding check, and writes a
+        // versioned patient_briefs row + patient_brief_sources rows.
+        // ─────────────────────────────────────────────────────────
+        if (item.prompt_template === 'regenerate_brief') {
+          const briefRes = await processRegenerateBrief(sql, {
+            id: item.id,
+            hospital_id: item.hospital_id,
+            input_data: item.input_data,
+            attempts: item.attempts || 0,
+            max_attempts: item.max_attempts || 3,
+          });
+          if (briefRes.ok) {
+            await sql(
+              `UPDATE ai_request_queue SET status = 'completed', last_attempt_at = NOW() WHERE id = $1`,
+              [item.id]
+            );
+            cardsGenerated++;
+            continue;
+          }
+          throw new Error(briefRes.error || 'regenerate_brief failed');
         }
 
         const inputData = typeof item.input_data === 'string' ? JSON.parse(item.input_data) : item.input_data;

@@ -5,6 +5,7 @@ import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeEvent } from '@/lib/event-log';
 import { addCareTeamMember } from '@/lib/chat/channel-manager';
 import { onMedicationOrdered, onMedicationAdministered, onDietOrdered, onNursingOrderCreated } from '@/lib/chat/auto-events';
+import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -296,6 +297,13 @@ export const medicationOrdersRouter = router({
           }).catch(() => {});
         }
 
+        // N.5: Patient brief regen
+        void enqueueBriefRegenByText(getSql() as any, {
+          hospitalTextId: ctx.user.hospital_id,
+          patientId: input.patient_id,
+          trigger: 'med_list_change',
+        });
+
         return {
           id: rows[0].id,
           cds_alerts: cdsAlerts,
@@ -421,6 +429,13 @@ export const medicationOrdersRouter = router({
             NOW()
           );
         `;
+
+        // N.5: Patient brief regen
+        void enqueueBriefRegenByText(getSql() as any, {
+          hospitalTextId: ctx.user.hospital_id,
+          patientId: (current as any).patient_id,
+          trigger: 'med_list_change',
+        });
 
         return { success: true, id: input.id };
       } catch (error) {

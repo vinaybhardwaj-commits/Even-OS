@@ -21,6 +21,7 @@ import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeAuditLog } from '@/lib/audit/logger';
+import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -210,22 +211,18 @@ export const chartProposalsRouter = router({
         new_values: { status: 'accepted', applied_row_id: appliedRowId, proposal_type: prop.proposal_type },
       });
 
-      // Chain a brief regen
-      const hosp = await sql`SELECT id FROM hospitals WHERE hospital_id = ${ctx.user.hospital_id} LIMIT 1`;
-      if (hosp.length > 0) {
-        const triggerMap: Record<string, string> = {
+      // N.5: Patient brief regen (uses debounced helper)
+      {
+        const triggerMap: Record<string, 'problem_list_change' | 'med_list_change' | 'new_lab' | 'new_note'> = {
           condition: 'problem_list_change', problem: 'problem_list_change',
           allergy: 'problem_list_change', medication: 'med_list_change',
           lab_result: 'new_lab', procedure: 'new_note',
         };
-        await sql`
-          INSERT INTO ai_request_queue (hospital_id, module, priority, input_data, prompt_template, status, attempts, max_attempts)
-          VALUES (
-            ${hosp[0].id}, 'clinical', 'medium',
-            ${JSON.stringify({ patient_id: prop.patient_id, trigger: triggerMap[prop.proposal_type] ?? 'manual' })}::jsonb,
-            'regenerate_brief', 'pending', 0, 3
-          )
-        `;
+        void enqueueBriefRegenByText(sql as any, {
+          hospitalTextId: ctx.user.hospital_id,
+          patientId: prop.patient_id,
+          trigger: triggerMap[prop.proposal_type] ?? 'manual',
+        });
       }
 
       return { ok: true as const, applied_row_id: appliedRowId };
