@@ -9,6 +9,7 @@ import ProblemForm from '@/components/conditions/ProblemForm';
 import LabsTab from '@/components/patient-chart/LabsTab';
 import DocumentsTab from '@/components/patient-chart/DocumentsTab';
 import NotesTab from '@/components/patient-chart/NotesTab';
+import BriefTab from '@/components/patient-brief/BriefTab';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -118,7 +119,7 @@ interface JourneyData {
   next_milestone: string;
 }
 
-type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan' | 'emar' | 'assessments' | 'billing' | 'journey' | 'forms' | 'documents';
+type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan' | 'emar' | 'assessments' | 'billing' | 'journey' | 'forms' | 'documents' | 'brief';
 
 interface Props {
   patientId: string;
@@ -144,6 +145,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
       { label: 'Assessments', id: 'assessments', icon: '✅' },
       { label: 'Notes', id: 'notes', icon: '📝' },
       { label: 'Tasks', id: 'orders', icon: '🎯' },
+      { label: 'Brief', id: 'brief', icon: '🧠' },
       { label: 'Documents', id: 'documents', icon: '📁' },
       { label: 'Forms', id: 'forms', icon: '📋' },
     ];
@@ -158,6 +160,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
       { label: 'Notes', id: 'notes', icon: '📝' },
       { label: 'Care Plan', id: 'plan', icon: '🗺️' },
       { label: 'Journey', id: 'journey', icon: '🗓️' },
+      { label: 'Brief', id: 'brief', icon: '🧠' },
       { label: 'Documents', id: 'documents', icon: '📁' },
       { label: 'Forms', id: 'forms', icon: '📋' },
     ];
@@ -194,6 +197,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
     { label: 'Orders', id: 'orders', icon: '📋' },
     { label: 'Notes', id: 'notes', icon: '📝' },
     { label: 'Plan', id: 'plan', icon: '🗺️' },
+    { label: 'Brief', id: 'brief', icon: '🧠' },
     { label: 'Documents', id: 'documents', icon: '📁' },
     { label: 'Forms', id: 'forms', icon: '📋' },
   ];
@@ -4310,6 +4314,15 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
       )}
 
       {/* ── Forms Tab (SC.5) ──────────────────────────────────────────────────── */}
+      {/* ── Brief Tab (N.6) ───────────────────────────────────────────────── */}
+      {activeTab === 'brief' && (
+        <BriefTab
+          patientId={patientId}
+          userRole={userRole}
+          userName={userName}
+        />
+      )}
+
       {/* ── Documents Tab (N.2) ──────────────────────────────────────────────── */}
       {activeTab === 'documents' && (
         <DocumentsTab

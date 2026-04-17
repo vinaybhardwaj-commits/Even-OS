@@ -93,12 +93,77 @@ export async function processIngestDocument(sql: Sql, item: QueueItem): Promise<
   }
 
   // 2. Extract text from the blob.
-  const extraction = await extractDocumentText({
-    blobUrl: doc.blob_url,
-    mime: doc.content_type,
-    filename: undefined,
-  });
+  // ─────────────────────────────────────────────────────────────
+  // N.6 — if this job was re-enqueued by the OCR worker, the
+  // canonical text is already in mrd_ocr_results and we should
+  // skip the unpdf/mammoth path entirely. The OCR worker writes
+  // raw_ocr_text and bumps the document's status to 'ocr_succeeded';
+  // we read the latest row by processed_at DESC.
+  // ─────────────────────────────────────────────────────────────
+  let extraction: { text: string; pages?: number; extractor: string; bytes: number };
+  if (input?.use_ocr_text === true) {
+    const ocrRows = await sql(
+      `SELECT raw_ocr_text
+         FROM mrd_ocr_results
+        WHERE document_reference_id = $1
+        ORDER BY processed_at DESC
+        LIMIT 1`,
+      [documentId],
+    );
+    const ocrText = ocrRows?.[0]?.raw_ocr_text || '';
+    extraction = {
+      text: ocrText,
+      extractor: 'ocr',
+      bytes: ocrText.length,
+    };
+  } else {
+    extraction = await extractDocumentText({
+      blobUrl: doc.blob_url,
+      mime: doc.content_type,
+      filename: undefined,
+    });
+  }
   if (!extraction.text || extraction.text.length < 40) {
+    // ─────────────────────────────────────────────────────────────
+    // N.6 — when the unpdf/mammoth extractor produces nothing usable
+    // and the input is a PDF or image, enqueue an `ocr_document` job
+    // and let the Tesseract worker take a swing. We only do this when
+    // we WEREN'T already running on OCR text (otherwise it's a loop:
+    // OCR produced too few chars → re-enqueue OCR → ...).
+    // ─────────────────────────────────────────────────────────────
+    const mime = (doc.content_type || '').toLowerCase();
+    const ocrEligible =
+      input?.use_ocr_text !== true &&
+      (mime === 'application/pdf' || mime.startsWith('image/'));
+
+    if (ocrEligible) {
+      await sql(
+        `UPDATE mrd_document_references SET status = 'ocr_pending' WHERE id = $1`,
+        [documentId],
+      );
+      await sql(
+        `INSERT INTO ai_request_queue (
+           hospital_id, module, priority, input_data, prompt_template, status, attempts, max_attempts
+         )
+         VALUES ($1, 'clinical', 'high', $2::jsonb, 'ocr_document', 'pending', 0, 3)`,
+        [
+          item.hospital_id,
+          JSON.stringify({
+            document_id: documentId,
+            patient_id: doc.patient_id,
+            triggered_by: 'ingest_document_fallback',
+          }),
+        ],
+      );
+      return {
+        ok: true, // we successfully handed it off; queue worker will mark ingest done
+        proposals_created: 0,
+        proposals_auto_accepted: 0,
+        document_id: documentId,
+        error: `0-chars from extractor — enqueued for OCR (mime=${mime})`,
+      };
+    }
+
     await sql(
       `UPDATE mrd_document_references SET status = 'ingestion_failed' WHERE id = $1`,
       [documentId],
@@ -113,14 +178,19 @@ export async function processIngestDocument(sql: Sql, item: QueueItem): Promise<
   }
 
   // Persist the OCR/text-extraction result for future auditability.
-  await sql(
-    `INSERT INTO mrd_ocr_results (
-       document_reference_id, raw_ocr_text, ocr_confidence,
-       detected_language, processing_time_ms, processed_at
-     )
-     VALUES ($1, $2, $3, $4, $5, NOW())`,
-    [documentId, extraction.text.slice(0, 500_000), 1.0, 'en', 0],
-  );
+  // When we're already running on OCR text the row was written by the
+  // OCR worker — don't double-insert (and don't overwrite its real
+  // ocr_confidence with our placeholder 1.0).
+  if (input?.use_ocr_text !== true) {
+    await sql(
+      `INSERT INTO mrd_ocr_results (
+         document_reference_id, raw_ocr_text, ocr_confidence,
+         detected_language, processing_time_ms, processed_at
+       )
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [documentId, extraction.text.slice(0, 500_000), 1.0, 'en', 0],
+    );
+  }
 
   // 3. Call the LLM.
   const clamped = clampForPrompt(extraction.text);

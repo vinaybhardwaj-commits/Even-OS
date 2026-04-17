@@ -92,6 +92,46 @@ export const patientBriefsRouter = router({
     }),
 
   // ─────────────────────────────────────────────────────────
+  // 2a. GET LATEST BRIEF (for the patient chart Brief tab — N.6)
+  //     Returns the highest-version row for the patient with full
+  //     narrative + structured + hallucination_flags + source_ids
+  //     in ONE round-trip. Returns null if no brief has ever been
+  //     generated (sparse-history patient).
+  // ─────────────────────────────────────────────────────────
+  getLatestBrief: protectedProcedure
+    .input(z.object({ patient_id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      assertRead(ctx.user.role);
+      const sql = getSql();
+      const rows = await sql`
+        SELECT id, version, narrative, structured, trigger_event,
+               triggered_by, llm_audit_id, source_ids, hallucination_flags,
+               is_stale, supersedes_id, generated_at, created_at
+          FROM patient_briefs
+         WHERE patient_id = ${input.patient_id}
+         ORDER BY version DESC
+         LIMIT 1
+      `;
+      // Also surface whether a regeneration is currently queued so the
+      // UI can show a "Regenerating…" pill instead of "Up to date".
+      const queued = await sql`
+        SELECT id, priority, attempts, status, created_at,
+               input_data->>'trigger' AS trigger
+          FROM ai_request_queue
+         WHERE module = 'clinical'
+           AND prompt_template = 'regenerate_brief'
+           AND status IN ('pending','processing','running')
+           AND input_data->>'patient_id' = ${input.patient_id}
+         ORDER BY created_at DESC
+         LIMIT 1
+      `;
+      return {
+        brief: rows[0] ?? null,
+        pending: queued[0] ?? null,
+      };
+    }),
+
+  // ─────────────────────────────────────────────────────────
   // 3. REGENERATE BRIEF (enqueue job at priority=critical)
   // ─────────────────────────────────────────────────────────
   regenerateBrief: protectedProcedure

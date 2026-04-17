@@ -3,6 +3,7 @@ import { neon } from '@neondatabase/serverless';
 import { generateInsight } from '@/lib/ai/llm-client';
 import { processIngestDocument } from '@/lib/document-ingest/worker';
 import { processRegenerateBrief } from '@/lib/patient-brief/worker';
+import { processOcrDocument } from '@/lib/document-ingest/ocr-worker';
 
 let _sql: any = null;
 function getSql() {
@@ -94,6 +95,32 @@ export async function POST(req: NextRequest) {
           }
           // Fall through to error handler with the worker's error message.
           throw new Error(ingestRes.error || 'ingest_document failed');
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // N.6 — ocr_document branch.
+        // Runs Tesseract over an image/PDF blob whose unpdf/mammoth
+        // extraction came up empty. On success: writes mrd_ocr_results
+        // and re-enqueues an ingest_document job with use_ocr_text=true,
+        // so N.4's pipeline picks the now-extractable text up.
+        // ─────────────────────────────────────────────────────────
+        if (item.prompt_template === 'ocr_document') {
+          const ocrRes = await processOcrDocument(sql, {
+            id: item.id,
+            hospital_id: item.hospital_id,
+            input_data: item.input_data,
+            attempts: item.attempts || 0,
+            max_attempts: item.max_attempts || 3,
+          });
+          if (ocrRes.ok) {
+            await sql(
+              `UPDATE ai_request_queue SET status = 'completed', last_attempt_at = NOW() WHERE id = $1`,
+              [item.id]
+            );
+            cardsGenerated++;
+            continue;
+          }
+          throw new Error(ocrRes.error || 'ocr_document failed');
         }
 
         // ─────────────────────────────────────────────────────────
