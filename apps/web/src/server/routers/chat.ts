@@ -634,8 +634,9 @@ export const chatRouter = router({
       const hospitalId = ctx.user.hospital_id;
       const pattern = `%${input.query}%`;
 
+      // roles is a text[] array — extract first role as display value
       return sql`
-        SELECT id, full_name, department, role
+        SELECT id, full_name, department, roles[1] as role
         FROM users
         WHERE hospital_id = ${hospitalId}
           AND status = 'active'

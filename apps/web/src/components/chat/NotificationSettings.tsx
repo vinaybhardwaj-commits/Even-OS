@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * NotificationSettings — OC.6b
+ * NotificationSettings — OC.6b (refined)
  *
  * Global notification preferences panel shown in the sidebar.
  * Toggle: push notifications, sound, and per-channel mute overrides.
@@ -13,6 +13,27 @@ import { trpcMutate } from '@/lib/chat/poll';
 interface NotificationSettingsProps {
   visible: boolean;
   onClose: () => void;
+}
+
+function Toggle({ enabled, onToggle, disabled }: { enabled: boolean; onToggle: () => void; disabled: boolean }) {
+  return (
+    <button
+      onClick={onToggle}
+      disabled={disabled}
+      className={`relative inline-flex items-center shrink-0
+        w-9 h-5 rounded-full transition-colors duration-200
+        ${enabled ? 'bg-blue-500' : 'bg-white/20'}
+        ${disabled ? 'opacity-50' : ''}`}
+      role="switch"
+      aria-checked={enabled}
+    >
+      <span
+        className={`inline-block w-3.5 h-3.5 rounded-full bg-white shadow
+          transition-transform duration-200
+          ${enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'}`}
+      />
+    </button>
+  );
 }
 
 export function NotificationSettings({ visible, onClose }: NotificationSettingsProps) {
@@ -67,7 +88,7 @@ export function NotificationSettings({ visible, onClose }: NotificationSettingsP
   if (!visible) return null;
 
   return (
-    <div className="absolute inset-0 z-50 bg-[#0A1628]/95 flex flex-col">
+    <div className="absolute inset-0 z-50 bg-[#0A1628] flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-4 h-12 border-b border-white/10 shrink-0">
         <span className="text-sm font-semibold text-white">Notification Settings</span>
@@ -86,85 +107,58 @@ export function NotificationSettings({ visible, onClose }: NotificationSettingsP
       {!loaded ? (
         <div className="flex-1 flex items-center justify-center text-white/30 text-xs">Loading...</div>
       ) : (
-        <div className="flex-1 overflow-y-auto py-4 px-4 space-y-6">
+        <div className="flex-1 overflow-y-auto py-4 px-4 space-y-5">
           {/* Global section */}
           <div>
-            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-3">
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-white/40 mb-3">
               Global Preferences
             </h3>
 
             {/* Push toggle */}
-            <div className="flex items-center justify-between py-2">
-              <div>
-                <div className="text-sm text-white">Push Notifications</div>
-                <div className="text-[10px] text-white/40">Browser alerts for new messages</div>
+            <div className="flex items-center gap-3 py-2.5">
+              <Toggle enabled={pushEnabled} onToggle={togglePush} disabled={isSaving} />
+              <div className="min-w-0">
+                <div className="text-[13px] text-white leading-tight">Push Notifications</div>
+                <div className="text-[10px] text-white/40 mt-0.5">Browser alerts for new messages</div>
               </div>
-              <button
-                onClick={togglePush}
-                disabled={isSaving}
-                className={`relative w-10 h-5.5 rounded-full transition-colors duration-200
-                  ${pushEnabled ? 'bg-blue-500' : 'bg-white/20'}`}
-                style={{ height: 22, width: 40 }}
-              >
-                <span
-                  className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow
-                    transition-transform duration-200
-                    ${pushEnabled ? 'translate-x-5' : 'translate-x-0.5'}`}
-                  style={{ width: 18, height: 18, transform: pushEnabled ? 'translateX(20px)' : 'translateX(2px)' }}
-                />
-              </button>
             </div>
 
             {/* Sound toggle */}
-            <div className="flex items-center justify-between py-2">
-              <div>
-                <div className="text-sm text-white">Sound</div>
-                <div className="text-[10px] text-white/40">Play sound for incoming messages</div>
+            <div className="flex items-center gap-3 py-2.5">
+              <Toggle enabled={soundEnabled} onToggle={toggleSound} disabled={isSaving} />
+              <div className="min-w-0">
+                <div className="text-[13px] text-white leading-tight">Sound</div>
+                <div className="text-[10px] text-white/40 mt-0.5">Play sound for incoming messages</div>
               </div>
-              <button
-                onClick={toggleSound}
-                disabled={isSaving}
-                className={`relative rounded-full transition-colors duration-200
-                  ${soundEnabled ? 'bg-blue-500' : 'bg-white/20'}`}
-                style={{ height: 22, width: 40 }}
-              >
-                <span
-                  className="absolute top-0.5 rounded-full bg-white shadow transition-transform duration-200"
-                  style={{
-                    width: 18, height: 18,
-                    transform: soundEnabled ? 'translateX(20px)' : 'translateX(2px)',
-                  }}
-                />
-              </button>
             </div>
           </div>
 
           {/* Muting hint */}
           <div className="border-t border-white/10 pt-4">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-2">
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-white/40 mb-2">
               Per-Channel Muting
             </h3>
             <p className="text-[11px] text-white/30 leading-relaxed">
-              To mute a specific channel, open the channel and click the bell icon
-              in the header. You can mute for 1 hour, 8 hours, 24 hours, 7 days, or indefinitely.
+              To mute a specific channel, open it and click the bell icon
+              in the header. Options: 1h, 8h, 24h, 7 days, or indefinite.
             </p>
           </div>
 
           {/* Keyboard shortcuts reference */}
           <div className="border-t border-white/10 pt-4">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-white/40 mb-2">
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-white/40 mb-2">
               Keyboard Shortcuts
             </h3>
-            <div className="space-y-1.5 text-[11px]">
-              <div className="flex justify-between text-white/50">
+            <div className="space-y-2 text-[11px]">
+              <div className="flex items-center justify-between text-white/50">
                 <span>Toggle chat sidebar</span>
                 <kbd className="px-1.5 py-0.5 bg-white/10 rounded text-white/70 font-mono text-[10px]">Ctrl+Shift+M</kbd>
               </div>
-              <div className="flex justify-between text-white/50">
+              <div className="flex items-center justify-between text-white/50">
                 <span>New direct message</span>
                 <kbd className="px-1.5 py-0.5 bg-white/10 rounded text-white/70 font-mono text-[10px]">Ctrl+Shift+N</kbd>
               </div>
-              <div className="flex justify-between text-white/50">
+              <div className="flex items-center justify-between text-white/50">
                 <span>Close chat</span>
                 <kbd className="px-1.5 py-0.5 bg-white/10 rounded text-white/70 font-mono text-[10px]">Escape</kbd>
               </div>
