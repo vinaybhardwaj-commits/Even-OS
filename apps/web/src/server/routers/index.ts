@@ -77,6 +77,9 @@ import { accountsReceivableRouter } from './accounts-receivable';
 import { financialStatementsRouter } from './financial-statements';
 import { gstModuleRouter } from './gst-module';
 import { accountingPeriodsRouter } from './accounting-periods';
+import { patientBriefsRouter } from './patient-briefs';
+import { mrdDoctorRouter } from './mrd-doctor';
+import { chartProposalsRouter } from './chart-proposals';
 
 export const appRouter = router({
   auth: authRouter,
@@ -157,6 +160,9 @@ export const appRouter = router({
   financialStatements: financialStatementsRouter,
   gstModule: gstModuleRouter,
   accountingPeriods: accountingPeriodsRouter,
+  patientBriefs: patientBriefsRouter,
+  mrdDoctor: mrdDoctorRouter,
+  chartProposals: chartProposalsRouter,
 });
 
 export type AppRouter = typeof appRouter;

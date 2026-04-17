@@ -144,7 +144,7 @@ export const clinicalNotesRouter = router({
             hospital_id: ctx.user.hospital_id,
             note_type: 'SOAP',
             author_name: ctx.user.name,
-          }).catch(() => {});
+          } as any).catch(() => {});
         }
 
         return {
@@ -239,7 +239,7 @@ export const clinicalNotesRouter = router({
             hospital_id: ctx.user.hospital_id,
             note_type: 'Nursing',
             author_name: ctx.user.name,
-          }).catch(() => {});
+          } as any).catch(() => {});
         }
 
         return {
@@ -363,7 +363,7 @@ export const clinicalNotesRouter = router({
             hospital_id: ctx.user.hospital_id,
             note_type: 'Operative',
             author_name: ctx.user.name,
-          }).catch(() => {});
+          } as any).catch(() => {});
         }
 
         return {
@@ -1090,4 +1090,401 @@ export const clinicalNotesRouter = router({
         });
       }
     }),
+
+  // ════════════════════════════════════════════════════════
+  // N.1 ADDITIONS — 8 new note-type create endpoints (17 Apr 2026)
+  // All write to clinical_impressions with the appropriate note_type.
+  // All doctor-authored notes also insert a co_signature_queue row.
+  // All audit via writeAuditLog and emit onClinicalNoteSaved.
+  // ════════════════════════════════════════════════════════
+
+  createProgressNote: protectedProcedure
+    .input(z.object({
+      patient_id: z.string().uuid(),
+      encounter_id: z.string().uuid(),
+      subjective: z.string().max(5000).optional(),
+      objective: z.string().max(5000).optional(),
+      assessment: z.string().max(5000).optional(),
+      plan: z.string().max(5000).optional(),
+      template_id: z.string().uuid().optional(),
+      required_signer_id: z.string().uuid().optional(),
+      required_signer_name: z.string().max(200).optional(),
+      status: z.enum(['draft','signed']).default('draft'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const inserted = await sql`
+        INSERT INTO clinical_impressions (
+          hospital_id, patient_id, encounter_id, note_type, status,
+          subjective, objective, assessment, plan, template_id,
+          author_id, version, signed_by_user_id, signed_at
+        ) VALUES (
+          ${ctx.user.hospital_id}, ${input.patient_id}, ${input.encounter_id},
+          'progress_note', ${input.status},
+          ${input.subjective ?? null}, ${input.objective ?? null},
+          ${input.assessment ?? null}, ${input.plan ?? null},
+          ${input.template_id ?? null}, ${ctx.user.sub}, 1,
+          ${input.status === 'signed' ? ctx.user.sub : null},
+          ${input.status === 'signed' ? new Date().toISOString() : null}
+        )
+        RETURNING id
+      `;
+      const noteId = inserted[0].id;
+
+      if (input.required_signer_id) {
+        await sql`
+          INSERT INTO co_signature_queue (
+            hospital_id, patient_id, clinical_impression_id, cosign_note_type,
+            author_id, author_name, required_signer_id, required_signer_name,
+            cosign_status, escalation_count
+          ) VALUES (
+            ${ctx.user.hospital_id}, ${input.patient_id}, ${noteId}, 'progress_note',
+            ${ctx.user.sub}, ${ctx.user.name ?? 'Unknown'},
+            ${input.required_signer_id}, ${input.required_signer_name ?? 'Unknown'},
+            'pending', 0
+          )
+        `;
+      }
+
+      await writeAuditLog(ctx.user, {
+        action: 'INSERT', table_name: 'clinical_impressions', row_id: noteId,
+        new_values: { note_type: 'progress_note', patient_id: input.patient_id },
+      });
+      await onClinicalNoteSaved({ note_id: noteId, note_type: 'progress_note', patient_id: input.patient_id, encounter_id: input.encounter_id, author_id: ctx.user.sub, author_name: ctx.user.name ?? 'Unknown' } as any).catch(() => {});
+      return { id: noteId };
+    }),
+
+  createAdmissionNote: protectedProcedure
+    .input(z.object({
+      patient_id: z.string().uuid(),
+      encounter_id: z.string().uuid(),
+      admission_details: z.string().max(10000),
+      diagnosis_list: z.array(z.any()).optional(),
+      template_id: z.string().uuid().optional(),
+      required_signer_id: z.string().uuid().optional(),
+      required_signer_name: z.string().max(200).optional(),
+      status: z.enum(['draft','signed']).default('draft'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const inserted = await sql`
+        INSERT INTO clinical_impressions (
+          hospital_id, patient_id, encounter_id, note_type, status,
+          admission_details, diagnosis_list, template_id, author_id, version
+        ) VALUES (
+          ${ctx.user.hospital_id}, ${input.patient_id}, ${input.encounter_id},
+          'admission_note', ${input.status},
+          ${input.admission_details}, ${JSON.stringify(input.diagnosis_list ?? [])}::jsonb,
+          ${input.template_id ?? null}, ${ctx.user.sub}, 1
+        )
+        RETURNING id
+      `;
+      const noteId = inserted[0].id;
+
+      if (input.required_signer_id) {
+        await sql`
+          INSERT INTO co_signature_queue (
+            hospital_id, patient_id, clinical_impression_id, cosign_note_type,
+            author_id, author_name, required_signer_id, required_signer_name,
+            cosign_status, escalation_count
+          ) VALUES (
+            ${ctx.user.hospital_id}, ${input.patient_id}, ${noteId}, 'admission_note',
+            ${ctx.user.sub}, ${ctx.user.name ?? 'Unknown'},
+            ${input.required_signer_id}, ${input.required_signer_name ?? 'Unknown'},
+            'pending', 0
+          )
+        `;
+      }
+
+      await writeAuditLog(ctx.user, {
+        action: 'INSERT', table_name: 'clinical_impressions', row_id: noteId,
+        new_values: { note_type: 'admission_note' },
+      });
+      await onClinicalNoteSaved({ note_id: noteId, note_type: 'admission_note', patient_id: input.patient_id, encounter_id: input.encounter_id, author_id: ctx.user.sub, author_name: ctx.user.name ?? 'Unknown' } as any).catch(() => {});
+      return { id: noteId };
+    }),
+
+  createPhysicalExam: protectedProcedure
+    .input(z.object({
+      patient_id: z.string().uuid(),
+      encounter_id: z.string().uuid(),
+      objective: z.string().max(10000),
+      assessment: z.string().max(5000).optional(),
+      template_id: z.string().uuid().optional(),
+      required_signer_id: z.string().uuid().optional(),
+      required_signer_name: z.string().max(200).optional(),
+      status: z.enum(['draft','signed']).default('draft'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const inserted = await sql`
+        INSERT INTO clinical_impressions (
+          hospital_id, patient_id, encounter_id, note_type, status,
+          objective, assessment, template_id, author_id, version
+        ) VALUES (
+          ${ctx.user.hospital_id}, ${input.patient_id}, ${input.encounter_id},
+          'physical_exam', ${input.status},
+          ${input.objective}, ${input.assessment ?? null},
+          ${input.template_id ?? null}, ${ctx.user.sub}, 1
+        )
+        RETURNING id
+      `;
+      const noteId = inserted[0].id;
+      if (input.required_signer_id) {
+        await sql`
+          INSERT INTO co_signature_queue (
+            hospital_id, patient_id, clinical_impression_id, cosign_note_type,
+            author_id, author_name, required_signer_id, required_signer_name,
+            cosign_status, escalation_count
+          ) VALUES (
+            ${ctx.user.hospital_id}, ${input.patient_id}, ${noteId}, 'physical_exam',
+            ${ctx.user.sub}, ${ctx.user.name ?? 'Unknown'},
+            ${input.required_signer_id}, ${input.required_signer_name ?? 'Unknown'},
+            'pending', 0
+          )
+        `;
+      }
+      await writeAuditLog(ctx.user, { action: 'INSERT', table_name: 'clinical_impressions', row_id: noteId, new_values: { note_type: 'physical_exam' } });
+      await onClinicalNoteSaved({ note_id: noteId, note_type: 'physical_exam', patient_id: input.patient_id, encounter_id: input.encounter_id, author_id: ctx.user.sub, author_name: ctx.user.name ?? 'Unknown' } as any).catch(() => {});
+      return { id: noteId };
+    }),
+
+  createProcedureNote: protectedProcedure
+    .input(z.object({
+      patient_id: z.string().uuid(),
+      encounter_id: z.string().uuid(),
+      procedure_name: z.string().max(500),
+      operative_findings: z.string().max(10000).optional(),
+      complications: z.string().max(5000).optional(),
+      plan: z.string().max(5000).optional(),
+      template_id: z.string().uuid().optional(),
+      required_signer_id: z.string().uuid().optional(),
+      required_signer_name: z.string().max(200).optional(),
+      status: z.enum(['draft','signed']).default('draft'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const inserted = await sql`
+        INSERT INTO clinical_impressions (
+          hospital_id, patient_id, encounter_id, note_type, status,
+          procedure_name, operative_findings, complications, plan,
+          template_id, author_id, version
+        ) VALUES (
+          ${ctx.user.hospital_id}, ${input.patient_id}, ${input.encounter_id},
+          'procedure_note', ${input.status},
+          ${input.procedure_name}, ${input.operative_findings ?? null},
+          ${input.complications ?? null}, ${input.plan ?? null},
+          ${input.template_id ?? null}, ${ctx.user.sub}, 1
+        )
+        RETURNING id
+      `;
+      const noteId = inserted[0].id;
+      if (input.required_signer_id) {
+        await sql`
+          INSERT INTO co_signature_queue (
+            hospital_id, patient_id, clinical_impression_id, cosign_note_type,
+            author_id, author_name, required_signer_id, required_signer_name,
+            cosign_status, escalation_count
+          ) VALUES (
+            ${ctx.user.hospital_id}, ${input.patient_id}, ${noteId}, 'procedure_note',
+            ${ctx.user.sub}, ${ctx.user.name ?? 'Unknown'},
+            ${input.required_signer_id}, ${input.required_signer_name ?? 'Unknown'},
+            'pending', 0
+          )
+        `;
+      }
+      await writeAuditLog(ctx.user, { action: 'INSERT', table_name: 'clinical_impressions', row_id: noteId, new_values: { note_type: 'procedure_note' } });
+      await onClinicalNoteSaved({ note_id: noteId, note_type: 'procedure_note', patient_id: input.patient_id, encounter_id: input.encounter_id, author_id: ctx.user.sub, author_name: ctx.user.name ?? 'Unknown' } as any).catch(() => {});
+      return { id: noteId };
+    }),
+
+  createConsultNote: protectedProcedure
+    .input(z.object({
+      patient_id: z.string().uuid(),
+      encounter_id: z.string().uuid(),
+      subjective: z.string().max(5000).optional(),
+      objective: z.string().max(5000).optional(),
+      assessment: z.string().max(5000),
+      plan: z.string().max(5000),
+      template_id: z.string().uuid().optional(),
+      required_signer_id: z.string().uuid().optional(),
+      required_signer_name: z.string().max(200).optional(),
+      status: z.enum(['draft','signed']).default('draft'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const inserted = await sql`
+        INSERT INTO clinical_impressions (
+          hospital_id, patient_id, encounter_id, note_type, status,
+          subjective, objective, assessment, plan,
+          template_id, author_id, version
+        ) VALUES (
+          ${ctx.user.hospital_id}, ${input.patient_id}, ${input.encounter_id},
+          'consultation_note', ${input.status},
+          ${input.subjective ?? null}, ${input.objective ?? null},
+          ${input.assessment}, ${input.plan},
+          ${input.template_id ?? null}, ${ctx.user.sub}, 1
+        )
+        RETURNING id
+      `;
+      const noteId = inserted[0].id;
+      if (input.required_signer_id) {
+        await sql`
+          INSERT INTO co_signature_queue (
+            hospital_id, patient_id, clinical_impression_id, cosign_note_type,
+            author_id, author_name, required_signer_id, required_signer_name,
+            cosign_status, escalation_count
+          ) VALUES (
+            ${ctx.user.hospital_id}, ${input.patient_id}, ${noteId}, 'consultation_note',
+            ${ctx.user.sub}, ${ctx.user.name ?? 'Unknown'},
+            ${input.required_signer_id}, ${input.required_signer_name ?? 'Unknown'},
+            'pending', 0
+          )
+        `;
+      }
+      await writeAuditLog(ctx.user, { action: 'INSERT', table_name: 'clinical_impressions', row_id: noteId, new_values: { note_type: 'consultation_note' } });
+      await onClinicalNoteSaved({ note_id: noteId, note_type: 'consultation_note', patient_id: input.patient_id, encounter_id: input.encounter_id, author_id: ctx.user.sub, author_name: ctx.user.name ?? 'Unknown' } as any).catch(() => {});
+      return { id: noteId };
+    }),
+
+  createWardRoundNote: protectedProcedure
+    .input(z.object({
+      patient_id: z.string().uuid(),
+      encounter_id: z.string().uuid(),
+      subjective: z.string().max(5000).optional(),
+      objective: z.string().max(5000).optional(),
+      assessment: z.string().max(5000).optional(),
+      plan: z.string().max(5000).optional(),
+      template_id: z.string().uuid().optional(),
+      required_signer_id: z.string().uuid().optional(),
+      required_signer_name: z.string().max(200).optional(),
+      status: z.enum(['draft','signed']).default('draft'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const inserted = await sql`
+        INSERT INTO clinical_impressions (
+          hospital_id, patient_id, encounter_id, note_type, status,
+          subjective, objective, assessment, plan,
+          template_id, author_id, version
+        ) VALUES (
+          ${ctx.user.hospital_id}, ${input.patient_id}, ${input.encounter_id},
+          'ward_round_note', ${input.status},
+          ${input.subjective ?? null}, ${input.objective ?? null},
+          ${input.assessment ?? null}, ${input.plan ?? null},
+          ${input.template_id ?? null}, ${ctx.user.sub}, 1
+        )
+        RETURNING id
+      `;
+      const noteId = inserted[0].id;
+      if (input.required_signer_id) {
+        await sql`
+          INSERT INTO co_signature_queue (
+            hospital_id, patient_id, clinical_impression_id, cosign_note_type,
+            author_id, author_name, required_signer_id, required_signer_name,
+            cosign_status, escalation_count
+          ) VALUES (
+            ${ctx.user.hospital_id}, ${input.patient_id}, ${noteId}, 'ward_round_note',
+            ${ctx.user.sub}, ${ctx.user.name ?? 'Unknown'},
+            ${input.required_signer_id}, ${input.required_signer_name ?? 'Unknown'},
+            'pending', 0
+          )
+        `;
+      }
+      await writeAuditLog(ctx.user, { action: 'INSERT', table_name: 'clinical_impressions', row_id: noteId, new_values: { note_type: 'ward_round_note' } });
+      await onClinicalNoteSaved({ note_id: noteId, note_type: 'ward_round_note', patient_id: input.patient_id, encounter_id: input.encounter_id, author_id: ctx.user.sub, author_name: ctx.user.name ?? 'Unknown' } as any).catch(() => {});
+      return { id: noteId };
+    }),
+
+  createHandoverNote: protectedProcedure
+    .input(z.object({
+      patient_id: z.string().uuid(),
+      encounter_id: z.string().uuid(),
+      shift_summary: z.string().max(10000),
+      template_id: z.string().uuid().optional(),
+      status: z.enum(['draft','signed']).default('signed'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const inserted = await sql`
+        INSERT INTO clinical_impressions (
+          hospital_id, patient_id, encounter_id, note_type, status,
+          shift_summary, template_id, author_id, version,
+          signed_by_user_id, signed_at
+        ) VALUES (
+          ${ctx.user.hospital_id}, ${input.patient_id}, ${input.encounter_id},
+          'shift_handover', ${input.status}, ${input.shift_summary},
+          ${input.template_id ?? null}, ${ctx.user.sub}, 1,
+          ${input.status === 'signed' ? ctx.user.sub : null},
+          ${input.status === 'signed' ? new Date().toISOString() : null}
+        )
+        RETURNING id
+      `;
+      const noteId = inserted[0].id;
+      await writeAuditLog(ctx.user, { action: 'INSERT', table_name: 'clinical_impressions', row_id: noteId, new_values: { note_type: 'shift_handover' } });
+      await onClinicalNoteSaved({ note_id: noteId, note_type: 'shift_handover', patient_id: input.patient_id, encounter_id: input.encounter_id, author_id: ctx.user.sub, author_name: ctx.user.name ?? 'Unknown' } as any).catch(() => {});
+      return { id: noteId };
+    }),
+
+  createDeathSummary: protectedProcedure
+    .input(z.object({
+      patient_id: z.string().uuid(),
+      encounter_id: z.string().uuid(),
+      death_datetime: z.string(),
+      immediate_cause_icd10: z.string().max(20).optional(),
+      antecedent_cause_icd10: z.string().max(20).optional(),
+      underlying_cause_icd10: z.string().max(20).optional(),
+      postmortem_requested: z.boolean().optional(),
+      organ_donation_discussed: z.boolean().optional(),
+      organ_donation_decision: z.string().max(50).optional(),
+      course_in_hospital: z.string().max(10000).optional(),
+      template_id: z.string().uuid().optional(),
+      required_signer_id: z.string().uuid().optional(),
+      required_signer_name: z.string().max(200).optional(),
+      status: z.enum(['draft','signed']).default('draft'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const inserted = await sql`
+        INSERT INTO clinical_impressions (
+          hospital_id, patient_id, encounter_id, note_type, status,
+          death_datetime, immediate_cause_icd10, antecedent_cause_icd10,
+          underlying_cause_icd10, postmortem_requested, organ_donation_discussed,
+          organ_donation_decision, course_in_hospital,
+          template_id, author_id, version
+        ) VALUES (
+          ${ctx.user.hospital_id}, ${input.patient_id}, ${input.encounter_id},
+          'death_summary', ${input.status},
+          ${input.death_datetime},
+          ${input.immediate_cause_icd10 ?? null},
+          ${input.antecedent_cause_icd10 ?? null},
+          ${input.underlying_cause_icd10 ?? null},
+          ${input.postmortem_requested ?? false},
+          ${input.organ_donation_discussed ?? false},
+          ${input.organ_donation_decision ?? null},
+          ${input.course_in_hospital ?? null},
+          ${input.template_id ?? null}, ${ctx.user.sub}, 1
+        )
+        RETURNING id
+      `;
+      const noteId = inserted[0].id;
+      if (input.required_signer_id) {
+        await sql`
+          INSERT INTO co_signature_queue (
+            hospital_id, patient_id, clinical_impression_id, cosign_note_type,
+            author_id, author_name, required_signer_id, required_signer_name,
+            cosign_status, escalation_count
+          ) VALUES (
+            ${ctx.user.hospital_id}, ${input.patient_id}, ${noteId}, 'death_summary',
+            ${ctx.user.sub}, ${ctx.user.name ?? 'Unknown'},
+            ${input.required_signer_id}, ${input.required_signer_name ?? 'Unknown'},
+            'pending', 0
+          )
+        `;
+      }
+      await writeAuditLog(ctx.user, { action: 'INSERT', table_name: 'clinical_impressions', row_id: noteId, new_values: { note_type: 'death_summary' } });
+      await onClinicalNoteSaved({ note_id: noteId, note_type: 'death_summary', patient_id: input.patient_id, encounter_id: input.encounter_id, author_id: ctx.user.sub, author_name: ctx.user.name ?? 'Unknown' } as any).catch(() => {});
+      return { id: noteId };
+    }),
+
 });

@@ -32,7 +32,8 @@
     "recharts": "^2.12.7",
     "stream-chat": "^9.41.0",
     "superjson": "^2.2.0",
-    "zod": "^3.22.0"
+    "zod": "^3.22.0",
+    "@vercel/blob": "^0.23.4"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

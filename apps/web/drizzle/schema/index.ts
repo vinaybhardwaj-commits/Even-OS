@@ -48,3 +48,4 @@ export * from './47-accounts-receivable';
 export * from './48-financial-statements';
 export * from './49-gst-module';
 export * from './50-accounting-periods';
+export * from './51-notes-v2';
