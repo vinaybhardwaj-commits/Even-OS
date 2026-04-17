@@ -61,6 +61,7 @@ import { journeyEngineRouter } from './journey-engine';
 import { chatRouter } from './chat';
 import { formsRouter } from './forms';
 import { insurersRouter } from './insurers';
+import { insurerRulesRouter } from './insurer-rules';
 
 export const appRouter = router({
   auth: authRouter,
@@ -125,6 +126,7 @@ export const appRouter = router({
   chat: chatRouter,
   forms: formsRouter,
   insurers: insurersRouter,
+  insurerRules: insurerRulesRouter,
 });
 
 export type AppRouter = typeof appRouter;
