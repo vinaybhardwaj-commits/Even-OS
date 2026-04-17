@@ -515,6 +515,127 @@ export const formsRouter = router({
       return { success: true };
     }),
 
+  // ── LIST AUDIT LOG ────────────────────────────────────────────────────────
+  listAuditLog: adminProcedure
+    .input(z.object({
+      form_definition_id: z.string().uuid().optional(),
+      patient_id: z.string().uuid().optional(),
+      performed_by: z.string().uuid().optional(),
+      action: z.enum(['form_opened', 'form_submitted', 'form_viewed', 'status_changed', 'version_created', 'export_pdf']).optional(),
+      days: z.number().default(30),
+      limit: z.number().int().min(1).max(200).default(50),
+      offset: z.number().int().min(0).default(0),
+    }).optional().default({}))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      let query = `
+        SELECT al.*, fd.name as form_name, fd.slug as form_slug,
+               u.full_name as performer_name, p.name_full as patient_name
+        FROM form_audit_log al
+        LEFT JOIN form_definitions fd ON al.form_definition_id = fd.id
+        LEFT JOIN users u ON al.performed_by = u.id
+        LEFT JOIN patients p ON al.patient_id = p.id
+        WHERE al.hospital_id = $1
+      `;
+      const params: any[] = [hospitalId];
+      let paramCount = 1;
+
+      if (input.form_definition_id) {
+        paramCount++;
+        query += ` AND al.form_definition_id = $${paramCount}`;
+        params.push(input.form_definition_id);
+      }
+      if (input.patient_id) {
+        paramCount++;
+        query += ` AND al.patient_id = $${paramCount}::uuid`;
+        params.push(input.patient_id);
+      }
+      if (input.performed_by) {
+        paramCount++;
+        query += ` AND al.performed_by = $${paramCount}::uuid`;
+        params.push(input.performed_by);
+      }
+      if (input.action) {
+        paramCount++;
+        query += ` AND al.action = $${paramCount}`;
+        params.push(input.action);
+      }
+
+      query += ` AND al.performed_at > NOW() - INTERVAL '${input.days} days'`;
+      query += ` ORDER BY al.performed_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
+      params.push(input.limit, input.offset);
+
+      const rows = await getSql()(query, params);
+
+      // Count
+      let countQuery = `SELECT COUNT(*) as count FROM form_audit_log WHERE hospital_id = $1`;
+      const countParams: any[] = [hospitalId];
+      let cp = 1;
+      if (input.form_definition_id) { cp++; countQuery += ` AND form_definition_id = $${cp}`; countParams.push(input.form_definition_id); }
+      if (input.patient_id) { cp++; countQuery += ` AND patient_id = $${cp}::uuid`; countParams.push(input.patient_id); }
+      if (input.performed_by) { cp++; countQuery += ` AND performed_by = $${cp}::uuid`; countParams.push(input.performed_by); }
+      if (input.action) { cp++; countQuery += ` AND action = $${cp}`; countParams.push(input.action); }
+      countQuery += ` AND performed_at > NOW() - INTERVAL '${input.days} days'`;
+
+      const countResult = await getSql()(countQuery, countParams);
+      const total = Number((countResult[0] as any)?.count ?? 0);
+
+      return { items: rows as any[], total, limit: input.limit, offset: input.offset };
+    }),
+
+  // ── SUBMISSION STATS (for admin dashboard) ───────────────────────────────
+  getSubmissionStats: adminProcedure
+    .input(z.object({ days: z.number().default(7) }).optional().default({}))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      // Per-form submission counts
+      const perForm = await getSql()`
+        SELECT
+          fd.id, fd.name, fd.slug, fd.category, fd.slash_command,
+          COUNT(fs.id) as submission_count,
+          COUNT(DISTINCT fs.submitted_by) as unique_submitters,
+          MAX(fs.submitted_at) as last_submission
+        FROM form_definitions fd
+        LEFT JOIN form_submissions fs
+          ON fs.form_definition_id = fd.id
+          AND fs.submitted_at > NOW() - INTERVAL '${input.days} days'
+          AND fs.hospital_id = ${hospitalId}
+        WHERE fd.hospital_id = ${hospitalId} AND fd.status = 'active'
+        GROUP BY fd.id, fd.name, fd.slug, fd.category, fd.slash_command
+        ORDER BY submission_count DESC
+      `;
+
+      // Daily totals
+      const dailyTotals = await getSql()`
+        SELECT
+          DATE(submitted_at) as day,
+          COUNT(*) as count
+        FROM form_submissions
+        WHERE hospital_id = ${hospitalId}
+          AND submitted_at > NOW() - INTERVAL '${input.days} days'
+        GROUP BY DATE(submitted_at)
+        ORDER BY day
+      `;
+
+      // Status breakdown
+      const statusBreakdown = await getSql()`
+        SELECT status, COUNT(*) as count
+        FROM form_submissions
+        WHERE hospital_id = ${hospitalId}
+          AND submitted_at > NOW() - INTERVAL '${input.days} days'
+        GROUP BY status
+      `;
+
+      return {
+        per_form: perForm as any[],
+        daily_totals: dailyTotals as any[],
+        status_breakdown: statusBreakdown as any[],
+        period_days: input.days,
+      };
+    }),
+
   // ── GET ANALYTICS ─────────────────────────────────────────────────────────
   getAnalytics: adminProcedure
     .input(z.object({
