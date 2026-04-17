@@ -62,6 +62,7 @@ import { chatRouter } from './chat';
 import { formsRouter } from './forms';
 import { insurersRouter } from './insurers';
 import { insurerRulesRouter } from './insurer-rules';
+import { billAdjustmentsRouter } from './bill-adjustments';
 
 export const appRouter = router({
   auth: authRouter,
@@ -127,6 +128,7 @@ export const appRouter = router({
   forms: formsRouter,
   insurers: insurersRouter,
   insurerRules: insurerRulesRouter,
+  billAdjustments: billAdjustmentsRouter,
 });
 
 export type AppRouter = typeof appRouter;
