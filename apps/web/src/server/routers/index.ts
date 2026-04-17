@@ -59,6 +59,7 @@ import { doctorDashboardRouter } from './doctor-dashboard';
 import { templateManagementRouter } from './template-management';
 import { journeyEngineRouter } from './journey-engine';
 import { chatRouter } from './chat';
+import { formsRouter } from './forms';
 
 export const appRouter = router({
   auth: authRouter,
@@ -121,6 +122,7 @@ export const appRouter = router({
   templateManagement: templateManagementRouter,
   journeyEngine: journeyEngineRouter,
   chat: chatRouter,
+  forms: formsRouter,
 });
 
 export type AppRouter = typeof appRouter;
