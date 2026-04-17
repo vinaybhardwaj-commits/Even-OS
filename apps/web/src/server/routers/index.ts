@@ -67,6 +67,7 @@ import { implantsRouter } from './implants';
 import { externalLabsRouter } from './external-labs';
 import { testCatalogV2Router } from './test-catalog-v2';
 import { labWorklistRouter } from './lab-worklist';
+import { outsourcedWorkflowRouter } from './outsourced-workflow';
 
 export const appRouter = router({
   auth: authRouter,
@@ -137,6 +138,7 @@ export const appRouter = router({
   externalLabs: externalLabsRouter,
   testCatalogV2: testCatalogV2Router,
   labWorklist: labWorklistRouter,
+  outsourcedWorkflow: outsourcedWorkflowRouter,
 });
 
 export type AppRouter = typeof appRouter;
