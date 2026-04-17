@@ -586,4 +586,55 @@ export const carePathwaysRouter = router({
         ` || [];
       }
     }),
+
+  // ═══════════════════════════════════════════════════════════
+  // PATIENT-SCOPED VARIANCE + ESCALATION LISTS (for Plan tab)
+  // ═══════════════════════════════════════════════════════════
+
+  listVariancesByPatient: protectedProcedure
+    .input(z.object({
+      patient_id: z.string().uuid(),
+      limit: z.number().int().min(1).max(100).default(20),
+    }))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+      return await getSql()`
+        SELECT v.id, v.variance_type, v.vl_severity as severity,
+               v.vl_reason as reason, v.vl_notes as notes,
+               v.delay_hours, v.expected_datetime, v.actual_datetime,
+               v.vl_created_at as created_at,
+               m.ms_name as milestone_name,
+               u.full_name as documented_by_name
+        FROM variance_log v
+        LEFT JOIN care_plan_milestones m ON m.id = v.vl_milestone_id
+        LEFT JOIN users u ON u.id = v.documented_by
+        WHERE v.hospital_id = ${hospitalId}
+          AND v.vl_patient_id = ${input.patient_id}
+        ORDER BY v.vl_created_at DESC
+        LIMIT ${input.limit}
+      ` || [];
+    }),
+
+  listEscalationsByPatient: protectedProcedure
+    .input(z.object({
+      patient_id: z.string().uuid(),
+      limit: z.number().int().min(1).max(100).default(20),
+    }))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+      return await getSql()`
+        SELECT e.id, e.escalation_level as level, e.ee_status as status,
+               e.triggered_at, e.notify_role, e.acknowledged_at,
+               e.resolved_at, e.resolution_notes,
+               e.ee_created_at as created_at,
+               m.ms_name as milestone_name
+        FROM escalation_events e
+        LEFT JOIN care_plan_milestones m ON m.id = e.ee_milestone_id
+        WHERE e.hospital_id = ${hospitalId}
+          AND e.ee_patient_id = ${input.patient_id}
+        ORDER BY e.triggered_at DESC
+        LIMIT ${input.limit}
+      ` || [];
+    }),
+
 });

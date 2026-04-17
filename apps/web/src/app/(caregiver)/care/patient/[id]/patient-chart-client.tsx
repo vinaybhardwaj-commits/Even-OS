@@ -5,6 +5,7 @@ import { AlertBanner } from '@/components/caregiver';
 import DischargeChecklist from '@/components/discharge/DischargeChecklist';
 import { FormHistoryPanel } from '@/components/forms/FormHistoryPanel';
 import FormLauncher from '@/components/forms/FormLauncher';
+import ProblemForm from '@/components/conditions/ProblemForm';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -1361,6 +1362,16 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   const [emarHoldReason, setEmarHoldReason] = useState('');
   const [emarRefuseReason, setEmarRefuseReason] = useState('');
 
+  // ── Plan tab state (lazy-loaded when tab becomes active) ──────────────────
+  const [carePlans, setCarePlans] = useState<any[]>([]);
+  const [planMilestones, setPlanMilestones] = useState<any[]>([]);
+  const [planVariances, setPlanVariances] = useState<any[]>([]);
+  const [planEscalations, setPlanEscalations] = useState<any[]>([]);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planLoaded, setPlanLoaded] = useState(false);
+  const [showAddProblemModal, setShowAddProblemModal] = useState(false);
+
+
   const tabs = getTabsForRole(userRole);
   const actionButtons = getActionButtonsForRole(userRole);
 
@@ -1425,6 +1436,40 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
     const iv = setInterval(loadData, 60_000);
     return () => clearInterval(iv);
   }, [loadData]);
+
+  // ── Plan tab lazy-loader ───────────────────────────────────────────────────
+  const loadPlanData = useCallback(async () => {
+    setPlanLoading(true);
+    try {
+      const [plans, variances, escalations] = await Promise.all([
+        trpcQuery('carePathways.listCarePlans', { patient_id: patientId }),
+        trpcQuery('carePathways.listVariancesByPatient', { patient_id: patientId, limit: 10 }),
+        trpcQuery('carePathways.listEscalationsByPatient', { patient_id: patientId, limit: 10 }),
+      ]);
+      const plansList = Array.isArray(plans) ? plans : [];
+      setCarePlans(plansList);
+      setPlanVariances(Array.isArray(variances) ? variances : []);
+      setPlanEscalations(Array.isArray(escalations) ? escalations : []);
+      // Fetch milestones for the most recent active plan (if any)
+      const activePlan = plansList.find((p: any) => p.care_plan_status === 'active') || plansList[0];
+      if (activePlan?.id) {
+        const detail = await trpcQuery('carePathways.getCarePlan', { care_plan_id: activePlan.id });
+        setPlanMilestones(Array.isArray(detail?.milestones) ? detail.milestones : (Array.isArray(detail) ? detail : []));
+      } else {
+        setPlanMilestones([]);
+      }
+      setPlanLoaded(true);
+    } catch (err) {
+      console.error('Plan tab load error:', err);
+    } finally {
+      setPlanLoading(false);
+    }
+  }, [patientId]);
+
+  useEffect(() => {
+    if (activeTab === 'plan' && !planLoaded) loadPlanData();
+  }, [activeTab, planLoaded, loadPlanData]);
+
 
   // ── Escape key handler for closing order panels ───────────────────────────
   useEffect(() => {
@@ -3534,6 +3579,241 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
       {activeTab === 'notes' && (
         <NotesTab userRole={userRole} userName={userName} userId={userId} patientId={patientId} encounterId={encounter?.id || null} notes={notes} onNoteSaved={loadData} />
       )}
+
+      {/* ── Plan Tab (Care Plan: pathway + problem list + variance) ─────────────── */}
+      {activeTab === 'plan' && (() => {
+        const doctorRoles = ['resident', 'senior_resident', 'intern', 'visiting_consultant', 'hospitalist', 'specialist_cardiologist', 'specialist_neurologist', 'specialist_orthopedic', 'surgeon', 'anaesthetist', 'department_head', 'medical_director'];
+        const nurseRoles = ['nurse', 'senior_nurse', 'charge_nurse', 'nursing_supervisor', 'nursing_manager', 'ot_nurse'];
+        const canAddProblem = doctorRoles.includes(userRole);
+        const canCompleteMilestone = (responsibleRole: string | null | undefined) => {
+          if (!responsibleRole) return false;
+          if (doctorRoles.includes(userRole)) return true; // doctors can complete any
+          if (nurseRoles.includes(userRole)) {
+            return /nurs/i.test(responsibleRole || '');
+          }
+          return false;
+        };
+        const activePlan = carePlans.find((p: any) => p.care_plan_status === 'active') || carePlans[0];
+        const combinedEvents = [
+          ...planVariances.map((v: any) => ({ kind: 'variance', id: v.id, ts: v.created_at, title: `Variance · ${v.variance_type}`, sev: v.severity, detail: v.reason || v.notes || '', who: v.documented_by_name, milestone: v.milestone_name })),
+          ...planEscalations.map((e: any) => ({ kind: 'escalation', id: e.id, ts: e.triggered_at, title: `Escalation · ${e.level}`, sev: e.status, detail: e.resolution_notes || e.notify_role || '', who: null, milestone: e.milestone_name })),
+        ].sort((a, b) => (new Date(b.ts).getTime() - new Date(a.ts).getTime())).slice(0, 8);
+        const showVariance = !['receptionist', 'ip_coordinator', 'billing_manager', 'billing_executive', 'insurance_coordinator'].includes(userRole);
+
+        async function handleCompleteMilestone(msId: string) {
+          try {
+            await trpcMutate('carePathways.completeMilestone', { milestone_id: msId });
+            setPlanLoaded(false); // trigger reload
+          } catch (err) { alert(`Failed: ${err instanceof Error ? err.message : err}`); }
+        }
+        async function handleSkipMilestone(msId: string) {
+          const reason = prompt('Reason for skipping this milestone:');
+          if (!reason) return;
+          try {
+            await trpcMutate('carePathways.skipMilestone', { milestone_id: msId, skip_reason: reason });
+            setPlanLoaded(false);
+          } catch (err) { alert(`Failed: ${err instanceof Error ? err.message : err}`); }
+        }
+
+        return (
+          <div style={{ padding: '20px 24px', background: '#f5f6fa', minHeight: '100vh' }}>
+            {planLoading && !planLoaded && (
+              <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>Loading care plan…</div>
+            )}
+
+            {!planLoading && planLoaded && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(280px, 1fr)', gap: 20 }}>
+                  {/* ── LEFT: Active Care Pathway ───────────────────────────── */}
+                  <div style={{ background: 'white', borderRadius: 12, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+                    {activePlan ? (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, gap: 12 }}>
+                          <div>
+                            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#111' }}>{activePlan.template_name || 'Care Pathway'}</h3>
+                            {(journey as any)?.current_phase && (
+                              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                                Journey: <strong>{(journey as any).current_phase}</strong>
+                                {(journey as any).next_milestone ? ` · next: ${(journey as any).next_milestone}` : ''}
+                              </div>
+                            )}
+                          </div>
+                          <span style={{
+                            padding: '4px 10px',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            textTransform: 'uppercase' as const,
+                            borderRadius: 12,
+                            background: activePlan.care_plan_status === 'active' ? '#dcfce7' : '#f3f4f6',
+                            color: activePlan.care_plan_status === 'active' ? '#166534' : '#475467',
+                          }}>{activePlan.care_plan_status}</span>
+                        </div>
+
+                        {/* Progress bar */}
+                        {(() => {
+                          const total = Number(activePlan.total_milestones || 0);
+                          const done = Number(activePlan.completed_milestones || 0);
+                          const overdue = Number(activePlan.overdue_milestones || 0);
+                          const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                          return (
+                            <div style={{ marginBottom: 20 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#475467', marginBottom: 6 }}>
+                                <span>{done} of {total} milestones complete</span>
+                                {overdue > 0 && <span style={{ color: '#b91c1c', fontWeight: 600 }}>{overdue} overdue</span>}
+                              </div>
+                              <div style={{ height: 8, borderRadius: 4, background: '#e5e7eb', overflow: 'hidden' }}>
+                                <div style={{ width: `${pct}%`, height: '100%', background: overdue > 0 ? '#f59e0b' : '#10b981' }} />
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Milestone timeline */}
+                        <h4 style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase' as const, color: '#475467', margin: '0 0 12px' }}>Milestones</h4>
+                        {planMilestones.length === 0 ? (
+                          <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>No milestones recorded yet.</div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {planMilestones.map((m: any) => {
+                              const isOverdue = m.ms_status !== 'completed' && m.ms_status !== 'skipped' && m.due_datetime && new Date(m.due_datetime).getTime() < Date.now();
+                              const statusColors: Record<string, { bg: string; fg: string }> = {
+                                completed: { bg: '#dcfce7', fg: '#166534' },
+                                in_progress: { bg: '#dbeafe', fg: '#1e40af' },
+                                not_started: { bg: '#f3f4f6', fg: '#475467' },
+                                skipped: { bg: '#fef3c7', fg: '#92400e' },
+                              };
+                              const sc = statusColors[m.ms_status] || statusColors.not_started;
+                              const canComplete = canCompleteMilestone(m.ms_responsible_role) && m.ms_status !== 'completed' && m.ms_status !== 'skipped';
+                              return (
+                                <div key={m.id} style={{
+                                  padding: 12,
+                                  border: `1px solid ${isOverdue ? '#fca5a5' : '#e5e7eb'}`,
+                                  borderLeft: `4px solid ${isOverdue ? '#b91c1c' : sc.fg}`,
+                                  borderRadius: 8,
+                                  background: isOverdue ? '#fef2f2' : '#fafafa',
+                                }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{ fontSize: 14, fontWeight: 600, color: '#111' }}>{m.ms_name}</div>
+                                      <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap' as const }}>
+                                        {m.ms_responsible_role && <span>👤 {m.ms_responsible_role}</span>}
+                                        {m.due_datetime && <span>⏰ {new Date(m.due_datetime).toLocaleString()}</span>}
+                                        <span style={{ padding: '1px 8px', background: sc.bg, color: sc.fg, borderRadius: 10, fontWeight: 700, textTransform: 'uppercase' as const }}>{m.ms_status}</span>
+                                        {isOverdue && <span style={{ color: '#b91c1c', fontWeight: 700 }}>OVERDUE</span>}
+                                      </div>
+                                    </div>
+                                    {canComplete && (
+                                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                                        <button
+                                          onClick={() => handleCompleteMilestone(m.id)}
+                                          style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, background: '#10b981', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+                                        >Complete</button>
+                                        {doctorRoles.includes(userRole) && (
+                                          <button
+                                            onClick={() => handleSkipMilestone(m.id)}
+                                            style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, background: 'white', color: '#475467', border: '1px solid #d0d5dd', borderRadius: 6, cursor: 'pointer' }}
+                                          >Skip</button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ padding: 40, textAlign: 'center' }}>
+                        <div style={{ fontSize: 32, marginBottom: 12 }}>🗺️</div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: '#111', marginBottom: 4 }}>No Care Pathway attached</div>
+                        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+                          {doctorRoles.includes(userRole) ? 'Activate a pathway template to start tracking milestones.' : 'A doctor needs to activate a care pathway for this patient.'}
+                        </div>
+                        {doctorRoles.includes(userRole) && (
+                          <a
+                            href="/admin/pathway-templates"
+                            style={{ display: 'inline-block', padding: '8px 16px', background: '#0055FF', color: 'white', fontSize: 13, fontWeight: 600, borderRadius: 8, textDecoration: 'none' }}
+                          >Browse Templates →</a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── RIGHT: Problem List ─────────────────────────────────── */}
+                  <div style={{ background: 'white', borderRadius: 12, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <h4 style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase' as const, color: '#475467', margin: 0 }}>Problem List</h4>
+                      {canAddProblem && (
+                        <button
+                          onClick={() => setShowAddProblemModal(true)}
+                          style={{ padding: '4px 10px', fontSize: 11, fontWeight: 700, background: '#0055FF', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+                        >+ Add</button>
+                      )}
+                    </div>
+                    {(() => {
+                      const active = conditions.filter((c: any) => c.clinical_status === 'active');
+                      if (active.length === 0) {
+                        return <div style={{ padding: 20, textAlign: 'center', fontSize: 13, color: '#9ca3af' }}>No active problems.</div>;
+                      }
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {active.map((c: any) => (
+                            <div key={c.id} style={{ padding: 10, background: '#f9fafb', borderRadius: 8, borderLeft: '3px solid #0055FF' }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: '#111' }}>{c.condition_name}</div>
+                              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+                                {c.icd10_code && <span>{c.icd10_code}</span>}
+                                {c.severity && <span style={{ textTransform: 'capitalize' as const }}>· {c.severity}</span>}
+                                {c.onset_date && <span>· {new Date(c.onset_date).toLocaleDateString()}</span>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* ── BOTTOM: Variance & Escalations ───────────────────────── */}
+                {showVariance && combinedEvents.length > 0 && (
+                  <div style={{ marginTop: 20, background: 'white', borderRadius: 12, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+                    <h4 style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase' as const, color: '#475467', margin: '0 0 12px' }}>Variance & Escalations</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {combinedEvents.map((ev: any) => (
+                        <div key={`${ev.kind}-${ev.id}`} style={{
+                          padding: '8px 12px',
+                          background: ev.kind === 'escalation' ? '#fef2f2' : '#fffbeb',
+                          borderLeft: `3px solid ${ev.kind === 'escalation' ? '#dc2626' : '#f59e0b'}`,
+                          borderRadius: 6,
+                          fontSize: 12,
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                            <div style={{ fontWeight: 600, color: '#111', textTransform: 'capitalize' as const }}>{ev.title}</div>
+                            <div style={{ color: '#6b7280', fontSize: 11, whiteSpace: 'nowrap' as const }}>{ev.ts ? new Date(ev.ts).toLocaleString() : ''}</div>
+                          </div>
+                          {ev.milestone && <div style={{ color: '#475467', marginTop: 2 }}>Milestone: {ev.milestone}</div>}
+                          {ev.detail && <div style={{ color: '#475467', marginTop: 2 }}>{ev.detail}</div>}
+                          {ev.who && <div style={{ color: '#9ca3af', marginTop: 2, fontSize: 11 }}>by {ev.who}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Add Problem modal */}
+            {showAddProblemModal && (
+              <ProblemForm
+                patientId={patientId}
+                encounterId={encounter?.id || null}
+                onClose={() => setShowAddProblemModal(false)}
+                onSaved={() => { loadData(); setShowAddProblemModal(false); }}
+              />
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── eMAR Tab (Medication Administration Record) ────────────────────────── */}
       {activeTab === 'emar' && (
