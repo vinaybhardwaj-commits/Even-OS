@@ -42,3 +42,4 @@ export * from './41-external-labs';
 export * from './42-test-catalog-v2';
 export * from './43-qc-enhancement';
 export * from './44-chart-of-accounts';
+export * from './45-journal-entries';
