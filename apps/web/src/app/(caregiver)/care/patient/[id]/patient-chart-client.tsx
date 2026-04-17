@@ -11,6 +11,7 @@ import DocumentsTab from '@/components/patient-chart/DocumentsTab';
 import NotesTab from '@/components/patient-chart/NotesTab';
 import BriefTab from '@/components/patient-brief/BriefTab';
 import ChatPanel, { type Channel as ChatChannel } from '@/components/chat/ChatPanel';
+import { useChartAction, getActionsForRole } from './use-chart-action';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -122,6 +123,26 @@ interface JourneyData {
 
 type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan' | 'emar' | 'assessments' | 'billing' | 'journey' | 'forms' | 'documents' | 'brief';
 
+// ── Unified Orders types (PC.1b1) ──────────────────────────────────────────
+// All order sources (medication_requests, service_requests, clinical_orders)
+// normalise into this shape for the Orders tab.
+type OrderTypeFilter = 'all' | 'medication' | 'lab' | 'imaging' | 'consult' | 'referral' | 'nursing' | 'diet' | 'procedure' | 'other';
+type OrderStatusBucket = 'all' | 'active' | 'completed' | 'cancelled';
+interface UnifiedOrder {
+  id: string;
+  source: 'medication' | 'service_request' | 'clinical_order';
+  type: string;                // medication | lab | imaging | consult | referral | nursing | diet | procedure | pharmacy | radiology | other
+  title: string;
+  subtitle: string;
+  status: string;              // raw status from the source
+  priority: string | null;
+  orderedAt: string | null;    // ISO
+  orderedBy: string | null;    // display name
+  isHighAlert?: boolean;
+  isNarcotic?: boolean;
+  isPrn?: boolean;
+}
+
 interface Props {
   patientId: string;
   userId: string;
@@ -205,29 +226,11 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
 }
 
 // ── Floating action buttons for role ────────────────────────────────────────
+// PC.1b1 (18 Apr 2026): role-to-pill mapping moved to use-chart-action.ts
+// so the registry is shared with the action handler (single source of truth).
+// This wrapper keeps the existing call site stable.
 function getActionButtonsForRole(role: string): { label: string; icon: string }[] {
-  const nurseRoles = ['nurse', 'senior_nurse', 'charge_nurse', 'nursing_supervisor', 'nursing_manager'];
-  const doctorRoles = ['resident', 'senior_resident', 'intern', 'visiting_consultant', 'hospitalist', 'specialist_cardiologist', 'specialist_neurologist', 'specialist_orthopedic', 'surgeon'];
-
-  if (nurseRoles.includes(role)) {
-    return [
-      { label: 'Record Vitals', icon: '📊' },
-      { label: 'Give Medication', icon: '💊' },
-      { label: 'Nursing Note', icon: '📝' },
-      { label: 'Assessment', icon: '✅' },
-    ];
-  }
-
-  if (doctorRoles.includes(role)) {
-    return [
-      { label: 'SOAP Note', icon: '📝' },
-      { label: 'Prescribe Med', icon: '💊' },
-      { label: 'Order Labs', icon: '🧪' },
-      { label: 'Consult', icon: '👥' },
-    ];
-  }
-
-  return [{ label: 'Add Note', icon: '📝' }];
+  return getActionsForRole(role);
 }
 
 // ── Timeline event categories ─────────────────────────────────────────────
@@ -712,6 +715,16 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   const [planLoaded, setPlanLoaded] = useState(false);
   const [showAddProblemModal, setShowAddProblemModal] = useState(false);
 
+  // ── Orders tab state (PC.1b1: real-data rewrite) ─────────────────────────
+  // Merges medication_requests + service_requests + clinical_orders into one list.
+  const [ordersList, setOrdersList] = useState<UnifiedOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersLoaded, setOrdersLoaded] = useState(false);
+  const [ordersSearch, setOrdersSearch] = useState('');
+  const [ordersTypeFilter, setOrdersTypeFilter] = useState<OrderTypeFilter>('all');
+  const [ordersStatusFilter, setOrdersStatusFilter] = useState<OrderStatusBucket>('all');
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
+
 
   const tabs = getTabsForRole(userRole);
   const actionButtons = getActionButtonsForRole(userRole);
@@ -811,6 +824,92 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
     if (activeTab === 'plan' && !planLoaded) loadPlanData();
   }, [activeTab, planLoaded, loadPlanData]);
 
+  // ── Orders tab lazy-loader (PC.1b1) ───────────────────────────────────────
+  const loadOrdersData = useCallback(async () => {
+    setOrdersLoading(true);
+    try {
+      const encId = encounter?.id;
+      const [medsRes, srRes, clinRes] = await Promise.all([
+        trpcQuery('medicationOrders.listMedicationOrders', {
+          patient_id: patientId,
+          include_completed: true,
+        }).catch((e) => { console.warn('[orders] listMedicationOrders failed:', e); return []; }),
+        trpcQuery('medicationOrders.listServiceRequests', {
+          patient_id: patientId,
+        }).catch((e) => { console.warn('[orders] listServiceRequests failed:', e); return []; }),
+        encId
+          ? trpcQuery('clinicalOrders.listOrders', { encounter_id: encId, limit: 100 })
+              .catch((e) => { console.warn('[orders] clinicalOrders.listOrders failed:', e); return { items: [] }; })
+          : Promise.resolve({ items: [] }),
+      ]);
+
+      const medList: UnifiedOrder[] = (Array.isArray(medsRes) ? medsRes : []).map((m: any) => ({
+        id: String(m.id),
+        source: 'medication',
+        type: 'medication',
+        title: [m.drug_name, m.dose_quantity ? String(m.dose_quantity) + (m.dose_unit || '') : null, m.route].filter(Boolean).join(' · '),
+        subtitle: [m.frequency_code, m.duration_days ? String(m.duration_days) + 'd' : null, m.is_prn ? 'PRN' : null, m.instructions].filter(Boolean).join(' · '),
+        status: String(m.status || 'active'),
+        priority: m.is_prn ? 'prn' : null,
+        orderedAt: m.created_at || m.start_date || null,
+        orderedBy: m.prescriber_name || null,
+        isHighAlert: !!m.is_high_alert,
+        isNarcotic: !!m.narcotics_class,
+        isPrn: !!m.is_prn,
+      }));
+
+      const srList: UnifiedOrder[] = (Array.isArray(srRes) ? srRes : []).map((s: any) => ({
+        id: String(s.id),
+        source: 'service_request',
+        type: String(s.request_type || 'other'),
+        title: String(s.order_name || ''),
+        subtitle: [s.clinical_indication, s.instructions].filter(Boolean).join(' · '),
+        status: String(s.status || 'requested'),
+        priority: s.priority || null,
+        orderedAt: s.sr_ordered_at || s.created_at || null,
+        orderedBy: s.requester_name || null,
+      }));
+
+      const clinItems = (clinRes as any)?.items ?? (Array.isArray(clinRes) ? clinRes : []);
+      const clinList: UnifiedOrder[] = (Array.isArray(clinItems) ? clinItems : []).map((c: any) => ({
+        id: String(c.id),
+        source: 'clinical_order',
+        type: String(c.order_type || 'other'),
+        title: String(c.order_name || ''),
+        subtitle: [c.description, c.frequency, c.duration_days ? String(c.duration_days) + 'd' : null, c.instructions].filter(Boolean).join(' · '),
+        status: String(c.order_status || 'ordered'),
+        priority: c.priority || null,
+        orderedAt: c.ordered_at || null,
+        orderedBy: null,
+      }));
+
+      // Dedup by id (medication_requests and clinical_orders can mirror each other for drug orders)
+      const seen = new Set<string>();
+      const combined: UnifiedOrder[] = [];
+      for (const o of [...medList, ...srList, ...clinList]) {
+        if (seen.has(o.id)) continue;
+        seen.add(o.id);
+        combined.push(o);
+      }
+      combined.sort((a, b) => {
+        const ta = a.orderedAt ? new Date(a.orderedAt).getTime() : 0;
+        const tb = b.orderedAt ? new Date(b.orderedAt).getTime() : 0;
+        return tb - ta;
+      });
+
+      setOrdersList(combined);
+      setOrdersLoaded(true);
+    } catch (err) {
+      console.error('Orders tab load error:', err);
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, [patientId, encounter?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'orders' && !ordersLoaded) loadOrdersData();
+  }, [activeTab, ordersLoaded, loadOrdersData]);
+
 
   // ── Escape key handler for closing order panels ───────────────────────────
   useEffect(() => {
@@ -824,45 +923,9 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   }, []);
 
   // ── Event handlers ───────────────────────────────────────────────────────
-  // PC.1a (18 Apr 2026): wire bottom-bar pills to existing panels/tabs.
-  // Full role-adaptive action bar via useChartAction() lands in PC.1b.
-  const handleActionClick = (label: string) => {
-    switch (label) {
-      // Doctor pills
-      case 'SOAP Note':
-        setActiveTab('notes');
-        return;
-      case 'Prescribe Med':
-        setOrderPanel('medication');
-        return;
-      case 'Order Labs':
-        setOrderPanel('labs');
-        return;
-      case 'Consult':
-        setOrderPanel('consult');
-        return;
-      // Nurse pills
-      case 'Record Vitals':
-        setActiveTab('vitals');
-        return;
-      case 'Give Medication':
-        setActiveTab('emar');
-        return;
-      case 'Nursing Note':
-        setActiveTab('notes');
-        return;
-      case 'Assessment':
-        setActiveTab('forms');
-        return;
-      // Fallback pill
-      case 'Add Note':
-        setActiveTab('notes');
-        return;
-      default:
-        // Unknown pill — log for telemetry but no-op to avoid user-visible breakage
-        if (typeof console !== 'undefined') console.warn('[chart] unhandled action pill:', label);
-    }
-  };
+  // PC.1b1 (18 Apr 2026): pill routing now lives in useChartAction() — a single
+  // registry shared with getActionsForRole so pills + handler can never drift.
+  const { handleAction: handleActionClick } = useChartAction({ setActiveTab, setOrderPanel });
 
   // ── Render: Loading state ───────────────────────────────────────────────
   if (loading) {
@@ -2621,83 +2684,251 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                 </div>
               </div>
 
-              {/* Active Orders Table */}
+              {/* ── PC.1b1: Real Orders List (search + type/status filters) ─── */}
               <div style={{
                 background: 'white',
                 borderRadius: 12,
                 padding: 20,
                 boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
               }}>
-                <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 16px', textTransform: 'uppercase', color: '#666' }}>
-                  Active Orders
-                </h3>
-                <div style={{
-                  overflowX: 'auto',
-                  borderRadius: 8,
-                  border: '1px solid #e0e0e0',
-                }}>
-                  <table style={{
-                    width: '100%',
-                    borderCollapse: 'collapse',
-                    fontSize: 13,
-                  }}>
-                    <thead>
-                      <tr style={{ background: '#f9f9f9', borderBottom: '1px solid #e0e0e0' }}>
-                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Date</th>
-                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Order</th>
-                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Type</th>
-                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Status</th>
-                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Priority</th>
-                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, color: '#333' }}>Ordered By</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[
-                        { date: '14 Apr 07:30', order: 'CBC + RFT + Coag', type: 'Lab', status: 'Pending', priority: 'Routine', orderedBy: 'Dr. Sharma' },
-                        { date: '13 Apr 08:00', order: 'Chest X-Ray PA', type: 'Imaging', status: 'Completed', priority: 'Routine', orderedBy: 'Dr. Priya' },
-                        { date: '12 Apr 14:00', order: 'Enoxaparin 40mg SC OD', type: 'Medication', status: 'Active', priority: 'Routine', orderedBy: 'Dr. Sharma' },
-                        { date: '12 Apr 14:00', order: 'Metoprolol 25mg PO BD', type: 'Medication', status: 'Active', priority: 'Routine', orderedBy: 'Dr. Sharma' },
-                        { date: '12 Apr 14:00', order: 'Clopidogrel 75mg PO OD', type: 'Medication', status: 'Active', priority: 'Routine', orderedBy: 'Dr. Sharma' },
-                        { date: '11 Apr 18:00', order: 'Cardiology Consult', type: 'Consult', status: 'Completed', priority: 'Routine', orderedBy: 'Dr. Priya' },
-                      ].map((row, idx) => {
-                        let statusBg = '#EFF6FF';
-                        let statusColor = '#0055FF';
-                        if (row.status === 'Active') {
-                          statusBg = '#ECFDF5';
-                          statusColor = '#0B8A3E';
-                        } else if (row.status === 'Completed') {
-                          statusBg = '#F3F4F6';
-                          statusColor = '#666';
-                        } else if (row.status === 'Cancelled') {
-                          statusBg = '#FEE2E2';
-                          statusColor = '#DC2626';
-                        }
-                        return (
-                          <tr key={idx} style={{ borderBottom: '1px solid #e0e0e0' }}>
-                            <td style={{ padding: '12px', color: '#666' }}>{row.date}</td>
-                            <td style={{ padding: '12px', color: '#333', fontWeight: 500 }}>{row.order}</td>
-                            <td style={{ padding: '12px', color: '#666' }}>{row.type}</td>
-                            <td style={{ padding: '12px' }}>
-                              <span style={{
-                                display: 'inline-block',
-                                padding: '4px 8px',
-                                borderRadius: 4,
-                                background: statusBg,
-                                color: statusColor,
-                                fontWeight: 500,
-                                fontSize: 12,
-                              }}>
-                                {row.status}
-                              </span>
-                            </td>
-                            <td style={{ padding: '12px', color: '#666' }}>{row.priority}</td>
-                            <td style={{ padding: '12px', color: '#666' }}>{row.orderedBy}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, textTransform: 'uppercase', color: '#666' }}>
+                    Orders {!ordersLoading && ordersList.length > 0 ? `(${ordersList.length})` : ''}
+                  </h3>
+                  <button
+                    onClick={() => { setOrdersLoaded(false); loadOrdersData(); }}
+                    disabled={ordersLoading}
+                    style={{
+                      height: 30, padding: '0 12px',
+                      background: 'white', border: '1px solid #d1d5db',
+                      color: '#374151', borderRadius: 6,
+                      fontSize: 12, fontWeight: 600,
+                      cursor: ordersLoading ? 'wait' : 'pointer',
+                      opacity: ordersLoading ? 0.6 : 1,
+                    }}
+                  >
+                    {ordersLoading ? 'Refreshing…' : '↻ Refresh'}
+                  </button>
                 </div>
+
+                {/* Search + filter row */}
+                <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+                  <input
+                    type="text"
+                    value={ordersSearch}
+                    onChange={(e) => setOrdersSearch(e.target.value)}
+                    placeholder="Search orders (name, indication, instructions)…"
+                    style={{
+                      flex: '1 1 240px',
+                      height: 34, padding: '0 12px',
+                      border: '1px solid #d1d5db', borderRadius: 6,
+                      fontSize: 13, color: '#111',
+                    }}
+                  />
+                  <select
+                    value={ordersTypeFilter}
+                    onChange={(e) => setOrdersTypeFilter(e.target.value as OrderTypeFilter)}
+                    style={{
+                      height: 34, padding: '0 10px',
+                      border: '1px solid #d1d5db', borderRadius: 6,
+                      fontSize: 13, background: 'white', color: '#111',
+                    }}
+                  >
+                    <option value="all">All types</option>
+                    <option value="medication">Medication</option>
+                    <option value="lab">Lab</option>
+                    <option value="imaging">Imaging</option>
+                    <option value="consult">Consult</option>
+                    <option value="referral">Referral</option>
+                    <option value="nursing">Nursing</option>
+                    <option value="diet">Diet</option>
+                    <option value="procedure">Procedure</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <select
+                    value={ordersStatusFilter}
+                    onChange={(e) => setOrdersStatusFilter(e.target.value as OrderStatusBucket)}
+                    style={{
+                      height: 34, padding: '0 10px',
+                      border: '1px solid #d1d5db', borderRadius: 6,
+                      fontSize: 13, background: 'white', color: '#111',
+                    }}
+                  >
+                    <option value="all">All statuses</option>
+                    <option value="active">Active / Open</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+
+                {/* Loading / empty / list */}
+                {ordersLoading && ordersList.length === 0 ? (
+                  <div style={{ padding: 40, textAlign: 'center', color: '#6b7280', fontSize: 13 }}>Loading orders…</div>
+                ) : (() => {
+                  const q = ordersSearch.trim().toLowerCase();
+                  const ACTIVE_SET = new Set(['active','ordered','in_progress','requested','on-hold','approved','pending','draft']);
+                  const COMPLETED_SET = new Set(['completed','fulfilled','done','resulted']);
+                  const CANCELLED_SET = new Set(['cancelled','canceled','revoked','rejected','stopped']);
+                  const TYPE_MAP: Record<string, OrderTypeFilter> = {
+                    medication: 'medication', pharmacy: 'medication',
+                    lab: 'lab',
+                    imaging: 'imaging', radiology: 'imaging',
+                    consult: 'consult',
+                    referral: 'referral',
+                    nursing: 'nursing',
+                    diet: 'diet',
+                    procedure: 'procedure',
+                  };
+                  const toBucket = (s: string): OrderStatusBucket => {
+                    const k = s.toLowerCase();
+                    if (CANCELLED_SET.has(k)) return 'cancelled';
+                    if (COMPLETED_SET.has(k)) return 'completed';
+                    if (ACTIVE_SET.has(k)) return 'active';
+                    return 'active';
+                  };
+                  const filtered = ordersList.filter((o) => {
+                    const mappedType = TYPE_MAP[o.type] || 'other';
+                    if (ordersTypeFilter !== 'all' && mappedType !== ordersTypeFilter) return false;
+                    if (ordersStatusFilter !== 'all' && toBucket(o.status) !== ordersStatusFilter) return false;
+                    if (q) {
+                      const hay = `${o.title} ${o.subtitle} ${o.orderedBy || ''}`.toLowerCase();
+                      if (!hay.includes(q)) return false;
+                    }
+                    return true;
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div style={{ padding: 40, textAlign: 'center', color: '#6b7280', fontSize: 13 }}>
+                        {ordersList.length === 0
+                          ? 'No orders on this patient yet. Use the buttons above to place one.'
+                          : 'No orders match your filters.'}
+                      </div>
+                    );
+                  }
+
+                  const TYPE_META: Record<string, { label: string; bg: string; color: string; icon: string }> = {
+                    medication: { label: 'Medication', bg: '#fef3c7', color: '#92400e', icon: '💊' },
+                    pharmacy:   { label: 'Medication', bg: '#fef3c7', color: '#92400e', icon: '💊' },
+                    lab:        { label: 'Lab',        bg: '#e0f2fe', color: '#075985', icon: '🧪' },
+                    imaging:    { label: 'Imaging',    bg: '#ede9fe', color: '#5b21b6', icon: '📡' },
+                    radiology:  { label: 'Imaging',    bg: '#ede9fe', color: '#5b21b6', icon: '📡' },
+                    consult:    { label: 'Consult',    bg: '#fce7f3', color: '#9d174d', icon: '👥' },
+                    referral:   { label: 'Referral',   bg: '#fce7f3', color: '#9d174d', icon: '↗️' },
+                    nursing:    { label: 'Nursing',    bg: '#dcfce7', color: '#166534', icon: '🩺' },
+                    diet:       { label: 'Diet',       bg: '#fef9c3', color: '#854d0e', icon: '🍽️' },
+                    procedure:  { label: 'Procedure',  bg: '#fee2e2', color: '#991b1b', icon: '🔬' },
+                    other:      { label: 'Other',      bg: '#f3f4f6', color: '#475467', icon: '📋' },
+                  };
+                  const fmtDate = (iso: string | null) => {
+                    if (!iso) return '—';
+                    const d = new Date(iso);
+                    if (isNaN(d.getTime())) return '—';
+                    const now = new Date();
+                    const sameDay = d.toDateString() === now.toDateString();
+                    const y = new Date(now); y.setDate(now.getDate() - 1);
+                    const isYesterday = d.toDateString() === y.toDateString();
+                    const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+                    if (sameDay) return `Today ${time}`;
+                    if (isYesterday) return `Yesterday ${time}`;
+                    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) + ' ' + time;
+                  };
+
+                  return (
+                    <div style={{
+                      overflowX: 'auto',
+                      borderRadius: 8,
+                      border: '1px solid #e0e0e0',
+                    }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                            <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151' }}>Date</th>
+                            <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151' }}>Order</th>
+                            <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151' }}>Type</th>
+                            <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151' }}>Status</th>
+                            <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151' }}>Ordered By</th>
+                            <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: '#374151' }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filtered.map((o) => {
+                            const mapped = TYPE_MAP[o.type] || 'other';
+                            const meta = TYPE_META[mapped] || TYPE_META.other;
+                            const bucket = toBucket(o.status);
+                            const statusStyle = bucket === 'active'
+                              ? { bg: '#ECFDF5', color: '#065F46' }
+                              : bucket === 'completed'
+                                ? { bg: '#F3F4F6', color: '#4B5563' }
+                                : { bg: '#FEE2E2', color: '#991B1B' };
+                            const canCancel = o.source === 'clinical_order' && bucket === 'active';
+                            return (
+                              <tr key={o.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '10px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{fmtDate(o.orderedAt)}</td>
+                                <td style={{ padding: '10px 12px', color: '#111' }}>
+                                  <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span>{o.title || 'Unnamed order'}</span>
+                                    {o.isHighAlert && <span title="High-alert medication" style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#fee2e2', color: '#991b1b', fontWeight: 700 }}>HIGH-ALERT</span>}
+                                    {o.isNarcotic && <span title="Narcotic" style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>NARC</span>}
+                                    {o.isPrn && <span title="Pro re nata" style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#e0f2fe', color: '#075985', fontWeight: 700 }}>PRN</span>}
+                                  </div>
+                                  {o.subtitle && (
+                                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{o.subtitle}</div>
+                                  )}
+                                </td>
+                                <td style={{ padding: '10px 12px' }}>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 4, background: meta.bg, color: meta.color, fontSize: 11, fontWeight: 600 }}>
+                                    <span>{meta.icon}</span>{meta.label}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '10px 12px' }}>
+                                  <span style={{ display: 'inline-block', padding: '3px 8px', borderRadius: 4, background: statusStyle.bg, color: statusStyle.color, fontSize: 11, fontWeight: 600, textTransform: 'capitalize' }}>
+                                    {o.status.replace(/_/g, ' ')}
+                                  </span>
+                                  {o.priority && o.priority !== 'routine' && (
+                                    <div style={{ fontSize: 10, color: '#b91c1c', marginTop: 2, fontWeight: 700, textTransform: 'uppercase' }}>{o.priority}</div>
+                                  )}
+                                </td>
+                                <td style={{ padding: '10px 12px', color: '#64748b' }}>{o.orderedBy || '—'}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                                  {canCancel && (
+                                    <button
+                                      onClick={async () => {
+                                        const reason = prompt('Reason for cancelling this order:');
+                                        if (!reason) return;
+                                        setCancellingOrderId(o.id);
+                                        try {
+                                          await trpcMutate('clinicalOrders.updateOrderStatus', { order_id: o.id, new_status: 'cancelled', cancel_reason: reason });
+                                          setOrdersLoaded(false);
+                                          await loadOrdersData();
+                                        } catch (err: any) {
+                                          alert(`Failed to cancel: ${err?.message || err}`);
+                                        } finally {
+                                          setCancellingOrderId(null);
+                                        }
+                                      }}
+                                      disabled={cancellingOrderId === o.id}
+                                      style={{
+                                        height: 26, padding: '0 10px',
+                                        background: 'white', border: '1px solid #fca5a5',
+                                        color: '#b91c1c', borderRadius: 4,
+                                        fontSize: 11, fontWeight: 600,
+                                        cursor: cancellingOrderId === o.id ? 'wait' : 'pointer',
+                                        opacity: cancellingOrderId === o.id ? 0.6 : 1,
+                                      }}
+                                    >
+                                      {cancellingOrderId === o.id ? 'Cancelling…' : 'Cancel'}
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </div>
             </>
           )}
@@ -4791,6 +5022,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                   });
                   setOrderPanel('none');
                   loadData();
+                  setOrdersLoaded(false);
                 } catch (err: any) {
                   alert(`Failed to place order: ${err.message}`);
                 } finally {
@@ -5039,6 +5271,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                   });
                   setOrderPanel('none');
                   loadData();
+                  setOrdersLoaded(false);
                 } catch (err: any) {
                   alert(`Failed to place lab order: ${err.message}`);
                 } finally {
@@ -5284,6 +5517,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                   });
                   setOrderPanel('none');
                   loadData();
+                  setOrdersLoaded(false);
                 } catch (err: any) {
                   alert(`Failed to place imaging order: ${err.message}`);
                 } finally {
@@ -5526,6 +5760,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                   });
                   setOrderPanel('none');
                   loadData();
+                  setOrdersLoaded(false);
                 } catch (err: any) {
                   alert(`Failed to request consult: ${err.message}`);
                 } finally {
