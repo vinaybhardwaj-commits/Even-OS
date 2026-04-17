@@ -1183,4 +1183,102 @@ export const labRadiologyRouter = router({
 
       return result[0];
     }),
+
+  // ── Patient labs aggregated with trend data (for patient chart Labs tab) ──
+  // Returns every lab order + every resulted component for this patient,
+  // grouped by test_code so the UI can draw per-test sparklines + expanded
+  // trend charts from a single query.
+  patientLabsWithTrends: protectedProcedure
+    .input(z.object({
+      patient_id: z.string().uuid(),
+      limit_results_per_test: z.number().int().min(1).max(200).default(30),
+    }))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      // All orders for this patient (most recent first)
+      const orders = await getSql()`
+        SELECT lo.id, lo.lo_order_number, lo.lo_status, lo.lo_urgency,
+               lo.lo_panel_name, lo.lo_ordered_at, lo.lo_is_critical
+        FROM lab_orders lo
+        WHERE lo.hospital_id = ${hospitalId}
+          AND lo.lo_patient_id = ${input.patient_id}
+        ORDER BY lo.lo_ordered_at DESC
+        LIMIT 200
+      `;
+
+      // All results for this patient, joined to orders
+      const results = await getSql()`
+        SELECT lr.id, lr.lr_order_id AS order_id,
+               lr.lr_test_code AS test_code, lr.lr_test_name AS test_name,
+               lr.value_numeric, lr.value_text, lr.value_coded,
+               lr.lr_unit AS unit,
+               lr.lr_ref_range_low AS ref_range_low,
+               lr.lr_ref_range_high AS ref_range_high,
+               lr.lr_ref_range_text AS ref_range_text,
+               lr.lr_flag AS flag, lr.lr_is_critical AS is_critical,
+               lr.lr_resulted_at AS resulted_at,
+               lo.lo_panel_name AS panel_name,
+               lo.lo_ordered_at AS ordered_at
+        FROM lab_results lr
+        JOIN lab_orders lo ON lo.id = lr.lr_order_id
+        WHERE lr.hospital_id = ${hospitalId}
+          AND lo.lo_patient_id = ${input.patient_id}
+        ORDER BY lr.lr_resulted_at DESC
+      `;
+
+      // Group results by test_code, preserve latest->oldest order
+      const byTest: Record<string, {
+        test_code: string;
+        test_name: string;
+        unit: string | null;
+        ref_range_text: string | null;
+        ref_range_low: number | null;
+        ref_range_high: number | null;
+        latest_panel: string | null;
+        results: any[];
+      }> = {};
+
+      for (const r of (results as any[])) {
+        const key = r.test_code;
+        if (!byTest[key]) {
+          byTest[key] = {
+            test_code: r.test_code,
+            test_name: r.test_name,
+            unit: r.unit,
+            ref_range_text: r.ref_range_text,
+            ref_range_low: r.ref_range_low !== null ? Number(r.ref_range_low) : null,
+            ref_range_high: r.ref_range_high !== null ? Number(r.ref_range_high) : null,
+            latest_panel: r.panel_name,
+            results: [],
+          };
+        }
+        if (byTest[key].results.length < input.limit_results_per_test) {
+          byTest[key].results.push({
+            id: r.id,
+            order_id: r.order_id,
+            value_numeric: r.value_numeric !== null ? Number(r.value_numeric) : null,
+            value_text: r.value_text,
+            value_coded: r.value_coded,
+            flag: r.flag,
+            is_critical: r.is_critical,
+            resulted_at: r.resulted_at,
+            panel_name: r.panel_name,
+          });
+        }
+      }
+
+      // Sort tests by most-recent result time (desc)
+      const tests = Object.values(byTest).sort((a, b) => {
+        const at = a.results[0]?.resulted_at ? new Date(a.results[0].resulted_at).getTime() : 0;
+        const bt = b.results[0]?.resulted_at ? new Date(b.results[0].resulted_at).getTime() : 0;
+        return bt - at;
+      });
+
+      return {
+        orders: orders as any[],
+        tests,
+      };
+    }),
+
 });
