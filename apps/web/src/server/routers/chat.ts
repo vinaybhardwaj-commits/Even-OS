@@ -13,6 +13,52 @@ function getSql() {
 }
 
 // ============================================================
+// AUDIT LOGGER — Every chat action gets logged
+// ============================================================
+
+async function logAudit(params: {
+  action: string;
+  user_id: string;
+  user_name: string;
+  hospital_id: string;
+  channel_id?: string;
+  message_id?: number;
+  target_user_id?: string;
+  details?: Record<string, any>;
+}) {
+  const sql = getSql();
+  try {
+    await sql`
+      INSERT INTO chat_audit_log (
+        action, user_id, user_name, hospital_id,
+        channel_id, message_id, target_user_id, details
+      ) VALUES (
+        ${params.action}, ${params.user_id}, ${params.user_name}, ${params.hospital_id},
+        ${params.channel_id || null}, ${params.message_id || null},
+        ${params.target_user_id || null}, ${JSON.stringify(params.details || {})}
+      )
+    `;
+  } catch (err) {
+    console.warn('[ChatAudit] Failed to log:', err);
+  }
+}
+
+// ============================================================
+// AUTO-MEMBERSHIP — Ensure user is a member of a channel
+// ============================================================
+
+async function ensureMembership(channelUuid: string, userId: string) {
+  const sql = getSql();
+  await sql`
+    INSERT INTO chat_channel_members (channel_id, user_id, role)
+    VALUES (${channelUuid}, ${userId}, 'member')
+    ON CONFLICT (channel_id, user_id) DO UPDATE SET
+      left_at = NULL,
+      joined_at = CASE WHEN chat_channel_members.left_at IS NOT NULL THEN NOW() ELSE chat_channel_members.joined_at END
+  `;
+}
+
+// ============================================================
 // VALIDATORS
 // ============================================================
 
@@ -24,7 +70,7 @@ const messageTypeEnum = z.enum([
 const messagePriorityEnum = z.enum(['urgent', 'high', 'normal', 'low']);
 
 // ============================================================
-// CHAT ROUTER — OC.1b (15 core endpoints)
+// CHAT ROUTER — Universal visibility, immutable audit trail
 // ============================================================
 
 export const chatRouter = router({
@@ -32,8 +78,9 @@ export const chatRouter = router({
   // ── CHANNELS ────────────────────────────────────────────────
 
   /**
-   * List user's channels grouped by type, with unread counts.
-   * Groups: my_patients, departments, direct_messages, broadcast
+   * List ALL channels in the hospital grouped by type.
+   * Every user sees every channel — no membership filter.
+   * User-specific prefs (pinned, muted, last_read) come from LEFT JOIN.
    */
   listChannels: protectedProcedure
     .query(async ({ ctx }) => {
@@ -45,7 +92,9 @@ export const chatRouter = router({
         SELECT
           cc.id, cc.channel_id, cc.channel_type, cc.name, cc.description,
           cc.is_archived, cc.last_message_at, cc.encounter_id, cc.metadata,
-          ccm.is_pinned, ccm.is_muted, ccm.last_read_at,
+          COALESCE(ccm.is_pinned, false) as is_pinned,
+          COALESCE(ccm.is_muted, false) as is_muted,
+          ccm.last_read_at,
           (
             SELECT count(*)::int FROM chat_messages cm
             WHERE cm.channel_id = cc.id
@@ -57,11 +106,9 @@ export const chatRouter = router({
             WHERE channel_id = cc.id AND left_at IS NULL
           ) as member_count
         FROM chat_channels cc
-        JOIN chat_channel_members ccm ON ccm.channel_id = cc.id
-        WHERE ccm.user_id = ${userId}
-          AND ccm.left_at IS NULL
-          AND cc.hospital_id = ${hospitalId}
-        ORDER BY cc.is_archived ASC, ccm.is_pinned DESC, cc.last_message_at DESC NULLS LAST
+        LEFT JOIN chat_channel_members ccm ON ccm.channel_id = cc.id AND ccm.user_id = ${userId} AND ccm.left_at IS NULL
+        WHERE cc.hospital_id = ${hospitalId}
+        ORDER BY cc.is_archived ASC, COALESCE(ccm.is_pinned, false) DESC, cc.last_message_at DESC NULLS LAST
       `;
 
       // Group by type
@@ -79,25 +126,15 @@ export const chatRouter = router({
     }),
 
   /**
-   * Get single channel details + members + last 50 messages
+   * Get single channel details + members + last 50 messages.
+   * No membership check — everyone can view any channel.
+   * Auto-adds user as member for tracking (last_read_at, etc.).
    */
   getChannel: protectedProcedure
     .input(z.object({ channelId: z.string() }))
     .query(async ({ ctx, input }) => {
       const sql = getSql();
       const userId = ctx.user.sub;
-
-      // Verify membership
-      const [membership] = await sql`
-        SELECT ccm.id, ccm.role FROM chat_channel_members ccm
-        JOIN chat_channels cc ON cc.id = ccm.channel_id
-        WHERE cc.channel_id = ${input.channelId}
-          AND ccm.user_id = ${userId}
-          AND ccm.left_at IS NULL
-      `;
-      if (!membership) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Not a member of this channel' });
-      }
 
       const [channel] = await sql`
         SELECT id, channel_id, channel_type, name, description, is_archived,
@@ -107,6 +144,9 @@ export const chatRouter = router({
       if (!channel) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Channel not found' });
       }
+
+      // Auto-add user as member for read-tracking
+      await ensureMembership(channel.id, userId);
 
       const members = await sql`
         SELECT ccm.user_id, ccm.role, ccm.joined_at, ccm.is_muted,
@@ -130,27 +170,31 @@ export const chatRouter = router({
         FROM chat_messages m
         LEFT JOIN users u ON u.id = m.sender_id
         WHERE m.channel_id = ${channel.id}
-          AND m.is_deleted = false
         ORDER BY m.created_at DESC
         LIMIT 50
+      `;
+
+      // Get user's membership role (will exist due to ensureMembership above)
+      const [membership] = await sql`
+        SELECT role FROM chat_channel_members
+        WHERE channel_id = ${channel.id} AND user_id = ${userId} AND left_at IS NULL
       `;
 
       return {
         channel,
         members,
         messages: messages.reverse(), // Oldest first for display
-        memberRole: membership.role,
+        memberRole: membership?.role || 'member',
       };
     }),
 
   /**
-   * Search channels by name
+   * Search channels by name — searches ALL hospital channels.
    */
   searchChannels: protectedProcedure
     .input(z.object({ query: z.string().min(1).max(100) }))
     .query(async ({ ctx, input }) => {
       const sql = getSql();
-      const userId = ctx.user.sub;
       const hospitalId = ctx.user.hospital_id;
       const search = `%${input.query.toLowerCase()}%`;
 
@@ -158,10 +202,7 @@ export const chatRouter = router({
         SELECT cc.id, cc.channel_id, cc.channel_type, cc.name, cc.description,
                cc.is_archived, cc.last_message_at
         FROM chat_channels cc
-        JOIN chat_channel_members ccm ON ccm.channel_id = cc.id
-        WHERE ccm.user_id = ${userId}
-          AND ccm.left_at IS NULL
-          AND cc.hospital_id = ${hospitalId}
+        WHERE cc.hospital_id = ${hospitalId}
           AND LOWER(cc.name) LIKE ${search}
         ORDER BY cc.last_message_at DESC NULLS LAST
         LIMIT 20
@@ -171,8 +212,8 @@ export const chatRouter = router({
   // ── MESSAGES ────────────────────────────────────────────────
 
   /**
-   * Send a message. Inserts into chat_messages, updates channel last_message_at.
-   * Returns the created message with sender info.
+   * Send a message. Auto-adds sender as member if not already.
+   * Logs to audit trail.
    */
   sendMessage: protectedProcedure
     .input(z.object({
@@ -198,17 +239,17 @@ export const chatRouter = router({
       const userId = ctx.user.sub;
       const hospitalId = ctx.user.hospital_id;
 
-      // Verify membership + get channel UUID
+      // Get channel
       const [channel] = await sql`
-        SELECT cc.id, cc.channel_type FROM chat_channels cc
-        JOIN chat_channel_members ccm ON ccm.channel_id = cc.id
-        WHERE cc.channel_id = ${input.channelId}
-          AND ccm.user_id = ${userId}
-          AND ccm.left_at IS NULL
+        SELECT id, channel_type FROM chat_channels
+        WHERE channel_id = ${input.channelId} AND hospital_id = ${hospitalId}
       `;
       if (!channel) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Not a member of this channel' });
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Channel not found' });
       }
+
+      // Auto-add user as member
+      await ensureMembership(channel.id, userId);
 
       // For broadcast, only admins can post
       if (channel.channel_type === 'broadcast') {
@@ -230,7 +271,7 @@ export const chatRouter = router({
                   reply_to_id, created_at
       `;
 
-      // Insert attachments if provided
+      // Insert attachments
       if (input.attachments && input.attachments.length > 0) {
         for (const att of input.attachments) {
           const [inserted] = await sql`
@@ -240,7 +281,7 @@ export const chatRouter = router({
             RETURNING id
           `;
 
-          // OC.4c: Auto-route to medical record for patient channels (fire-and-forget)
+          // OC.4c: Auto-route to medical record for patient channels
           if (inserted && channel.channel_type === 'patient') {
             routeFileToMedicalRecord({
               attachment_id: inserted.id,
@@ -263,6 +304,22 @@ export const chatRouter = router({
         WHERE id = ${channel.id}
       `;
 
+      // Audit log
+      logAudit({
+        action: 'message_sent',
+        user_id: userId,
+        user_name: ctx.user.name,
+        hospital_id: hospitalId,
+        channel_id: input.channelId,
+        message_id: message.id,
+        details: {
+          message_type: input.messageType,
+          priority: input.priority,
+          has_attachments: (input.attachments?.length || 0) > 0,
+          content_length: input.content.length,
+        },
+      });
+
       return {
         ...message,
         sender_name: ctx.user.name,
@@ -272,31 +329,21 @@ export const chatRouter = router({
     }),
 
   /**
-   * List messages for a channel. Cursor-based pagination (by message ID).
+   * List messages for a channel. Cursor-based pagination.
+   * No membership check — all messages are visible to everyone.
+   * Shows ALL messages including retracted (with strikethrough).
    */
   listMessages: protectedProcedure
     .input(z.object({
       channelId: z.string(),
-      cursor: z.number().optional(), // message ID — load messages BEFORE this ID
+      cursor: z.number().optional(),
       limit: z.number().min(1).max(100).default(50),
     }))
     .query(async ({ ctx, input }) => {
       const sql = getSql();
-      const userId = ctx.user.sub;
 
-      // Verify membership
-      const [membership] = await sql`
-        SELECT 1 FROM chat_channel_members ccm
-        JOIN chat_channels cc ON cc.id = ccm.channel_id
-        WHERE cc.channel_id = ${input.channelId}
-          AND ccm.user_id = ${userId}
-          AND ccm.left_at IS NULL
-      `;
-      if (!membership) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Not a member of this channel' });
-      }
-
-      // Fetch messages: if cursor is provided, load older messages (< cursor)
+      // Fetch messages — no membership check, no is_deleted filter
+      // All messages are always visible (retracted ones show strikethrough)
       const messages = input.cursor
         ? await sql`
             SELECT m.id, m.sender_id, m.message_type, m.priority, m.content,
@@ -308,7 +355,6 @@ export const chatRouter = router({
             LEFT JOIN users u ON u.id = m.sender_id
             JOIN chat_channels cc ON cc.id = m.channel_id
             WHERE cc.channel_id = ${input.channelId}
-              AND m.is_deleted = false
               AND m.id < ${input.cursor}
             ORDER BY m.id DESC
             LIMIT ${input.limit}
@@ -323,77 +369,20 @@ export const chatRouter = router({
             LEFT JOIN users u ON u.id = m.sender_id
             JOIN chat_channels cc ON cc.id = m.channel_id
             WHERE cc.channel_id = ${input.channelId}
-              AND m.is_deleted = false
             ORDER BY m.id DESC
             LIMIT ${input.limit}
           `;
 
-      const reversed = messages.reverse(); // Oldest first
+      const reversed = messages.reverse();
       const nextCursor = messages.length === input.limit ? messages[0]?.id : null;
 
       return { messages: reversed, nextCursor, hasMore: nextCursor !== null };
     }),
 
   /**
-   * Edit own message (dept/DM channels only — patient channels are immutable)
-   */
-  editMessage: protectedProcedure
-    .input(z.object({
-      messageId: z.number(),
-      content: z.string().min(1).max(10000),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      const sql = getSql();
-      const userId = ctx.user.sub;
-
-      const [msg] = await sql`
-        SELECT m.id, m.sender_id, cc.channel_type
-        FROM chat_messages m
-        JOIN chat_channels cc ON cc.id = m.channel_id
-        WHERE m.id = ${input.messageId}
-      `;
-      if (!msg) throw new TRPCError({ code: 'NOT_FOUND', message: 'Message not found' });
-      if (msg.sender_id !== userId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Can only edit own messages' });
-      if (msg.channel_type === 'patient') {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Patient channel messages cannot be edited — they are permanent medical records. Use retract instead.' });
-      }
-
-      const [updated] = await sql`
-        UPDATE chat_messages SET content = ${input.content}, is_edited = true, updated_at = NOW()
-        WHERE id = ${input.messageId}
-        RETURNING id, content, is_edited, updated_at
-      `;
-      return updated;
-    }),
-
-  /**
-   * Soft delete message (dept/DM channels only)
-   */
-  deleteMessage: protectedProcedure
-    .input(z.object({ messageId: z.number() }))
-    .mutation(async ({ ctx, input }) => {
-      const sql = getSql();
-      const userId = ctx.user.sub;
-
-      const [msg] = await sql`
-        SELECT m.id, m.sender_id, cc.channel_type
-        FROM chat_messages m
-        JOIN chat_channels cc ON cc.id = m.channel_id
-        WHERE m.id = ${input.messageId}
-      `;
-      if (!msg) throw new TRPCError({ code: 'NOT_FOUND', message: 'Message not found' });
-      if (msg.sender_id !== userId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Can only delete own messages' });
-      if (msg.channel_type === 'patient') {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Patient channel messages cannot be deleted — use retract instead.' });
-      }
-
-      await sql`UPDATE chat_messages SET is_deleted = true, updated_at = NOW() WHERE id = ${input.messageId}`;
-      return { success: true };
-    }),
-
-  /**
-   * Retract message (patient channels only). Original content is preserved
-   * in the DB for medicolegal audit trail. Display shows retraction notice.
+   * Retract message (strikethrough). Works on ALL channels.
+   * Original content is ALWAYS preserved in DB. Cannot be undone.
+   * Display shows retraction notice + strikethrough original text.
    */
   retractMessage: protectedProcedure
     .input(z.object({
@@ -405,16 +394,14 @@ export const chatRouter = router({
       const userId = ctx.user.sub;
 
       const [msg] = await sql`
-        SELECT m.id, m.sender_id, cc.channel_type
+        SELECT m.id, m.sender_id, m.content, m.channel_id,
+               cc.channel_id as channel_string_id, cc.channel_type
         FROM chat_messages m
         JOIN chat_channels cc ON cc.id = m.channel_id
         WHERE m.id = ${input.messageId}
       `;
       if (!msg) throw new TRPCError({ code: 'NOT_FOUND', message: 'Message not found' });
       if (msg.sender_id !== userId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Can only retract own messages' });
-      if (msg.channel_type !== 'patient') {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Retract is only for patient channel messages. Use delete for dept/DM channels.' });
-      }
 
       const [updated] = await sql`
         UPDATE chat_messages
@@ -423,11 +410,27 @@ export const chatRouter = router({
         WHERE id = ${input.messageId}
         RETURNING id, is_retracted, retracted_at, retracted_reason
       `;
+
+      // Audit log
+      logAudit({
+        action: 'message_retracted',
+        user_id: userId,
+        user_name: ctx.user.name,
+        hospital_id: ctx.user.hospital_id,
+        channel_id: msg.channel_string_id,
+        message_id: input.messageId,
+        details: {
+          reason: input.reason,
+          original_content_length: msg.content?.length || 0,
+        },
+      });
+
       return updated;
     }),
 
   /**
-   * Mark channel as read (updates last_read_at on membership row)
+   * Mark channel as read (updates last_read_at).
+   * Auto-creates membership row if needed.
    */
   markRead: protectedProcedure
     .input(z.object({ channelId: z.string() }))
@@ -435,22 +438,26 @@ export const chatRouter = router({
       const sql = getSql();
       const userId = ctx.user.sub;
 
-      await sql`
-        UPDATE chat_channel_members ccm
-        SET last_read_at = NOW()
-        FROM chat_channels cc
-        WHERE cc.id = ccm.channel_id
-          AND cc.channel_id = ${input.channelId}
-          AND ccm.user_id = ${userId}
+      // Get channel UUID and auto-ensure membership
+      const [channel] = await sql`
+        SELECT id FROM chat_channels WHERE channel_id = ${input.channelId}
       `;
+      if (channel) {
+        await ensureMembership(channel.id, userId);
+        await sql`
+          UPDATE chat_channel_members
+          SET last_read_at = NOW()
+          WHERE channel_id = ${channel.id} AND user_id = ${userId}
+        `;
+      }
       return { success: true };
     }),
 
   // ── POLL ────────────────────────────────────────────────────
 
   /**
-   * Poll for new messages, typing indicators, and presence since last_event_id.
-   * This is the heart of the real-time system. Called every 2-5 seconds.
+   * Poll for new messages, typing indicators, and presence.
+   * Returns ALL new messages in the hospital (no membership filter).
    */
   poll: protectedProcedure
     .input(z.object({ lastEventId: z.number().default(0) }))
@@ -459,7 +466,7 @@ export const chatRouter = router({
       const userId = ctx.user.sub;
       const hospitalId = ctx.user.hospital_id;
 
-      // 1. New messages since last_event_id
+      // 1. New messages since last_event_id — ALL channels in hospital
       const newMessages = await sql`
         SELECT m.id, m.channel_id, m.sender_id, m.message_type, m.priority,
                LEFT(m.content, 200) as content_preview, m.created_at,
@@ -468,11 +475,7 @@ export const chatRouter = router({
         FROM chat_messages m
         LEFT JOIN users u ON u.id = m.sender_id
         WHERE m.id > ${input.lastEventId}
-          AND m.channel_id IN (
-            SELECT channel_id FROM chat_channel_members
-            WHERE user_id = ${userId} AND left_at IS NULL
-          )
-          AND m.is_deleted = false
+          AND m.hospital_id = ${hospitalId}
         ORDER BY m.id ASC
         LIMIT 100
       `;
@@ -482,10 +485,8 @@ export const chatRouter = router({
         SELECT ct.channel_id, ct.user_id, u.full_name as user_name
         FROM chat_typing ct
         JOIN users u ON u.id = ct.user_id
-        JOIN chat_channel_members ccm ON ccm.channel_id = ct.channel_id AND ccm.user_id = ${userId}
         WHERE ct.started_at > NOW() - INTERVAL '5 seconds'
           AND ct.user_id != ${userId}
-          AND ccm.left_at IS NULL
       `;
 
       // 3. Update own presence (heartbeat)
@@ -496,7 +497,7 @@ export const chatRouter = router({
         DO UPDATE SET status = 'online', last_seen_at = NOW()
       `;
 
-      // 4. Unread counts per channel (lightweight — only channels with new messages)
+      // 4. Unread counts per channel (only channels with new messages)
       const channelIds = [...new Set(newMessages.map((m: any) => m.channel_id))];
       let unreadCounts: any[] = [];
       if (channelIds.length > 0) {
@@ -504,11 +505,9 @@ export const chatRouter = router({
           SELECT cc.channel_id as cid,
                  count(cm.id)::int as unread
           FROM chat_channels cc
-          JOIN chat_channel_members ccm ON ccm.channel_id = cc.id
+          LEFT JOIN chat_channel_members ccm ON ccm.channel_id = cc.id AND ccm.user_id = ${userId}
           JOIN chat_messages cm ON cm.channel_id = cc.id
-          WHERE ccm.user_id = ${userId}
-            AND ccm.left_at IS NULL
-            AND cm.created_at > COALESCE(ccm.last_read_at, '1970-01-01'::timestamptz)
+          WHERE cm.created_at > COALESCE(ccm.last_read_at, '1970-01-01'::timestamptz)
             AND cm.sender_id != ${userId}
             AND cc.id = ANY(${channelIds}::uuid[])
           GROUP BY cc.channel_id
@@ -530,9 +529,6 @@ export const chatRouter = router({
 
   // ── PRESENCE & TYPING ───────────────────────────────────────
 
-  /**
-   * Heartbeat — keep-alive + presence update. Called by ChatProvider on each poll.
-   */
   heartbeat: protectedProcedure
     .mutation(async ({ ctx }) => {
       const sql = getSql();
@@ -546,45 +542,32 @@ export const chatRouter = router({
     }),
 
   /**
-   * Get online users for a channel
+   * Get online users for a channel — no membership check.
    */
   getOnlineUsers: protectedProcedure
     .input(z.object({ channelId: z.string() }))
     .query(async ({ ctx, input }) => {
       const sql = getSql();
-      const userId = ctx.user.sub;
-
-      // Verify caller is a member of this channel
-      const [membership] = await sql`
-        SELECT 1 FROM chat_channel_members ccm
-        JOIN chat_channels cc ON cc.id = ccm.channel_id
-        WHERE cc.channel_id = ${input.channelId} AND ccm.user_id = ${userId} AND ccm.left_at IS NULL
-      `;
-      if (!membership) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Not a member of this channel' });
-      }
-
       return sql`
         SELECT u.id, u.full_name, u.department,
                CASE WHEN cp.last_seen_at > NOW() - INTERVAL '10 seconds' THEN 'online'
                     WHEN cp.last_seen_at > NOW() - INTERVAL '60 seconds' THEN 'away'
                     ELSE 'offline' END as presence
-        FROM chat_channel_members ccm
-        JOIN users u ON u.id = ccm.user_id
-        JOIN chat_channels cc ON cc.id = ccm.channel_id
-        LEFT JOIN chat_presence cp ON cp.user_id = ccm.user_id
-        WHERE cc.channel_id = ${input.channelId}
-          AND ccm.left_at IS NULL
+        FROM users u
+        LEFT JOIN chat_presence cp ON cp.user_id = u.id
+        WHERE u.hospital_id = ${ctx.user.hospital_id}
+          AND u.status = 'active'
         ORDER BY
           CASE WHEN cp.last_seen_at > NOW() - INTERVAL '10 seconds' THEN 0
                WHEN cp.last_seen_at > NOW() - INTERVAL '60 seconds' THEN 1
                ELSE 2 END,
           u.full_name
+        LIMIT 100
       `;
     }),
 
   /**
-   * Set typing indicator (UPSERT into chat_typing)
+   * Set typing indicator. Auto-ensures membership.
    */
   setTyping: protectedProcedure
     .input(z.object({
@@ -595,15 +578,13 @@ export const chatRouter = router({
       const sql = getSql();
       const userId = ctx.user.sub;
 
-      // Get channel UUID
       const [channel] = await sql`
-        SELECT cc.id FROM chat_channels cc
-        JOIN chat_channel_members ccm ON ccm.channel_id = cc.id
-        WHERE cc.channel_id = ${input.channelId}
-          AND ccm.user_id = ${userId}
-          AND ccm.left_at IS NULL
+        SELECT id FROM chat_channels WHERE channel_id = ${input.channelId}
       `;
       if (!channel) return { success: false };
+
+      // Auto-ensure membership
+      await ensureMembership(channel.id, userId);
 
       if (input.isTyping) {
         await sql`
@@ -622,10 +603,6 @@ export const chatRouter = router({
 
   // ── DM CREATION ─────────────────────────────────────────────
 
-  /**
-   * Search hospital users for DM creation. Returns active staff
-   * matching name or department, excludes the calling user.
-   */
   searchUsers: protectedProcedure
     .input(z.object({ query: z.string().min(2).max(100) }))
     .query(async ({ ctx, input }) => {
@@ -634,7 +611,6 @@ export const chatRouter = router({
       const hospitalId = ctx.user.hospital_id;
       const pattern = `%${input.query}%`;
 
-      // roles is a text[] array — extract first role as display value
       return sql`
         SELECT id, full_name, department, roles[1] as role
         FROM users
@@ -648,8 +624,8 @@ export const chatRouter = router({
     }),
 
   /**
-   * Create or get existing DM channel. Uses deterministic channel_id
-   * (sorted UUIDs) to prevent duplicate DM channels.
+   * Create or get existing DM channel. DM channels are visible to everyone
+   * but named after the participants for context.
    */
   createDM: protectedProcedure
     .input(z.object({ targetUserId: z.string().uuid() }))
@@ -662,7 +638,6 @@ export const chatRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot DM yourself' });
       }
 
-      // Verify target user exists and is in the same hospital
       const [target] = await sql`
         SELECT id, full_name, department FROM users
         WHERE id = ${input.targetUserId} AND hospital_id = ${hospitalId} AND status = 'active'
@@ -671,11 +646,11 @@ export const chatRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found' });
       }
 
-      // Deterministic DM channel_id: sorted UUIDs
+      // Deterministic DM channel_id
       const sortedIds = [userId, input.targetUserId].sort();
       const dmChannelId = `dm-${sortedIds[0].slice(0, 8)}-${sortedIds[1].slice(0, 8)}`;
 
-      // Upsert DM channel (race-safe via ON CONFLICT on unique channel_id)
+      // Upsert DM channel
       const [channel] = await sql`
         INSERT INTO chat_channels (channel_id, channel_type, name, hospital_id, created_by)
         VALUES (${dmChannelId}, 'direct', ${target.full_name}, ${hospitalId}, ${userId})
@@ -683,7 +658,7 @@ export const chatRouter = router({
         RETURNING id, channel_id, channel_type, name, created_at
       `;
 
-      // Add both users as members (idempotent via ON CONFLICT)
+      // Add both users as members
       await sql`
         INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES
         (${channel.id}, ${userId}, 'member'),
@@ -691,14 +666,22 @@ export const chatRouter = router({
         ON CONFLICT (channel_id, user_id) DO NOTHING
       `;
 
+      // Audit log
+      logAudit({
+        action: 'dm_created',
+        user_id: userId,
+        user_name: ctx.user.name,
+        hospital_id: hospitalId,
+        channel_id: dmChannelId,
+        target_user_id: input.targetUserId,
+        details: { target_name: target.full_name },
+      });
+
       return { channel, created: true };
     }),
 
-  // ── NOTIFICATION PREFERENCES ──────────────────────────────── (OC.6)
+  // ── NOTIFICATION PREFERENCES ────────────────────────────────
 
-  /**
-   * Get notification preferences (global + per-channel overrides).
-   */
   getNotificationPrefs: protectedProcedure
     .query(async ({ ctx }) => {
       const sql = getSql();
@@ -711,7 +694,6 @@ export const chatRouter = router({
         ORDER BY channel_id NULLS FIRST
       `;
 
-      // First row with NULL channel_id is the global default
       const global = prefs.find((p: any) => !p.channel_id) || {
         push_enabled: true, sound_enabled: true, mute_until: null,
       };
@@ -720,9 +702,6 @@ export const chatRouter = router({
       return { global, channelOverrides };
     }),
 
-  /**
-   * Update global notification preferences.
-   */
   updateGlobalPrefs: protectedProcedure
     .input(z.object({
       push_enabled: z.boolean(),
@@ -741,10 +720,6 @@ export const chatRouter = router({
       return { ok: true };
     }),
 
-  /**
-   * Mute/unmute a channel. Sets mute_until or clears it.
-   * Duration: null = unmute, 'forever' = mute indefinitely, '1h'/'8h'/'24h'/'7d' = timed mute.
-   */
   muteChannel: protectedProcedure
     .input(z.object({
       channelId: z.string(),
@@ -755,15 +730,16 @@ export const chatRouter = router({
       const userId = ctx.user.sub;
       const hospitalId = ctx.user.hospital_id;
 
-      // Resolve channel UUID
       const [channel] = await sql`
         SELECT id FROM chat_channels
         WHERE channel_id = ${input.channelId} AND hospital_id = ${hospitalId}
       `;
       if (!channel) throw new TRPCError({ code: 'NOT_FOUND', message: 'Channel not found' });
 
+      // Ensure membership
+      await ensureMembership(channel.id, userId);
+
       if (input.duration === 'unmute') {
-        // Clear mute: update member row + delete notification pref
         await sql`
           UPDATE chat_channel_members SET is_muted = false
           WHERE channel_id = ${channel.id} AND user_id = ${userId}
@@ -775,22 +751,11 @@ export const chatRouter = router({
         return { muted: false };
       }
 
-      // Calculate mute_until
-      const durations: Record<string, string | null> = {
-        '1h': "NOW() + INTERVAL '1 hour'",
-        '8h': "NOW() + INTERVAL '8 hours'",
-        '24h': "NOW() + INTERVAL '24 hours'",
-        '7d': "NOW() + INTERVAL '7 days'",
-        'forever': null,
-      };
-
-      // Update member muted flag
       await sql`
         UPDATE chat_channel_members SET is_muted = true
         WHERE channel_id = ${channel.id} AND user_id = ${userId}
       `;
 
-      // Upsert notification pref with mute_until
       if (input.duration === 'forever') {
         await sql`
           INSERT INTO chat_notification_prefs (user_id, channel_id, push_enabled, sound_enabled, mute_until)
@@ -813,9 +778,6 @@ export const chatRouter = router({
 
   // ── ADMIN ENDPOINTS ─────────────────────────────────────────
 
-  /**
-   * Admin: Seed/verify all department channels exist
-   */
   seedDepartmentChannels: adminProcedure
     .mutation(async ({ ctx }) => {
       const sql = getSql();
@@ -828,9 +790,6 @@ export const chatRouter = router({
       return { channels: existing.length, message: `${existing.length} department channels exist` };
     }),
 
-  /**
-   * Admin: Get channel stats (message counts, active users)
-   */
   getChannelStats: adminProcedure
     .query(async ({ ctx }) => {
       const sql = getSql();
@@ -849,9 +808,6 @@ export const chatRouter = router({
       `;
     }),
 
-  /**
-   * Admin: Bulk sync role→channel membership
-   */
   bulkAddMembers: adminProcedure
     .input(z.object({
       channelId: z.string(),
@@ -868,13 +824,10 @@ export const chatRouter = router({
 
       let added = 0;
       for (const userId of input.userIds) {
-        const [existing] = await sql`
-          SELECT 1 FROM chat_channel_members WHERE channel_id = ${channel.id} AND user_id = ${userId}
-        `;
-        if (existing) continue;
         await sql`
           INSERT INTO chat_channel_members (channel_id, user_id, role)
           VALUES (${channel.id}, ${userId}, ${input.role})
+          ON CONFLICT (channel_id, user_id) DO NOTHING
         `;
         added++;
       }
@@ -882,7 +835,41 @@ export const chatRouter = router({
       return { added, total: input.userIds.length };
     }),
 
-  // ─── TOGGLE REACTION (OC.3b) ───────────────────────────────
+  /**
+   * Admin: Get chat audit log (last 200 entries)
+   */
+  getAuditLog: adminProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(500).default(200),
+      offset: z.number().min(0).default(0),
+      action: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const sql = getSql();
+      const hospitalId = ctx.user.hospital_id;
+
+      if (input.action) {
+        return sql`
+          SELECT id, action, user_id, user_name, channel_id, message_id,
+                 target_user_id, details, created_at
+          FROM chat_audit_log
+          WHERE hospital_id = ${hospitalId} AND action = ${input.action}
+          ORDER BY created_at DESC
+          LIMIT ${input.limit} OFFSET ${input.offset}
+        `;
+      }
+
+      return sql`
+        SELECT id, action, user_id, user_name, channel_id, message_id,
+               target_user_id, details, created_at
+        FROM chat_audit_log
+        WHERE hospital_id = ${hospitalId}
+        ORDER BY created_at DESC
+        LIMIT ${input.limit} OFFSET ${input.offset}
+      `;
+    }),
+
+  // ─── TOGGLE REACTION ───────────────────────────────────────
   toggleReaction: protectedProcedure
     .input(z.object({
       messageId: z.number(),
@@ -893,7 +880,6 @@ export const chatRouter = router({
       const sql = getSql();
       const userId = ctx.user.sub;
 
-      // Check if reaction already exists
       const [existing] = await sql`
         SELECT id FROM chat_reactions
         WHERE message_id = ${input.messageId}
@@ -902,24 +888,37 @@ export const chatRouter = router({
       `;
 
       if (existing) {
-        // Remove reaction
         await sql`DELETE FROM chat_reactions WHERE id = ${existing.id}`;
+        logAudit({
+          action: 'reaction_removed',
+          user_id: userId,
+          user_name: ctx.user.name,
+          hospital_id: ctx.user.hospital_id,
+          channel_id: input.channelId,
+          message_id: input.messageId,
+          details: { emoji: input.emoji },
+        });
         return { action: 'removed' };
       } else {
-        // Add reaction
         await sql`
           INSERT INTO chat_reactions (message_id, user_id, emoji)
           VALUES (${input.messageId}, ${userId}, ${input.emoji})
         `;
+        logAudit({
+          action: 'reaction_added',
+          user_id: userId,
+          user_name: ctx.user.name,
+          hospital_id: ctx.user.hospital_id,
+          channel_id: input.channelId,
+          message_id: input.messageId,
+          details: { emoji: input.emoji },
+        });
         return { action: 'added' };
       }
     }),
 
-  // ── OC.5: TASKS ──────────────────────────────────────────
+  // ── TASKS ──────────────────────────────────────────────────
 
-  /**
-   * Create a task via chat. Posts task message + creates task record.
-   */
   createTask: protectedProcedure
     .input(z.object({
       channelId: z.string(),
@@ -934,7 +933,6 @@ export const chatRouter = router({
       const userId = ctx.user.sub;
       const hospitalId = ctx.user.hospital_id;
 
-      // Get channel internal ID
       const [channel] = await sql`
         SELECT id FROM chat_channels
         WHERE channel_id = ${input.channelId} AND hospital_id = ${hospitalId}
@@ -943,7 +941,7 @@ export const chatRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Channel not found' });
       }
 
-      return await createTask({
+      const result = await createTask({
         channel_id: channel.id as string,
         hospital_id: hospitalId,
         sender_id: userId,
@@ -954,27 +952,41 @@ export const chatRouter = router({
         due_at: input.dueAt,
         priority: input.priority,
       });
+
+      logAudit({
+        action: 'task_created',
+        user_id: userId,
+        user_name: ctx.user.name,
+        hospital_id: hospitalId,
+        channel_id: input.channelId,
+        target_user_id: input.assigneeId,
+        details: { description: input.description, priority: input.priority, assignee: input.assigneeName },
+      });
+
+      return result;
     }),
 
-  /**
-   * Complete a task. Updates metadata + posts system message.
-   */
   completeTask: protectedProcedure
-    .input(z.object({
-      messageId: z.number(),
-    }))
+    .input(z.object({ messageId: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      return await completeTask({
+      const result = await completeTask({
         message_id: input.messageId,
         completed_by: ctx.user.sub,
         completed_by_name: ctx.user.name,
         hospital_id: ctx.user.hospital_id,
       });
+
+      logAudit({
+        action: 'task_completed',
+        user_id: ctx.user.sub,
+        user_name: ctx.user.name,
+        hospital_id: ctx.user.hospital_id,
+        message_id: input.messageId,
+      });
+
+      return result;
     }),
 
-  /**
-   * Reassign a task. Updates assignee in metadata + posts system message.
-   */
   reassignTask: protectedProcedure
     .input(z.object({
       messageId: z.number(),
@@ -982,51 +994,53 @@ export const chatRouter = router({
       newAssigneeName: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return await reassignTask({
+      const result = await reassignTask({
         message_id: input.messageId,
         reassigned_by_name: ctx.user.name,
         new_assignee_id: input.newAssigneeId,
         new_assignee_name: input.newAssigneeName,
         hospital_id: ctx.user.hospital_id,
       });
+
+      logAudit({
+        action: 'task_reassigned',
+        user_id: ctx.user.sub,
+        user_name: ctx.user.name,
+        hospital_id: ctx.user.hospital_id,
+        message_id: input.messageId,
+        target_user_id: input.newAssigneeId,
+        details: { new_assignee: input.newAssigneeName },
+      });
+
+      return result;
     }),
 
-  // ── OC.5: SLASH COMMANDS ─────────────────────────────────
+  // ── SLASH COMMANDS ─────────────────────────────────────────
 
-  /**
-   * Get available slash commands for the current user's role.
-   */
   getSlashCommands: protectedProcedure
     .query(({ ctx }) => {
       return getCommandsForRole(ctx.user.role);
     }),
 
-  /**
-   * Execute a slash command. Parses the command text and runs the executor.
-   * Posts the result as a slash_result message in the channel.
-   */
   executeSlashCommand: protectedProcedure
     .input(z.object({
       channelId: z.string(),
-      commandText: z.string().min(2), // e.g., "/vitals Rajesh"
+      commandText: z.string().min(2),
     }))
     .mutation(async ({ ctx, input }) => {
       const sql = getSql();
       const userId = ctx.user.sub;
       const hospitalId = ctx.user.hospital_id;
 
-      // Parse the command
       const parsed = parseSlashCommand(input.commandText);
       if (!parsed) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Not a valid slash command' });
       }
 
-      // Don't execute /task here — it's handled by createTask
       if (parsed.command === 'task') {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Use createTask endpoint for task creation' });
       }
 
-      // Get channel internal ID
       const [channel] = await sql`
         SELECT id, channel_type FROM chat_channels
         WHERE channel_id = ${input.channelId} AND hospital_id = ${hospitalId}
@@ -1035,10 +1049,8 @@ export const chatRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Channel not found' });
       }
 
-      // Execute the command
       const result = await execSlash(parsed.command, parsed.args, hospitalId, ctx.user.role, ctx.user.name);
 
-      // Post the result as a slash_result message
       const [message] = await sql`
         INSERT INTO chat_messages (
           channel_id, sender_id, message_type, content, metadata, hospital_id
@@ -1058,6 +1070,16 @@ export const chatRouter = router({
         UPDATE chat_channels SET last_message_at = NOW(), updated_at = NOW()
         WHERE id = ${channel.id}
       `;
+
+      logAudit({
+        action: 'slash_command',
+        user_id: userId,
+        user_name: ctx.user.name,
+        hospital_id: hospitalId,
+        channel_id: input.channelId,
+        message_id: message.id,
+        details: { command: parsed.command, args: parsed.args },
+      });
 
       return {
         ...message,

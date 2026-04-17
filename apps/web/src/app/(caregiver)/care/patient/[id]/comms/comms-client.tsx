@@ -490,21 +490,26 @@ export default function CommsClient({ patientId, encounterId, userId, userName, 
                         </div>
                       )}
 
-                      {/* Content */}
+                      {/* Content — immutable: no deletion, retracted shows strikethrough */}
                       {msg.is_retracted ? (
-                        <div style={{
-                          background: '#FEF3C7',
-                          border: '1px solid #F59E0B',
-                          borderRadius: 6,
-                          padding: '8px 12px',
-                          fontSize: 12,
-                          color: '#92400E',
-                        }}>
-                          ⏪ Message retracted: {msg.retraction_reason || 'No reason given'}
-                        </div>
-                      ) : msg.is_deleted ? (
-                        <div style={{ color: '#999', fontStyle: 'italic', fontSize: 13 }}>
-                          [Message deleted]
+                        <div>
+                          <div style={{
+                            fontSize: 13,
+                            color: '#999',
+                            lineHeight: 1.5,
+                            whiteSpace: 'pre-wrap',
+                            textDecoration: 'line-through',
+                            textDecorationColor: '#F59E0B',
+                          }}>
+                            {msg.content}
+                          </div>
+                          <div style={{
+                            fontSize: 11,
+                            color: '#92400E',
+                            marginTop: 4,
+                          }}>
+                            ⏪ Retracted: {msg.retraction_reason || 'No reason given'}
+                          </div>
                         </div>
                       ) : (
                         <div style={{

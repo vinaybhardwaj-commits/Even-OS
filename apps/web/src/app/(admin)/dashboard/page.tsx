@@ -510,6 +510,35 @@ export default async function DashboardPage() {
             </div>
           )}
 
+          {/* Chat Activity Log — Admin/SU only */}
+          {isAdmin && (
+            <div className="mt-8 pt-8 border-t border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Chat &amp; Communications</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <a href="/admin/chat-audit" className="block p-5 bg-slate-50 rounded-lg border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition-colors">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">📜</span>
+                    <p className="text-base font-semibold text-slate-900">Chat Audit Log</p>
+                  </div>
+                  <p className="text-xs text-slate-700 leading-relaxed">
+                    Immutable log of every chat action: messages sent, retractions, task assignments,
+                    reactions, slash commands. Filter by user, channel, action type, or time range.
+                  </p>
+                </a>
+                <a href="/admin/chat-channels" className="block p-5 bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100 hover:border-blue-300 transition-colors">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">💬</span>
+                    <p className="text-base font-semibold text-blue-900">Chat Channels</p>
+                  </div>
+                  <p className="text-xs text-blue-800 leading-relaxed">
+                    View all department, broadcast, patient, and DM channels.
+                    All channels are visible to all users — universal access model.
+                  </p>
+                </a>
+              </div>
+            </div>
+          )}
+
           <div className="mt-8 pt-8 border-t border-gray-200">
             <h3 className="text-sm font-semibold text-gray-700 mb-3">System Status</h3>
             <div className="flex items-center gap-3">

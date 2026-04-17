@@ -1,15 +1,19 @@
 'use client';
 
 /**
- * MessageBubble — OC.3a + OC.3b
+ * MessageBubble — OC.3a + OC.3b (immutable chat)
  *
  * Single message row: initials avatar, sender name + role badge,
  * timestamp, type badge, message content with basic markdown.
- * Handles deleted, retracted, and edited states.
- * OC.3b: action menu (edit, delete, retract) + inline edit mode.
+ *
+ * IMMUTABILITY RULES:
+ * - Messages CANNOT be deleted or edited
+ * - Messages CAN be retracted (strikethrough) with original preserved
+ * - Retracted messages show original content struck-through + reason
+ * - All actions are audit-logged server-side
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { ChatMessage } from '@/providers/ChatProvider';
 import { MessageTypeBadge } from './MessageTypeBadge';
 import { TaskCard } from './TaskCard';
@@ -43,7 +47,7 @@ function formatTime(dateStr: string): string {
   return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
 }
 
-function renderContent(text: string): React.ReactNode[] {
+function renderContent(text: string, strikethrough?: boolean): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
   const lines = text.split('\n');
   lines.forEach((line, li) => {
@@ -69,11 +73,6 @@ function renderContent(text: string): React.ReactNode[] {
   return parts;
 }
 
-/** Check if message is within 24h edit window */
-function isWithinEditWindow(createdAt: string): boolean {
-  return Date.now() - new Date(createdAt).getTime() < 24 * 60 * 60 * 1000;
-}
-
 // ── Component ─────────────────────────────────────────────────
 
 interface MessageBubbleProps {
@@ -87,50 +86,13 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, isOwnMessage, showSender, channelType, channelId, currentUserId, onMessageUpdated }: MessageBubbleProps) {
-  const { id, sender_name, sender_department, sender_roles, message_type, content, created_at, is_edited, is_deleted, is_retracted, retracted_reason } = message;
+  const { id, sender_name, sender_department, sender_roles, message_type, content, created_at, is_retracted, retracted_reason } = message;
 
   const [showActions, setShowActions] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState(content);
   const [showRetractModal, setShowRetractModal] = useState(false);
   const [retractReason, setRetractReason] = useState('');
-  const editRef = useRef<HTMLTextAreaElement>(null);
-
-  // Focus edit textarea when entering edit mode
-  useEffect(() => {
-    if (isEditing && editRef.current) {
-      editRef.current.focus();
-      editRef.current.selectionStart = editRef.current.value.length;
-    }
-  }, [isEditing]);
 
   // ── Actions ────────────────────────────────────────────
-  const handleEdit = useCallback(async () => {
-    const trimmed = editContent.trim();
-    if (!trimmed || trimmed === content) {
-      setIsEditing(false);
-      return;
-    }
-    try {
-      await trpcMutate('chat.editMessage', { messageId: id, channelId, content: trimmed });
-      setIsEditing(false);
-      onMessageUpdated?.();
-    } catch (err) {
-      console.error('[MessageBubble] Edit failed:', err);
-    }
-  }, [id, channelId, editContent, content, onMessageUpdated]);
-
-  const handleDelete = useCallback(async () => {
-    if (!confirm('Delete this message?')) return;
-    try {
-      await trpcMutate('chat.deleteMessage', { messageId: id, channelId });
-      onMessageUpdated?.();
-    } catch (err) {
-      console.error('[MessageBubble] Delete failed:', err);
-    }
-    setShowActions(false);
-  }, [id, channelId, onMessageUpdated]);
-
   const handleRetract = useCallback(async () => {
     if (!retractReason.trim()) return;
     try {
@@ -143,40 +105,8 @@ export function MessageBubble({ message, isOwnMessage, showSender, channelType, 
     }
   }, [id, channelId, retractReason, onMessageUpdated]);
 
-  // ── Deleted message ─────────────────────────────────────
-  if (is_deleted) {
-    return (
-      <div className="px-4 py-1">
-        <div className="text-xs text-white/30 italic ml-10">
-          [Message deleted]
-        </div>
-      </div>
-    );
-  }
-
-  // ── Retracted message ─────────────────────────────────
-  if (is_retracted) {
-    return (
-      <div className="px-4 py-1">
-        <div className="ml-10 rounded-lg bg-amber-900/20 border border-amber-500/20 px-3 py-2">
-          <div className="text-[11px] text-amber-400 font-medium">
-            Message retracted by {sender_name}
-          </div>
-          {retracted_reason && (
-            <div className="text-[11px] text-amber-300/60 mt-0.5">
-              Reason: {retracted_reason}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ── Determine available actions ────────────────────────
-  const canEdit = isOwnMessage && channelType !== 'patient' && isWithinEditWindow(created_at);
-  const canDelete = isOwnMessage && channelType !== 'patient';
-  const canRetract = isOwnMessage && channelType === 'patient';
-  const hasActions = canEdit || canDelete || canRetract;
+  // Only action available: retract own messages (all channel types)
+  const canRetract = isOwnMessage && !is_retracted;
 
   const initials = getInitials(sender_name || 'U');
   const color = avatarColor(sender_name || 'User');
@@ -186,7 +116,7 @@ export function MessageBubble({ message, isOwnMessage, showSender, channelType, 
     <>
       <div
         className={`group px-4 py-0.5 hover:bg-white/[0.03] transition-colors relative ${showSender ? 'mt-3' : 'mt-0'}`}
-        onMouseEnter={() => hasActions && setShowActions(true)}
+        onMouseEnter={() => canRetract && setShowActions(true)}
         onMouseLeave={() => { setShowActions(false); }}
       >
         <div className="flex gap-2.5">
@@ -230,42 +160,22 @@ export function MessageBubble({ message, isOwnMessage, showSender, channelType, 
               </div>
             )}
 
-            {/* Content — edit mode or display mode */}
-            {isEditing ? (
-              <div className="mt-1">
-                <textarea
-                  ref={editRef}
-                  value={editContent}
-                  onChange={e => setEditContent(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEdit(); }
-                    if (e.key === 'Escape') { setIsEditing(false); setEditContent(content); }
-                  }}
-                  className="w-full bg-white/5 border border-blue-500/30 rounded px-2 py-1.5 text-[13px] text-white
-                    outline-none resize-none"
-                  rows={2}
-                />
-                <div className="flex gap-2 mt-1">
-                  <button
-                    onClick={handleEdit}
-                    className="text-[10px] text-blue-400 hover:text-blue-300"
-                  >
-                    Save (Enter)
-                  </button>
-                  <button
-                    onClick={() => { setIsEditing(false); setEditContent(content); }}
-                    className="text-[10px] text-white/40 hover:text-white/60"
-                  >
-                    Cancel (Esc)
-                  </button>
+            {/* Content — retracted shows strikethrough with original preserved */}
+            {is_retracted ? (
+              <div>
+                <div className="text-[13px] text-white/40 leading-relaxed break-words line-through decoration-amber-500/60">
+                  {renderContent(content)}
+                </div>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span className="text-[10px] text-amber-400 font-medium">Retracted by {sender_name}</span>
+                  {retracted_reason && (
+                    <span className="text-[10px] text-amber-300/50">— {retracted_reason}</span>
+                  )}
                 </div>
               </div>
             ) : (
               <div className="text-[13px] text-white/85 leading-relaxed break-words">
                 {renderContent(content)}
-                {is_edited && (
-                  <span className="text-[10px] text-white/30 ml-1">(edited)</span>
-                )}
               </div>
             )}
 
@@ -295,36 +205,16 @@ export function MessageBubble({ message, isOwnMessage, showSender, channelType, 
           </div>
         </div>
 
-        {/* Action buttons — hover tooltip bar */}
-        {showActions && !isEditing && (
+        {/* Action button — retract only (no edit, no delete) */}
+        {showActions && (
           <div className="absolute top-0 right-4 -translate-y-1/2 flex gap-0.5 bg-[#1A2A40] border border-white/10 rounded-lg p-0.5 shadow-lg z-10">
-            {canEdit && (
-              <button
-                onClick={() => { setIsEditing(true); setEditContent(content); setShowActions(false); }}
-                className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white/70 transition-colors"
-                title="Edit"
-              >
-                ✏️
-              </button>
-            )}
-            {canDelete && (
-              <button
-                onClick={handleDelete}
-                className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-500/10 text-white/40 hover:text-red-400 transition-colors"
-                title="Delete"
-              >
-                🗑️
-              </button>
-            )}
-            {canRetract && (
-              <button
-                onClick={() => { setShowRetractModal(true); setShowActions(false); }}
-                className="w-7 h-7 flex items-center justify-center rounded hover:bg-amber-500/10 text-white/40 hover:text-amber-400 transition-colors"
-                title="Retract (medical record)"
-              >
-                ⏪
-              </button>
-            )}
+            <button
+              onClick={() => { setShowRetractModal(true); setShowActions(false); }}
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-amber-500/10 text-white/40 hover:text-amber-400 transition-colors"
+              title="Retract message (strikethrough — original preserved)"
+            >
+              ⏪
+            </button>
           </div>
         )}
       </div>
@@ -335,8 +225,9 @@ export function MessageBubble({ message, isOwnMessage, showSender, channelType, 
           <div className="bg-[#1A2A40] rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl border border-white/10">
             <h3 className="text-white font-semibold mb-1">Retract Message</h3>
             <p className="text-xs text-white/50 mb-4">
-              This is a patient channel. The original message will be preserved in the medical record
-              but hidden from view. A retraction notice will appear in its place.
+              The original message will be preserved but shown with a strikethrough.
+              A retraction notice with your reason will appear below it. This action
+              is logged in the audit trail and cannot be undone.
             </p>
             <textarea
               value={retractReason}
