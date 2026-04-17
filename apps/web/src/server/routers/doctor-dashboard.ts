@@ -370,4 +370,73 @@ export const doctorDashboardRouter = router({
       `;
       return rows as any[];
     }),
+
+  // ── Hospital-wide overview (for RMO/generalist doctor home) ───────────────
+  // Not filtered by attending_practitioner_id — shows everything admitted in
+  // the hospital. Used by the Doctor Home bed board.
+  hospitalOverview: protectedProcedure
+    .query(async ({ ctx }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      const [admittedCount, newAdmitsRows, criticalRows] = await Promise.all([
+        getSql()`
+          SELECT COUNT(*)::int AS count
+          FROM encounters e
+          WHERE e.hospital_id = ${hospitalId}
+            AND e.status = 'in-progress'
+        `,
+        // New admits in last 24h
+        getSql()`
+          SELECT e.id AS encounter_id, e.patient_id, e.chief_complaint,
+                 e.preliminary_diagnosis_icd10, e.admission_at, e.encounter_class,
+                 p.name_full AS patient_name, p.uhid AS patient_uhid,
+                 p.gender, p.dob,
+                 l.name AS ward_name,
+                 u.full_name AS attending_name
+          FROM encounters e
+          JOIN patients p ON p.id = e.patient_id
+          LEFT JOIN locations l ON l.id = e.current_location_id
+          LEFT JOIN users u ON u.id = e.attending_practitioner_id
+          WHERE e.hospital_id = ${hospitalId}
+            AND e.status = 'in-progress'
+            AND e.admission_at >= NOW() - INTERVAL '24 hours'
+          ORDER BY e.admission_at DESC
+          LIMIT 50
+        `,
+        // Critical patients: latest NEWS2 >= 5
+        getSql()`
+          SELECT e.id AS encounter_id, e.patient_id,
+                 p.name_full AS patient_name, p.uhid AS patient_uhid,
+                 p.gender, p.dob,
+                 l.name AS ward_name,
+                 e.chief_complaint, e.preliminary_diagnosis_icd10,
+                 e.admission_at,
+                 u.full_name AS attending_name,
+                 n2.total_score AS news2_score,
+                 n2.calculated_at AS news2_at
+          FROM encounters e
+          JOIN patients p ON p.id = e.patient_id
+          LEFT JOIN locations l ON l.id = e.current_location_id
+          LEFT JOIN users u ON u.id = e.attending_practitioner_id
+          JOIN LATERAL (
+            SELECT total_score, calculated_at
+            FROM news2_scores n
+            WHERE n.patient_id = e.patient_id AND n.hospital_id = ${hospitalId}
+            ORDER BY n.calculated_at DESC LIMIT 1
+          ) n2 ON true
+          WHERE e.hospital_id = ${hospitalId}
+            AND e.status = 'in-progress'
+            AND n2.total_score >= 5
+          ORDER BY n2.total_score DESC, n2.calculated_at DESC
+          LIMIT 20
+        `,
+      ]);
+
+      return {
+        admitted_count: ((admittedCount as any)?.[0]?.count) || 0,
+        new_admits: (newAdmitsRows as any) || [],
+        critical_patients: (criticalRows as any) || [],
+      };
+    }),
+
 });
