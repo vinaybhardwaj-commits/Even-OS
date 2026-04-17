@@ -75,6 +75,7 @@ import { journalEntriesRouter } from './journal-entries';
 import { vendorApRouter } from './vendor-ap';
 import { accountsReceivableRouter } from './accounts-receivable';
 import { financialStatementsRouter } from './financial-statements';
+import { gstModuleRouter } from './gst-module';
 
 export const appRouter = router({
   auth: authRouter,
@@ -153,6 +154,7 @@ export const appRouter = router({
   vendorAp: vendorApRouter,
   accountsReceivable: accountsReceivableRouter,
   financialStatements: financialStatementsRouter,
+  gstModule: gstModuleRouter,
 });
 
 export type AppRouter = typeof appRouter;
