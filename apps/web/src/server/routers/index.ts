@@ -74,6 +74,7 @@ import { financeChartRouter } from './finance-chart';
 import { journalEntriesRouter } from './journal-entries';
 import { vendorApRouter } from './vendor-ap';
 import { accountsReceivableRouter } from './accounts-receivable';
+import { financialStatementsRouter } from './financial-statements';
 
 export const appRouter = router({
   auth: authRouter,
@@ -151,6 +152,7 @@ export const appRouter = router({
   journalEntries: journalEntriesRouter,
   vendorAp: vendorApRouter,
   accountsReceivable: accountsReceivableRouter,
+  financialStatements: financialStatementsRouter,
 });
 
 export type AppRouter = typeof appRouter;

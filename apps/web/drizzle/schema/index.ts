@@ -45,3 +45,4 @@ export * from './44-chart-of-accounts';
 export * from './45-journal-entries';
 export * from './46-vendor-ap';
 export * from './47-accounts-receivable';
+export * from './48-financial-statements';
