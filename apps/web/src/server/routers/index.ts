@@ -80,6 +80,7 @@ import { accountingPeriodsRouter } from './accounting-periods';
 import { patientBriefsRouter } from './patient-briefs';
 import { mrdDoctorRouter } from './mrd-doctor';
 import { chartProposalsRouter } from './chart-proposals';
+import { noteDraftsRouter } from './note-drafts';
 
 export const appRouter = router({
   auth: authRouter,
@@ -163,6 +164,7 @@ export const appRouter = router({
   patientBriefs: patientBriefsRouter,
   mrdDoctor: mrdDoctorRouter,
   chartProposals: chartProposalsRouter,
+  noteDrafts: noteDraftsRouter,
 });
 
 export type AppRouter = typeof appRouter;
