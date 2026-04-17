@@ -4,10 +4,11 @@ import { router, protectedProcedure } from '../trpc';
 import { db } from '@/lib/db';
 import {
   encounterCharges, invoices, payments, tpaClaims,
-  encounters, patients, chargeMaster, clinicalOrders,
+  encounters, patients, chargeMaster, clinicalOrders, billingAccounts, insurers,
 } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { eq, and, sql, desc, sum, count } from 'drizzle-orm';
+import { generateBillWithRules, applyRuleResults, formatBillForTPA } from '@/lib/billing/bill-generator';
 
 const invoiceStatusValues = ['draft', 'pending', 'partially_paid', 'paid', 'cancelled', 'written_off'] as const;
 const paymentMethodValues = ['cash', 'card', 'upi', 'neft', 'cheque', 'insurance_settlement', 'other'] as const;
@@ -787,6 +788,153 @@ export const billingRouter = router({
         claim_count_by_status: claimsByStatus,
         revenue_today: roundToTwo(((todayResult as any).rows || todayResult)[0]?.total),
         revenue_this_month: roundToTwo(((monthResult as any).rows || monthResult)[0]?.total),
+      };
+    }),
+
+  // ─── GENERATE BILL WITH RULES (V2) ────────────────────────
+  generateBillV2: protectedProcedure
+    .input(z.object({
+      encounter_id: z.string().uuid(),
+      apply_rules: z.boolean().default(true),
+      save_applications: z.boolean().default(false),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      // 1. Generate bill with rule evaluation
+      const billSummary = await generateBillWithRules(
+        input.encounter_id,
+        hospitalId,
+        ctx.user.sub,
+      );
+
+      // 2. Optionally save rule applications
+      let applicationsCount = 0;
+      if (input.save_applications && billSummary.rule_results.length > 0) {
+        applicationsCount = await applyRuleResults(
+          input.encounter_id,
+          {
+            insurer_id: billSummary.insurer_id || '',
+            total_original: billSummary.gross_total,
+            total_adjusted: billSummary.insurer_payable,
+            total_deduction: billSummary.total_deductions,
+            rule_results: billSummary.rule_results,
+            item_totals: new Map(),
+          },
+          hospitalId,
+          ctx.user.sub,
+        );
+
+        // Audit
+        await writeAuditLog(ctx.user, {
+          action: 'INSERT',
+          table_name: 'rule_applications',
+          row_id: input.encounter_id,
+          new_values: {
+            encounter_id: input.encounter_id,
+            rules_applied: billSummary.rule_results.length,
+            total_deductions: billSummary.total_deductions,
+          },
+        });
+      }
+
+      return {
+        bill_summary: billSummary,
+        applications_saved: applicationsCount,
+      };
+    }),
+
+  // ─── GET BILL SUMMARY ──────────────────────────────────────
+  getBillSummary: protectedProcedure
+    .input(z.object({
+      encounter_id: z.string().uuid(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      // Verify encounter exists
+      const [encounter] = await db.select({
+        id: encounters.id,
+        patient_id: encounters.patient_id,
+      })
+        .from(encounters)
+        .where(and(
+          eq(encounters.id, input.encounter_id as any),
+          eq(encounters.hospital_id, hospitalId),
+        ))
+        .limit(1);
+
+      if (!encounter) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Encounter not found' });
+      }
+
+      // Generate bill summary
+      const billSummary = await generateBillWithRules(
+        input.encounter_id,
+        hospitalId,
+        ctx.user.sub,
+      );
+
+      // Load patient info
+      const [patient] = await db.select({
+        name_full: patients.name_full,
+        uhid: patients.uhid,
+      })
+        .from(patients)
+        .where(eq(patients.id, encounter.patient_id as any))
+        .limit(1);
+
+      return {
+        bill_summary: billSummary,
+        patient_name: patient?.name_full,
+        patient_uhid: patient?.uhid,
+      };
+    }),
+
+  // ─── PREVIEW RULE DEDUCTIONS ──────────────────────────────
+  previewRuleDeductions: protectedProcedure
+    .input(z.object({
+      encounter_id: z.string().uuid(),
+      insurer_id: z.string().uuid().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.user.hospital_id;
+
+      // Verify encounter exists
+      const [encounter] = await db.select({ id: encounters.id })
+        .from(encounters)
+        .where(and(
+          eq(encounters.id, input.encounter_id as any),
+          eq(encounters.hospital_id, hospitalId),
+        ))
+        .limit(1);
+
+      if (!encounter) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Encounter not found' });
+      }
+
+      // Generate bill preview (read-only, no save)
+      const billSummary = await generateBillWithRules(
+        input.encounter_id,
+        hospitalId,
+        ctx.user.sub,
+      );
+
+      return {
+        encounter_id: input.encounter_id,
+        preview: {
+          gross_total: billSummary.gross_total,
+          total_rule_deductions: billSummary.total_deductions,
+          insurer_payable: billSummary.insurer_payable,
+          patient_liability: billSummary.patient_liability,
+          rules_applied: billSummary.rules_applied,
+          rule_details: billSummary.rule_results.map((r) => ({
+            rule_name: r.rule_name,
+            rule_type: r.rule_type,
+            deduction_amount: r.deduction_amount,
+            explanation: r.explanation,
+          })),
+        },
       };
     }),
 
