@@ -103,6 +103,13 @@ function news2Color(score: number): string {
   return '#22c55e';
 }
 
+function openPatientChat(encounterId: string) {
+  window.dispatchEvent(new CustomEvent('open-patient-chat', {
+    detail: { channelId: `patient-${encounterId}` },
+  }));
+}
+
+
 export default function DoctorHomeClient({ userId, userName, userRole }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -369,18 +376,18 @@ export default function DoctorHomeClient({ userId, userName, userRole }: Props) 
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {critical.map(p => (
-                <Link
+                <div
                   key={p.encounter_id}
-                  href={`/care/patient/${p.patient_id}`}
                   style={{
-                    textDecoration: 'none', color: 'inherit',
                     padding: 12, background: '#fef2f2', borderLeft: `4px solid ${news2Color(p.news2_score)}`,
                     borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    gap: 12, transition: 'background 0.1s',
+                    gap: 12,
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#fee2e2')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = '#fef2f2')}
                 >
+                  <Link
+                    href={`/care/patient/${p.patient_id}`}
+                    style={{ textDecoration: 'none', color: 'inherit', flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}
+                  >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: '#111' }}>{p.patient_name}</div>
                     <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
@@ -397,7 +404,17 @@ export default function DoctorHomeClient({ userId, userName, userRole }: Props) 
                     <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase' as const }}>NEWS2</div>
                     <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{timeAgo(p.news2_at)}</div>
                   </div>
-                </Link>
+                  </Link>
+                  <button
+                    onClick={() => openPatientChat(p.encounter_id)}
+                    title="Open patient chat"
+                    style={{
+                      flexShrink: 0, width: 32, height: 32,
+                      background: 'white', border: '1px solid #d0d5dd', borderRadius: 8,
+                      cursor: 'pointer', fontSize: 14, lineHeight: 1,
+                    }}
+                  >💬</button>
+                </div>
               ))}
             </div>
           )}
@@ -412,18 +429,18 @@ export default function DoctorHomeClient({ userId, userName, userRole }: Props) 
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {newAdmits.slice(0, 12).map(p => (
-                <Link
+                <div
                   key={p.encounter_id}
-                  href={`/care/patient/${p.patient_id}`}
                   style={{
-                    textDecoration: 'none', color: 'inherit',
                     padding: 12, background: '#eff6ff', borderLeft: '4px solid #3b82f6',
                     borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                    gap: 12, transition: 'background 0.1s',
+                    gap: 12,
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#dbeafe')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = '#eff6ff')}
                 >
+                  <Link
+                    href={`/care/patient/${p.patient_id}`}
+                    style={{ textDecoration: 'none', color: 'inherit', flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}
+                  >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: '#111' }}>{p.patient_name}</div>
                     <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
@@ -441,7 +458,17 @@ export default function DoctorHomeClient({ userId, userName, userRole }: Props) 
                   <div style={{ textAlign: 'right', flexShrink: 0, fontSize: 11, color: '#6b7280' }}>
                     {timeAgo(p.admission_at)}
                   </div>
-                </Link>
+                  </Link>
+                  <button
+                    onClick={() => openPatientChat(p.encounter_id)}
+                    title="Open patient chat"
+                    style={{
+                      flexShrink: 0, width: 32, height: 32,
+                      background: 'white', border: '1px solid #d0d5dd', borderRadius: 8,
+                      cursor: 'pointer', fontSize: 14, lineHeight: 1,
+                    }}
+                  >💬</button>
+                </div>
               ))}
             </div>
           )}

@@ -3099,7 +3099,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
       {activeTab === 'orders' && (
         <div style={{ padding: '24px', background: '#f5f6fa', minHeight: '100vh', paddingBottom: 100 }}>
           {/* Doctor role check */}
-          {!['resident', 'senior_resident', 'intern', 'visiting_consultant', 'hospitalist', 'specialist_cardiologist', 'specialist_neurologist', 'specialist_orthopedic', 'surgeon', 'anaesthetist'].includes(userRole) ? (
+          {!['resident', 'senior_resident', 'intern', 'visiting_consultant', 'hospitalist', 'specialist_cardiologist', 'specialist_neurologist', 'specialist_orthopedic', 'surgeon', 'anaesthetist', 'department_head', 'medical_director'].includes(userRole) ? (
             <div style={{
               padding: '40px 24px',
               textAlign: 'center',
