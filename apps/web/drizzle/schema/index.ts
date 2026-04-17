@@ -47,3 +47,4 @@ export * from './46-vendor-ap';
 export * from './47-accounts-receivable';
 export * from './48-financial-statements';
 export * from './49-gst-module';
+export * from './50-accounting-periods';
