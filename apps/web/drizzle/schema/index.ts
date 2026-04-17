@@ -51,3 +51,5 @@ export * from './50-accounting-periods';
 export * from './51-notes-v2';
 
 export * from './52-note-drafts';
+
+export * from './53-chart-edit-locks';

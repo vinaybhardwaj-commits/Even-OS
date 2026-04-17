@@ -10,6 +10,7 @@ import LabsTab from '@/components/patient-chart/LabsTab';
 import DocumentsTab from '@/components/patient-chart/DocumentsTab';
 import NotesTab from '@/components/patient-chart/NotesTab';
 import BriefTab from '@/components/patient-brief/BriefTab';
+import ChatPanel, { type Channel as ChatChannel } from '@/components/chat/ChatPanel';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -656,6 +657,9 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   const [activeTab, setActiveTab] = useState<PatientTab>('overview');
   const [loading, setLoading] = useState(true);
   const [orderPanel, setOrderPanel] = useState<'none' | 'medication' | 'labs' | 'imaging' | 'consult'>('none');
+  // PC.1a: right-side Comms slider (480px), reuses ChatPanel. Opens to encounter-scoped channel by default.
+  const [commsOpen, setCommsOpen] = useState(false);
+  const [commsInitialChannelId, setCommsInitialChannelId] = useState<string | null>(null);
   const [showFormLauncher, setShowFormLauncher] = useState(false);
   const [formLauncherSlug, setFormLauncherSlug] = useState('');
 
@@ -820,9 +824,44 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   }, []);
 
   // ── Event handlers ───────────────────────────────────────────────────────
+  // PC.1a (18 Apr 2026): wire bottom-bar pills to existing panels/tabs.
+  // Full role-adaptive action bar via useChartAction() lands in PC.1b.
   const handleActionClick = (label: string) => {
-    // Placeholder for future action panels
-    console.log('Action clicked:', label);
+    switch (label) {
+      // Doctor pills
+      case 'SOAP Note':
+        setActiveTab('notes');
+        return;
+      case 'Prescribe Med':
+        setOrderPanel('medication');
+        return;
+      case 'Order Labs':
+        setOrderPanel('labs');
+        return;
+      case 'Consult':
+        setOrderPanel('consult');
+        return;
+      // Nurse pills
+      case 'Record Vitals':
+        setActiveTab('vitals');
+        return;
+      case 'Give Medication':
+        setActiveTab('emar');
+        return;
+      case 'Nursing Note':
+        setActiveTab('notes');
+        return;
+      case 'Assessment':
+        setActiveTab('forms');
+        return;
+      // Fallback pill
+      case 'Add Note':
+        setActiveTab('notes');
+        return;
+      default:
+        // Unknown pill — log for telemetry but no-op to avoid user-visible breakage
+        if (typeof console !== 'undefined') console.warn('[chart] unhandled action pill:', label);
+    }
   };
 
   // ── Render: Loading state ───────────────────────────────────────────────
@@ -1082,10 +1121,15 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
             <span>{tab.label}</span>
           </button>
         ))}
-        {/* OC.4d: Link to Communications page */}
+        {/* PC.1a: Comms tab opens right-side slider (dual rooms: encounter + patient). Replaces OC.4d link. */}
         {encounter && (
-          <a
-            href={`/care/patient/${patientId}/comms?encounter=${encounter.id}`}
+          <button
+            type="button"
+            className="patient-chart-tab-btn"
+            onClick={() => {
+              setCommsInitialChannelId(`patient-enc-${encounter.id}`);
+              setCommsOpen(true);
+            }}
             style={{
               padding: '12px 10px',
               minHeight: 44,
@@ -1094,17 +1138,19 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               color: '#10B981',
               borderBottom: '3px solid transparent',
               background: 'none',
-              textDecoration: 'none',
+              border: 'none',
+              borderBottomStyle: 'solid',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
               display: 'flex',
               alignItems: 'center',
               gap: 4,
             }}
+            title="Open communications for this patient"
           >
             <span style={{ fontSize: 15 }}>💬</span>
             <span>Comms</span>
-          </a>
+          </button>
         )}
       </div>
 
@@ -2815,7 +2861,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                         </div>
                         {doctorRoles.includes(userRole) && (
                           <a
-                            href="/admin/pathway-templates"
+                            href="/admin/care-pathways"
                             style={{ display: 'inline-block', padding: '8px 16px', background: '#0055FF', color: 'white', fontSize: 13, fontWeight: 600, borderRadius: 8, textDecoration: 'none' }}
                           >Browse Templates →</a>
                         )}
@@ -5502,6 +5548,34 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
             </button>
           </div>
         </div>
+      )}
+
+      {/* PC.1a: Omnipresent Chat slider — dual rooms for this patient (encounter + persistent) */}
+      {encounter && (
+        <ChatPanel
+          isOpen={commsOpen}
+          onClose={() => setCommsOpen(false)}
+          userId={userId}
+          userRole={userRole}
+          userName={userName}
+          initialChannelId={commsInitialChannelId || undefined}
+          extraChannels={[
+            {
+              group: 'THIS PATIENT',
+              type: 'patient-thread',
+              id: `patient-enc-${encounter.id}`,
+              name: `Current admission · ${patient?.name_full || patient?.full_name || `${patient?.name_given ?? ''} ${patient?.name_family ?? ''}`.trim() || 'Patient'}`,
+              unread: 0,
+            },
+            {
+              group: 'THIS PATIENT',
+              type: 'patient-thread',
+              id: `patient-persistent-${patientId}`,
+              name: `Patient (all time) · UHID ${patient?.uhid ?? patientId}`,
+              unread: 0,
+            },
+          ] as ChatChannel[]}
+        />
       )}
 
       {/* CSS for pulse animation + responsive overrides */}

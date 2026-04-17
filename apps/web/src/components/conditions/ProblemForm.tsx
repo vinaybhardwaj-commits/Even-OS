@@ -24,15 +24,36 @@ type VerificationStatus = 'unconfirmed' | 'provisional' | 'differential' | 'conf
 type Severity = '' | 'mild' | 'moderate' | 'severe';
 
 async function trpcMutate(path: string, input: any) {
-  const res = await fetch(`/api/trpc/${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ json: input }),
-  });
-  const json = await res.json();
-  if (json.error) {
-    const msg = json.error?.message || json.error?.json?.message || 'Operation failed';
+  let res: Response;
+  try {
+    res = await fetch(`/api/trpc/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ json: input }),
+    });
+  } catch (networkErr) {
+    // PC.1a (18 Apr 2026): surface network failures (offline / CORS / DNS) clearly.
+    throw new Error(
+      networkErr instanceof Error
+        ? `Network error: ${networkErr.message}`
+        : 'Network error — check your connection and try again.'
+    );
+  }
+
+  let json: any;
+  try {
+    json = await res.json();
+  } catch {
+    throw new Error(`Server returned ${res.status} ${res.statusText || ''} without a JSON body.`);
+  }
+
+  if (json?.error) {
+    const msg = json.error?.message || json.error?.json?.message || `Server error (${res.status})`;
     throw new Error(msg);
+  }
+  if (!res.ok) {
+    // HTTP error but no structured tRPC error envelope — give users something actionable.
+    throw new Error(`Request failed (${res.status} ${res.statusText || ''}).`);
   }
   return json.result?.data?.json;
 }

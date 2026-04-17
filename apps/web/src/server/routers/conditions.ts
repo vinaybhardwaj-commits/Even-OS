@@ -35,6 +35,14 @@ export const conditionsRouter = router({
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
 
+        // PC.1a (18 Apr 2026): defensive guard — clearer error than a NOT NULL SQL failure
+        if (!hospitalId || !userId) {
+          throw new TRPCError({
+            code: 'UNAUTHORIZED',
+            message: 'Session is missing hospital or user identity. Please log in again.',
+          });
+        }
+
         // Verify patient exists in this hospital
         const patientCheck = await getSql()`
           SELECT id FROM patients

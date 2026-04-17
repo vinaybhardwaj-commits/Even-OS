@@ -15,7 +15,7 @@ import ActionableMessage from './ActionableMessage';
 import { createActionsForMessage } from '@/lib/chat-actions';
 import { isSlashCommand, parseCommand, getMatchingCommands, executeCommand, COMMANDS, type CommandResult } from '@/lib/slash-commands';
 
-interface Channel {
+export interface Channel {
   group: string;
   type: 'patient-thread' | 'department' | 'cross-functional' | 'direct' | 'ops-broadcast';
   id: string;
@@ -41,6 +41,10 @@ interface ChatPanelProps {
   userId: string;
   userRole: string;
   userName: string;
+  /** PC.1a: extra channels to prepend (e.g. per-patient dual rooms) */
+  extraChannels?: Channel[];
+  /** PC.1a: auto-select this channel id when panel opens */
+  initialChannelId?: string;
 }
 
 const SAMPLE_CHANNELS: Channel[] = [
@@ -68,7 +72,7 @@ const SAMPLE_MESSAGES: Message[] = [
   { id: '8', sender: 'Even OS', is_system: true, text: '🚪 Patient Exit: Priya Sharma has left the hospital. Terminal cleaning required for Bed 3A-02.', time: '15:30', type: 'journey_step', action_type: 'patient_exit', action_context: { patient_id: 'p003', step_id: 's003' } },
 ];
 
-export default function ChatPanel({ isOpen, onClose, userId, userRole, userName }: ChatPanelProps) {
+export default function ChatPanel({ isOpen, onClose, userId, userRole, userName, extraChannels, initialChannelId }: ChatPanelProps) {
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [messageText, setMessageText] = useState('');
@@ -92,13 +96,31 @@ export default function ChatPanel({ isOpen, onClose, userId, userRole, userName 
     };
   }, [isOpen, onClose]);
 
+  // PC.1a: when panel opens with an initial channel id, auto-select it
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!initialChannelId) return;
+    const match =
+      (extraChannels || []).find((c) => c.id === initialChannelId) ||
+      SAMPLE_CHANNELS.find((c) => c.id === initialChannelId);
+    if (match) setSelectedChannel(match);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialChannelId]);
+
+  // PC.1a: merge caller-provided channels (e.g. patient dual rooms) with sample set
+  const allChannels: Channel[] = (() => {
+    if (!extraChannels || extraChannels.length === 0) return SAMPLE_CHANNELS;
+    const seen = new Set(extraChannels.map((c) => c.id));
+    return [...extraChannels, ...SAMPLE_CHANNELS.filter((c) => !seen.has(c.id))];
+  })();
+
   // Filter channels by search
   const filteredChannels = searchQuery.trim()
-    ? SAMPLE_CHANNELS.filter(ch =>
+    ? allChannels.filter(ch =>
         ch.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         ch.group.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : SAMPLE_CHANNELS;
+    : allChannels;
 
   // Group channels
   const groupedChannels = filteredChannels.reduce((acc, ch) => {
@@ -121,7 +143,7 @@ export default function ChatPanel({ isOpen, onClose, userId, userRole, userName 
   };
 
   // Get unread count across all channels
-  const totalUnread = SAMPLE_CHANNELS.reduce((sum, ch) => sum + ch.unread, 0);
+  const totalUnread = allChannels.reduce((sum, ch) => sum + ch.unread, 0);
 
   // Colors and styles
   const navyColor = '#002054';

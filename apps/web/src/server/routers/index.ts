@@ -81,6 +81,7 @@ import { patientBriefsRouter } from './patient-briefs';
 import { mrdDoctorRouter } from './mrd-doctor';
 import { chartProposalsRouter } from './chart-proposals';
 import { noteDraftsRouter } from './note-drafts';
+import { chartLocksRouter } from './chart-locks';
 
 export const appRouter = router({
   auth: authRouter,
@@ -165,6 +166,7 @@ export const appRouter = router({
   mrdDoctor: mrdDoctorRouter,
   chartProposals: chartProposalsRouter,
   noteDrafts: noteDraftsRouter,
+  chartLocks: chartLocksRouter,
 });
 
 export type AppRouter = typeof appRouter;
