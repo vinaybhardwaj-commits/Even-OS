@@ -148,7 +148,7 @@ export interface FormDefinition {
   };
   slash_command?: string; // e.g., '/vitals', '/handoff'
   slash_role_action_map?: {
-    [role: string]: string; // role → action label (e.g., "Log Vitals", "Order Medication")
+    [role: string]: string | { action: string }; // role → label or { action: label }
   };
   layout: 'scroll' | 'wizard' | 'auto';
   submission_target: 'form_submissions' | 'his_router' | 'clinical_template';

@@ -61,6 +61,18 @@ const DOCTOR_ROLES = ['resident', 'senior_resident', 'intern', 'visiting_consult
 const ALL_CLINICAL = [...NURSE_ROLES, ...DOCTOR_ROLES, 'pharmacist', 'senior_pharmacist', 'lab_technician', 'senior_lab_technician'];
 const BILLING_ROLES = ['billing_manager', 'billing_executive', 'insurance_coordinator'];
 
+// ── Command Icons ────────────────────────────────────────
+// Canonical icon for each slash command name.
+
+const COMMAND_ICONS: Record<string, string> = {
+  'vitals': '📊', 'meds': '💊', 'labs': '🧪', 'notes': '📝',
+  'consult': '🩺', 'handoff': '🤝', 'escalate': '🚨',
+  'discharge': '🏁', 'billing': '💰', 'transfer': '🔄',
+  'fc': '💼', 'incident': '⚠️', 'consent': '📋',
+  'diet': '🍽', 'alert': '🔔', 'form': '📄',
+  'census': '🏥', 'bed-status': '🛏', 'task': '☑️',
+};
+
 // ── Read-Only Command Registry ──────────────────────────
 // These commands NEVER open forms — they execute SQL and return cards.
 
@@ -111,7 +123,7 @@ export async function getSlashCommandsForRole(
   // 1. Query form_definitions that have a slash_command set
   const formDefs = await sql`
     SELECT id, name, slug, description, slash_command, slash_role_action_map,
-           applicable_roles, requires_patient, icon
+           applicable_roles, requires_patient, category
     FROM form_definitions
     WHERE hospital_id = ${hospitalId}
       AND status = 'active'
@@ -136,14 +148,21 @@ export async function getSlashCommandsForRole(
 
     for (const fd of defs) {
       const roles = (fd.applicable_roles as string[]) || [];
-      const roleActionMap = (fd.slash_role_action_map as Record<string, string>) || {};
+      const roleActionMap = (fd.slash_role_action_map as Record<string, any>) || {};
 
       // Check if this form applies to the user's role
       const roleMatches = roles.length === 0 || roles.includes(role) || role === 'super_admin';
       if (roleMatches) {
         matchedDef = fd;
-        // Get role-specific action label
-        actionLabel = roleActionMap[role] || roleActionMap['default'] || fd.name as string;
+        // Get role-specific action label — supports both { role: 'label' } and { role: { action: 'label' } }
+        const rawLabel = roleActionMap[role] || roleActionMap['default'];
+        if (typeof rawLabel === 'string') {
+          actionLabel = rawLabel;
+        } else if (rawLabel && typeof rawLabel === 'object' && rawLabel.action) {
+          actionLabel = rawLabel.action;
+        } else {
+          actionLabel = fd.name as string;
+        }
         break;
       }
     }
@@ -153,7 +172,7 @@ export async function getSlashCommandsForRole(
         name: cmdName,
         description: matchedDef.description as string || '',
         usage: `/${cmdName}`,
-        icon: (matchedDef as any).icon || '📋',
+        icon: COMMAND_ICONS[cmdName] || '📋',
         type: 'form',
         actionLabel,
         formDefinitionId: matchedDef.id as string,
