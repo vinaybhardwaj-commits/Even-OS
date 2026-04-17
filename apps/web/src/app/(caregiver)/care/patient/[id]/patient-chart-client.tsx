@@ -7,6 +7,7 @@ import { FormHistoryPanel } from '@/components/forms/FormHistoryPanel';
 import FormLauncher from '@/components/forms/FormLauncher';
 import ProblemForm from '@/components/conditions/ProblemForm';
 import LabsTab from '@/components/patient-chart/LabsTab';
+import DocumentsTab from '@/components/patient-chart/DocumentsTab';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -116,7 +117,7 @@ interface JourneyData {
   next_milestone: string;
 }
 
-type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan' | 'emar' | 'assessments' | 'billing' | 'journey' | 'forms';
+type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan' | 'emar' | 'assessments' | 'billing' | 'journey' | 'forms' | 'documents';
 
 interface Props {
   patientId: string;
@@ -142,6 +143,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
       { label: 'Assessments', id: 'assessments', icon: '✅' },
       { label: 'Notes', id: 'notes', icon: '📝' },
       { label: 'Tasks', id: 'orders', icon: '🎯' },
+      { label: 'Documents', id: 'documents', icon: '📁' },
       { label: 'Forms', id: 'forms', icon: '📋' },
     ];
   }
@@ -155,6 +157,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
       { label: 'Notes', id: 'notes', icon: '📝' },
       { label: 'Care Plan', id: 'plan', icon: '🗺️' },
       { label: 'Journey', id: 'journey', icon: '🗓️' },
+      { label: 'Documents', id: 'documents', icon: '📁' },
       { label: 'Forms', id: 'forms', icon: '📋' },
     ];
   }
@@ -190,6 +193,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
     { label: 'Orders', id: 'orders', icon: '📋' },
     { label: 'Notes', id: 'notes', icon: '📝' },
     { label: 'Plan', id: 'plan', icon: '🗺️' },
+    { label: 'Documents', id: 'documents', icon: '📁' },
     { label: 'Forms', id: 'forms', icon: '📋' },
   ];
 }
@@ -4978,6 +4982,15 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
       )}
 
       {/* ── Forms Tab (SC.5) ──────────────────────────────────────────────────── */}
+      {/* ── Documents Tab (N.2) ──────────────────────────────────────────────── */}
+      {activeTab === 'documents' && (
+        <DocumentsTab
+          patientId={patientId}
+          userRole={userRole}
+          userName={userName}
+        />
+      )}
+
       {activeTab === 'forms' && (
         <div style={{ padding: '24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
