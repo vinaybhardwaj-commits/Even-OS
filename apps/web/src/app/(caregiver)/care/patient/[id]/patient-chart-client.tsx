@@ -12,6 +12,7 @@ import NotesTab from '@/components/patient-chart/NotesTab';
 import BriefTab from '@/components/patient-brief/BriefTab';
 import ChatPanel, { type Channel as ChatChannel } from '@/components/chat/ChatPanel';
 import { useChartAction, getActionsForRole } from './use-chart-action';
+import { useLock, LockBanner } from './use-lock';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -706,6 +707,20 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   const [emarHoldReason, setEmarHoldReason] = useState('');
   const [emarRefuseReason, setEmarRefuseReason] = useState('');
 
+  // ── PC.1b2: eMAR edit lock ───────────────────────────────────────────────
+  // Surface keyed by med_id so two nurses working on *different* meds don't
+  // block each other. Active whenever any of the three eMAR modals is open.
+  const activeEmarMedId =
+    emarGiveModal?.med_id || emarHoldModal?.med_id || emarRefuseModal?.med_id || null;
+  const emarLock = useLock({
+    patient_id: patientId,
+    encounter_id: encounter?.id || null,
+    surface: activeEmarMedId ? `emar:${activeEmarMedId}` : 'emar:none',
+    active: !!activeEmarMedId,
+    reason: 'eMAR action',
+  });
+  const emarLocked = emarLock.status === 'conflict';
+
   // ── Plan tab state (lazy-loaded when tab becomes active) ──────────────────
   const [carePlans, setCarePlans] = useState<any[]>([]);
   const [planMilestones, setPlanMilestones] = useState<any[]>([]);
@@ -925,7 +940,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   // ── Event handlers ───────────────────────────────────────────────────────
   // PC.1b1 (18 Apr 2026): pill routing now lives in useChartAction() — a single
   // registry shared with getActionsForRole so pills + handler can never drift.
-  const { handleAction: handleActionClick } = useChartAction({ setActiveTab, setOrderPanel });
+  const { handleAction: handleActionClick } = useChartAction({ setActiveTab, setOrderPanel, setCommsOpen });
 
   // ── Render: Loading state ───────────────────────────────────────────────
   if (loading) {
@@ -3436,6 +3451,9 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               border: '2px solid #0B8A3E',
             }}>
               <h3 style={{ fontSize: 14, fontWeight: 700, color: '#002054', margin: '0 0 16px' }}>Give Medication</h3>
+              {emarLocked && (
+                <LockBanner current={emarLock.current} surfaceLabel="This medication" onRetry={emarLock.acquire} />
+              )}
 
               {/* Identity Verification */}
               <div style={{ padding: '12px 16px', background: '#f5f6fa', borderRadius: 8, marginBottom: 16 }}>
@@ -3523,6 +3541,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                       setEmarGiveModal(null);
                       setEmarBarcode('');
                       setEmarAdminSite('');
+                      try { await emarLock.release(); } catch {}
                       loadData();
                     } catch (err: any) {
                       alert(`Failed to record: ${err.message}`);
@@ -3539,10 +3558,11 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                     cursor: 'pointer',
                     transition: 'background 0.2s',
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#086a31')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = '#0B8A3E')}
+                  onMouseEnter={(e) => { if (!emarLocked) e.currentTarget.style.background = '#086a31'; }}
+                  onMouseLeave={(e) => { if (!emarLocked) e.currentTarget.style.background = '#0B8A3E'; }}
+                  disabled={emarLocked}
                 >
-                  Confirm Give
+                  {emarLocked ? 'Locked' : 'Confirm Give'}
                 </button>
                 <button
                   onClick={() => {
@@ -3581,6 +3601,9 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               border: '2px solid #999',
             }}>
               <h3 style={{ fontSize: 14, fontWeight: 700, color: '#002054', margin: '0 0 16px' }}>Hold Medication</h3>
+              {emarLocked && (
+                <LockBanner current={emarLock.current} surfaceLabel="This medication" onRetry={emarLock.acquire} />
+              )}
 
               <div style={{ padding: '12px 16px', background: '#f5f6fa', borderRadius: 8, marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: '#666' }}>Drug</div>
@@ -3626,6 +3649,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                       });
                       setEmarHoldModal(null);
                       setEmarHoldReason('');
+                      try { await emarLock.release(); } catch {}
                       loadData();
                     } catch (err: any) {
                       alert(`Failed to hold: ${err.message}`);
@@ -3642,10 +3666,11 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                     cursor: 'pointer',
                     transition: 'background 0.2s',
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#777')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = '#999')}
+                  onMouseEnter={(e) => { if (!emarLocked) e.currentTarget.style.background = '#777'; }}
+                  onMouseLeave={(e) => { if (!emarLocked) e.currentTarget.style.background = '#999'; }}
+                  disabled={emarLocked}
                 >
-                  Confirm Hold
+                  {emarLocked ? 'Locked' : 'Confirm Hold'}
                 </button>
                 <button
                   onClick={() => {
@@ -3683,6 +3708,9 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               border: '2px solid #D97706',
             }}>
               <h3 style={{ fontSize: 14, fontWeight: 700, color: '#002054', margin: '0 0 16px' }}>Medication Refused</h3>
+              {emarLocked && (
+                <LockBanner current={emarLock.current} surfaceLabel="This medication" onRetry={emarLock.acquire} />
+              )}
 
               <div style={{ padding: '12px 16px', background: '#f5f6fa', borderRadius: 8, marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: '#666' }}>Drug</div>
@@ -3727,6 +3755,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                       });
                       setEmarRefuseModal(null);
                       setEmarRefuseReason('');
+                      try { await emarLock.release(); } catch {}
                       loadData();
                     } catch (err: any) {
                       alert(`Failed to record refusal: ${err.message}`);
@@ -3743,10 +3772,11 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                     cursor: 'pointer',
                     transition: 'background 0.2s',
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#b85c03')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = '#D97706')}
+                  onMouseEnter={(e) => { if (!emarLocked) e.currentTarget.style.background = '#b85c03'; }}
+                  onMouseLeave={(e) => { if (!emarLocked) e.currentTarget.style.background = '#D97706'; }}
+                  disabled={emarLocked}
                 >
-                  Confirm Refusal
+                  {emarLocked ? 'Locked' : 'Confirm Refusal'}
                 </button>
                 <button
                   onClick={() => {

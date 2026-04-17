@@ -24,6 +24,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useLock, LockBanner } from '@/app/(caregiver)/care/patient/[id]/use-lock';
 
 // ── tRPC fetch helpers (superjson-wrapped) ─────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -243,6 +244,21 @@ export default function NotesTab({ userRole, userName, userId, patientId, encoun
   const [submitting, setSubmitting] = useState(false);
   const [banner, setBanner] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
 
+  // ── PC.1b2: chart edit lock for note authoring ────────────────────────
+  // Acquire once the user starts entering content. Surface is patient+encounter
+  // scoped so two users editing *different* notes on the same patient still
+  // serialise (simplest model; PC.1b2 scope is Notes + eMAR only).
+  const hasContent = Object.values(form).some(v => (v || '').trim().length > 0);
+  const lockActive = !!encounterId && (hasContent || submitting);
+  const noteLock = useLock({
+    patient_id: patientId,
+    encounter_id: encounterId,
+    surface: 'notes',
+    active: lockActive,
+    reason: 'note authoring',
+  });
+  const noteLocked = noteLock.status === 'conflict';
+
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadedForSlot = useRef<string>('');   // guard against stale loads
 
@@ -389,6 +405,8 @@ export default function NotesTab({ userRole, userName, userId, patientId, encoun
       setSaveState('idle');
       setLastSavedAt(null);
       setBanner({ kind: 'ok', msg: `Note ${status === 'signed' ? 'signed' : 'saved as draft'}.` });
+      // Release the edit lock now the note is saved/signed.
+      try { await noteLock.release(); } catch {}
       // Trigger timeline reload
       setTimelineRefreshKey(k => k + 1);
     } catch (e: any) {
@@ -476,6 +494,11 @@ export default function NotesTab({ userRole, userName, userId, patientId, encoun
           </div>
         ))}
 
+        {/* PC.1b2 lock banner — shows holder when conflict */}
+        {noteLocked && (
+          <LockBanner current={noteLock.current} surfaceLabel="This note" onRetry={noteLock.acquire} />
+        )}
+
         {banner && (
           <div style={{
             padding: '8px 12px', borderRadius: 8,
@@ -490,15 +513,15 @@ export default function NotesTab({ userRole, userName, userId, patientId, encoun
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button
             onClick={() => handleSubmit('draft')}
-            disabled={submitting}
+            disabled={submitting || noteLocked}
             style={btnSecondary}>
-            {submitting ? 'Saving…' : 'Save as draft'}
+            {submitting ? 'Saving…' : noteLocked ? 'Locked' : 'Save as draft'}
           </button>
           <button
             onClick={() => handleSubmit('signed')}
-            disabled={submitting}
+            disabled={submitting || noteLocked}
             style={btnPrimary}>
-            {submitting ? 'Submitting…' : 'Sign & submit'}
+            {submitting ? 'Submitting…' : noteLocked ? 'Locked by another user' : 'Sign & submit'}
           </button>
         </div>
       </div>
