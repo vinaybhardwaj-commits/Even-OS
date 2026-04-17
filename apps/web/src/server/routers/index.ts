@@ -70,6 +70,7 @@ import { labWorklistRouter } from './lab-worklist';
 import { outsourcedWorkflowRouter } from './outsourced-workflow';
 import { qcEnhancementRouter } from './qc-enhancement';
 import { labAnalyticsRouter } from './lab-analytics';
+import { financeChartRouter } from './finance-chart';
 
 export const appRouter = router({
   auth: authRouter,
@@ -143,6 +144,7 @@ export const appRouter = router({
   outsourcedWorkflow: outsourcedWorkflowRouter,
   qcEnhancement: qcEnhancementRouter,
   labAnalytics: labAnalyticsRouter,
+  financeChart: financeChartRouter,
 });
 
 export type AppRouter = typeof appRouter;
