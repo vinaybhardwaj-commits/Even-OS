@@ -1,11 +1,10 @@
 'use client';
 
 import { useState, Suspense, useRef } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 
 function VerifyDeviceForm() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const userId = searchParams.get('uid') || '';
 
   const [code, setCode] = useState(['', '', '', '', '', '']);
@@ -67,11 +66,13 @@ function VerifyDeviceForm() {
       const data = await res.json();
       if (data.result?.data?.json?.success) {
         const result = data.result.data.json;
+        // Full page navigation so ChatProvider remounts with auth cookie
         if (result.must_change_password) {
-          router.push('/change-password');
+          window.location.href = '/change-password';
         } else {
-          router.push('/dashboard');
+          window.location.href = '/dashboard';
         }
+        return;
       } else {
         setError(data.error?.json?.message || 'Invalid code');
         setCode(['', '', '', '', '', '']);

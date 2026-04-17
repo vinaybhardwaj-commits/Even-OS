@@ -1,11 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -31,15 +29,18 @@ export default function LoginPage() {
       const result = data.result?.data?.json;
 
       if (result?.success) {
-        // Fully authenticated — device trusted
+        // Full page navigation (not router.push) so the entire React tree
+        // remounts — ChatProvider, shift context, etc. all initialize fresh
+        // with the new auth cookie present.
         if (result.must_change_password) {
-          router.push('/change-password');
+          window.location.href = '/change-password';
         } else {
-          router.push('/dashboard');
+          window.location.href = '/dashboard';
         }
+        return; // prevent setLoading(false) flash
       } else if (result?.requires_device_verification) {
         // Credentials correct but new device — redirect to OTP
-        router.push(`/verify-device?uid=${result.user_id}`);
+        window.location.href = `/verify-device?uid=${result.user_id}`;
       } else {
         const errMsg = data.error?.json?.message || 'Invalid credentials';
         if (errMsg.includes('locked')) {

@@ -1,10 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 
 export default function ChangePasswordPage() {
-  const router = useRouter();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -42,7 +40,9 @@ export default function ChangePasswordPage() {
       const data = await res.json();
 
       if (data.result?.data?.json?.success) {
-        router.push('/dashboard');
+        // Full page navigation so ChatProvider remounts with auth cookie
+        window.location.href = '/dashboard';
+        return;
       } else {
         setError(data.error?.json?.message || 'Failed to change password');
       }
