@@ -69,6 +69,7 @@ import { testCatalogV2Router } from './test-catalog-v2';
 import { labWorklistRouter } from './lab-worklist';
 import { outsourcedWorkflowRouter } from './outsourced-workflow';
 import { qcEnhancementRouter } from './qc-enhancement';
+import { labAnalyticsRouter } from './lab-analytics';
 
 export const appRouter = router({
   auth: authRouter,
@@ -141,6 +142,7 @@ export const appRouter = router({
   labWorklist: labWorklistRouter,
   outsourcedWorkflow: outsourcedWorkflowRouter,
   qcEnhancement: qcEnhancementRouter,
+  labAnalytics: labAnalyticsRouter,
 });
 
 export type AppRouter = typeof appRouter;
