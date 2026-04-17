@@ -12,7 +12,7 @@
  */
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { SlashCommandMenu } from './SlashCommandMenu';
+import { SlashCommandMenu, type SlashCommandDef } from './SlashCommandMenu';
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -22,13 +22,6 @@ interface AttachmentPreview {
   file_size: number;
   file_url: string;
   thumbnail_url?: string;
-}
-
-interface SlashCommandDef {
-  name: string;
-  description: string;
-  usage: string;
-  icon: string;
 }
 
 interface MessageComposerProps {
@@ -43,6 +36,7 @@ interface MessageComposerProps {
     attachments?: AttachmentPreview[];
   }) => Promise<any>;
   onSlashCommand?: (channelId: string, commandText: string) => Promise<any>;
+  onFormCommand?: (command: SlashCommandDef) => void;
   onTyping: (channelId: string, isTyping: boolean) => Promise<void>;
 }
 
@@ -71,7 +65,7 @@ function formatFileSize(bytes: number): string {
 
 // ── Component ─────────────────────────────────────────────
 
-export function MessageComposer({ channelId, channelType, slashCommands, onSend, onSlashCommand, onTyping }: MessageComposerProps) {
+export function MessageComposer({ channelId, channelType, slashCommands, onSend, onSlashCommand, onFormCommand, onTyping }: MessageComposerProps) {
   const [content, setContent] = useState('');
   const [messageType, setMessageType] = useState('chat');
   const [priority, setPriority] = useState('normal');
@@ -173,11 +167,19 @@ export function MessageComposer({ channelId, channelType, slashCommands, onSend,
   }, []);
 
   // ── Slash command selection ──────────────────────────────
-  const handleSlashSelect = useCallback((commandName: string) => {
-    setContent(`/${commandName} `);
-    setShowSlashMenu(false);
-    textareaRef.current?.focus();
-  }, []);
+  const handleSlashSelect = useCallback((command: SlashCommandDef) => {
+    if (command.type === 'form' && onFormCommand) {
+      // Form-backed command → open FormModal instead of typing into composer
+      setShowSlashMenu(false);
+      setContent('');
+      onFormCommand(command);
+    } else {
+      // Read-only or task → type into composer for execution
+      setContent(`/${command.name} `);
+      setShowSlashMenu(false);
+      textareaRef.current?.focus();
+    }
+  }, [onFormCommand]);
 
   // ── Send handler ───────────────────────────────────────
   const handleSend = useCallback(async () => {

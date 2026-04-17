@@ -4,7 +4,7 @@ import { router, protectedProcedure, adminProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { routeFileToMedicalRecord } from '@/lib/chat/file-to-record';
 import { createTask, completeTask, reassignTask } from '@/lib/chat/task-bridge';
-import { parseSlashCommand, executeSlashCommand as execSlash, getCommandsForRole, type SlashCommandDef } from '@/lib/chat/slash-commands';
+import { parseSlashCommand, executeReadOnlyCommand, getSlashCommandsForRole, resolveCommand } from '@/lib/chat/slash-commands';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -952,9 +952,11 @@ export const chatRouter = router({
 
   // ── SLASH COMMANDS ─────────────────────────────────────────
 
+  // ── SC.2 — Slash Commands v2 ──────────────────────────────
+
   getSlashCommands: protectedProcedure
-    .query(({ ctx }) => {
-      return getCommandsForRole(ctx.user.role);
+    .query(async ({ ctx }) => {
+      return getSlashCommandsForRole(ctx.user.role, ctx.user.hospital_id);
     }),
 
   executeSlashCommand: protectedProcedure
@@ -976,6 +978,18 @@ export const chatRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Use createTask endpoint for task creation' });
       }
 
+      // SC.2: Resolve command — form commands are handled client-side,
+      // this endpoint only handles read-only commands
+      const resolution = await resolveCommand(parsed.command, ctx.user.role, hospitalId);
+      if (resolution.type === 'form') {
+        // Form commands should be handled client-side via FormModal
+        // If we get here, it means the client sent a form command via text input
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `/${parsed.command} opens a form. Use the slash command menu to select it.`,
+        });
+      }
+
       const [channel] = await sql`
         SELECT id, channel_type FROM chat_channels
         WHERE channel_id = ${input.channelId} AND hospital_id = ${hospitalId}
@@ -984,7 +998,7 @@ export const chatRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Channel not found' });
       }
 
-      const result = await execSlash(parsed.command, parsed.args, hospitalId, ctx.user.role, ctx.user.name);
+      const result = await executeReadOnlyCommand(parsed.command, parsed.args, hospitalId, ctx.user.role, ctx.user.name);
 
       const [message] = await sql`
         INSERT INTO chat_messages (
@@ -1014,6 +1028,72 @@ export const chatRouter = router({
         channel_id: input.channelId,
         message_id: message.id,
         details: { command: parsed.command, args: parsed.args },
+      });
+
+      return {
+        ...message,
+        sender_name: ctx.user.name,
+        sender_department: ctx.user.department,
+      };
+    }),
+
+  // SC.2: Post form confirmation card to chat after form submission
+  postFormConfirmation: protectedProcedure
+    .input(z.object({
+      channelId: z.string(),
+      formName: z.string(),
+      submissionId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const userId = ctx.user.sub;
+      const hospitalId = ctx.user.hospital_id;
+
+      const [channel] = await sql`
+        SELECT id FROM chat_channels
+        WHERE channel_id = ${input.channelId} AND hospital_id = ${hospitalId}
+      `;
+      if (!channel) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Channel not found' });
+      }
+
+      const metadata = {
+        success: true,
+        card_title: `✅ ${input.formName}`,
+        card_content: `Form submitted successfully by ${ctx.user.name}`,
+        card_icon: '📋',
+        submission_id: input.submissionId,
+        form_name: input.formName,
+      };
+
+      const [message] = await sql`
+        INSERT INTO chat_messages (
+          channel_id, sender_id, message_type, content, metadata, hospital_id
+        )
+        VALUES (
+          ${channel.id},
+          ${userId},
+          'slash_result',
+          ${`📋 ${input.formName} submitted`},
+          ${JSON.stringify(metadata)},
+          ${hospitalId}
+        )
+        RETURNING id, channel_id, sender_id, message_type, content, metadata, created_at
+      `;
+
+      await sql`
+        UPDATE chat_channels SET last_message_at = NOW(), updated_at = NOW()
+        WHERE id = ${channel.id}
+      `;
+
+      logAudit({
+        action: 'form_submission_card',
+        user_id: userId,
+        user_name: ctx.user.name,
+        hospital_id: hospitalId,
+        channel_id: input.channelId,
+        message_id: message.id,
+        details: { formName: input.formName, submissionId: input.submissionId },
       });
 
       return {

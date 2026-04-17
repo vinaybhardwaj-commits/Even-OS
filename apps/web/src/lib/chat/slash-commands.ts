@@ -1,22 +1,19 @@
 /**
- * Slash Commands Engine — OC.5b
+ * Slash Commands Engine — SC.2
  *
- * Parses slash commands from message text and executes them
- * against Even OS's existing tRPC/SQL endpoints.
- * Returns formatted response cards posted as `slash_result` messages.
+ * Hybrid command system: form-backed commands (from form_definitions DB)
+ * + read-only commands (hardcoded, no submission).
  *
- * 11 commands:
- *   /vitals {patient}        — Latest vitals card
- *   /labs {patient}          — Lab results with abnormals
- *   /meds {patient}          — Active medication list
- *   /census                  — Ward census summary
- *   /handoff {patient}       — SBAR handoff template
- *   /escalate {patient} {reason} — Escalation to emergency
- *   /discharge-status {patient}  — Discharge checklist
- *   /billing {patient}       — Billing summary
- *   /task @{user} {desc}     — Task creation (handled separately by TaskCard)
- *   /consult {specialty} {patient} — Consult request
- *   /bed-status              — Bed availability
+ * Flow:
+ *   1. getSlashCommandsForRole() → merges DB form commands + hardcoded read-only
+ *   2. User selects command in SlashCommandMenu
+ *   3. resolveCommand() → returns { type: 'form', formDefinition } or { type: 'read_only', executor }
+ *   4. Form commands → FormModal opens in ChatRoom
+ *   5. Read-only commands → executes SQL, posts card to chat (existing OC.5b behavior)
+ *
+ * Commands that keep existing card behavior: /census, /bed-status, /task
+ * All other commands resolve to form_definitions when available,
+ * falling back to existing card behavior for backward compatibility.
  */
 
 import { neon } from '@neondatabase/serverless';
@@ -31,45 +28,60 @@ export interface SlashCommandDef {
   name: string;
   description: string;
   usage: string;
-  roles: string[];  // Empty = all roles
   icon: string;
+  /** How this command resolves */
+  type: 'form' | 'read_only' | 'task';
+  /** Role-specific action label (e.g., "Log Vitals" for nurses, "View Vitals" for doctors) */
+  actionLabel?: string;
+  /** Form definition ID to open (only for type='form') */
+  formDefinitionId?: string;
+  /** Form slug (only for type='form') */
+  formSlug?: string;
+  /** Whether the form requires patient context */
+  requiresPatient?: boolean;
 }
 
 export interface SlashCommandResult {
   success: boolean;
   card_title: string;
-  card_content: string;  // Pre-formatted markdown-like text
+  card_content: string;
   card_icon: string;
   error?: string;
 }
 
-// ── Command Registry ─────────────────────────────────────
+export interface ParsedCommand {
+  command: string;
+  args: string;
+}
+
+// ── Role Groups ─────────────────────────────────────────
 
 const NURSE_ROLES = ['nurse', 'senior_nurse', 'charge_nurse', 'nursing_supervisor', 'nursing_manager'];
 const DOCTOR_ROLES = ['resident', 'senior_resident', 'intern', 'visiting_consultant', 'hospitalist', 'surgeon', 'anaesthetist', 'specialist_cardiologist', 'specialist_neurologist', 'specialist_orthopedic'];
 const ALL_CLINICAL = [...NURSE_ROLES, ...DOCTOR_ROLES, 'pharmacist', 'senior_pharmacist', 'lab_technician', 'senior_lab_technician'];
 const BILLING_ROLES = ['billing_manager', 'billing_executive', 'insurance_coordinator'];
 
-export const SLASH_COMMANDS: SlashCommandDef[] = [
-  { name: 'vitals',           description: 'Latest vitals for a patient',           usage: '/vitals {patient name or UHID}',          roles: [...NURSE_ROLES, ...DOCTOR_ROLES], icon: '📊' },
-  { name: 'labs',             description: 'Latest lab results with abnormals',     usage: '/labs {patient name or UHID}',            roles: [...DOCTOR_ROLES, 'lab_technician', 'senior_lab_technician'], icon: '🧪' },
-  { name: 'meds',             description: 'Active medication list',                usage: '/meds {patient name or UHID}',            roles: [...NURSE_ROLES, ...DOCTOR_ROLES, 'pharmacist', 'senior_pharmacist'], icon: '💊' },
-  { name: 'census',           description: 'Current ward census',                   usage: '/census',                                 roles: ['charge_nurse', 'nursing_supervisor', 'nursing_manager', 'super_admin', 'admin'], icon: '🏥' },
-  { name: 'handoff',          description: 'SBAR handoff template',                 usage: '/handoff {patient name or UHID}',         roles: NURSE_ROLES, icon: '🤝' },
-  { name: 'escalate',         description: 'Create escalation message',             usage: '/escalate {patient} {reason}',            roles: ALL_CLINICAL, icon: '🚨' },
-  { name: 'discharge-status', description: 'Discharge milestone checklist',         usage: '/discharge-status {patient name or UHID}',roles: [...DOCTOR_ROLES, 'ip_coordinator', 'customer_care'], icon: '🏁' },
-  { name: 'billing',          description: 'Billing summary',                       usage: '/billing {patient name or UHID}',         roles: [...BILLING_ROLES, ...DOCTOR_ROLES], icon: '💰' },
-  { name: 'task',             description: 'Create a task',                         usage: '/task @{user} {description}',             roles: [], icon: '☑️' },
-  { name: 'consult',          description: 'Send consult request',                  usage: '/consult {specialty} {patient}',          roles: DOCTOR_ROLES, icon: '🩺' },
-  { name: 'bed-status',       description: 'Bed availability summary',             usage: '/bed-status',                             roles: ['charge_nurse', 'nursing_supervisor', 'admin', 'super_admin', 'admissions', 'customer_care'], icon: '🛏' },
+// ── Read-Only Command Registry ──────────────────────────
+// These commands NEVER open forms — they execute SQL and return cards.
+
+interface ReadOnlyCommandDef {
+  name: string;
+  description: string;
+  usage: string;
+  icon: string;
+  roles: string[];
+}
+
+const READ_ONLY_COMMANDS: ReadOnlyCommandDef[] = [
+  { name: 'census',     description: 'Current ward census',      usage: '/census',     roles: ['charge_nurse', 'nursing_supervisor', 'nursing_manager', 'super_admin', 'admin'], icon: '🏥' },
+  { name: 'bed-status', description: 'Bed availability summary', usage: '/bed-status', roles: ['charge_nurse', 'nursing_supervisor', 'admin', 'super_admin', 'admissions', 'customer_care'], icon: '🛏' },
 ];
 
-// ── Parser ───────────────────────────────────────────────
+const TASK_COMMAND: ReadOnlyCommandDef = {
+  name: 'task', description: 'Create a task', usage: '/task @{user} {description}', roles: [], icon: '☑️',
+};
 
-export interface ParsedCommand {
-  command: string;
-  args: string;
-}
+// ── Parser ───────────────────────────────────────────────
 
 export function parseSlashCommand(text: string): ParsedCommand | null {
   const trimmed = text.trim();
@@ -85,18 +97,151 @@ export function parseSlashCommand(text: string): ParsedCommand | null {
   };
 }
 
-export function getCommandsForRole(role: string): SlashCommandDef[] {
-  return SLASH_COMMANDS.filter(cmd =>
-    cmd.roles.length === 0 || cmd.roles.includes(role) || role === 'super_admin'
-  );
+// ── Resolve Commands for Role (Server-Side) ─────────────
+// Merges DB form_definitions + hardcoded read-only commands.
+// Called by chat.getSlashCommands tRPC endpoint.
+
+export async function getSlashCommandsForRole(
+  role: string,
+  hospitalId: string,
+): Promise<SlashCommandDef[]> {
+  const sql = getSql();
+  const commands: SlashCommandDef[] = [];
+
+  // 1. Query form_definitions that have a slash_command set
+  const formDefs = await sql`
+    SELECT id, name, slug, description, slash_command, slash_role_action_map,
+           applicable_roles, requires_patient, icon
+    FROM form_definitions
+    WHERE hospital_id = ${hospitalId}
+      AND status = 'active'
+      AND slash_command IS NOT NULL
+    ORDER BY slash_command
+  `;
+
+  // Group form defs by slash_command — multiple forms can share the same command
+  // (e.g., /meds → different form per role)
+  const commandMap = new Map<string, typeof formDefs>();
+  for (const fd of formDefs) {
+    const cmd = (fd.slash_command as string).replace('/', '');
+    if (!commandMap.has(cmd)) commandMap.set(cmd, []);
+    commandMap.get(cmd)!.push(fd);
+  }
+
+  // 2. For each slash_command, find the right form for this role
+  for (const [cmdName, defs] of commandMap) {
+    // Find the form definition that matches this user's role
+    let matchedDef = null;
+    let actionLabel = '';
+
+    for (const fd of defs) {
+      const roles = (fd.applicable_roles as string[]) || [];
+      const roleActionMap = (fd.slash_role_action_map as Record<string, string>) || {};
+
+      // Check if this form applies to the user's role
+      const roleMatches = roles.length === 0 || roles.includes(role) || role === 'super_admin';
+      if (roleMatches) {
+        matchedDef = fd;
+        // Get role-specific action label
+        actionLabel = roleActionMap[role] || roleActionMap['default'] || fd.name as string;
+        break;
+      }
+    }
+
+    if (matchedDef) {
+      commands.push({
+        name: cmdName,
+        description: matchedDef.description as string || '',
+        usage: `/${cmdName}`,
+        icon: (matchedDef as any).icon || '📋',
+        type: 'form',
+        actionLabel,
+        formDefinitionId: matchedDef.id as string,
+        formSlug: matchedDef.slug as string,
+        requiresPatient: matchedDef.requires_patient as boolean,
+      });
+    }
+  }
+
+  // 3. Add read-only commands (role-filtered)
+  for (const cmd of READ_ONLY_COMMANDS) {
+    if (cmd.roles.length === 0 || cmd.roles.includes(role) || role === 'super_admin') {
+      commands.push({
+        name: cmd.name,
+        description: cmd.description,
+        usage: cmd.usage,
+        icon: cmd.icon,
+        type: 'read_only',
+      });
+    }
+  }
+
+  // 4. Add task command (available to all)
+  commands.push({
+    name: TASK_COMMAND.name,
+    description: TASK_COMMAND.description,
+    usage: TASK_COMMAND.usage,
+    icon: TASK_COMMAND.icon,
+    type: 'task',
+  });
+
+  // 5. Add fallback commands for roles that have no form_definitions yet
+  //    (backward compatibility during SC.2→SC.3 transition)
+  const existingCommandNames = new Set(commands.map(c => c.name));
+  const fallbackCommands = getFallbackCommandsForRole(role);
+  for (const fb of fallbackCommands) {
+    if (!existingCommandNames.has(fb.name)) {
+      commands.push(fb);
+    }
+  }
+
+  // Sort: form commands first, then read-only, then task
+  commands.sort((a, b) => {
+    const typeOrder = { form: 0, read_only: 1, task: 2 };
+    const diff = typeOrder[a.type] - typeOrder[b.type];
+    if (diff !== 0) return diff;
+    return a.name.localeCompare(b.name);
+  });
+
+  return commands;
 }
 
-// ── Patient Lookup Helper ────────────────────────────────
+// ── Fallback Commands (until SC.3 creates form_definitions) ──
+
+function getFallbackCommandsForRole(role: string): SlashCommandDef[] {
+  const fallbacks: Array<ReadOnlyCommandDef & { actionLabel?: string }> = [
+    { name: 'vitals',           description: 'Latest vitals for a patient',        usage: '/vitals {patient}',        roles: [...NURSE_ROLES, ...DOCTOR_ROLES], icon: '📊', actionLabel: NURSE_ROLES.includes(role) ? 'Log Vitals' : 'View Vitals' },
+    { name: 'labs',             description: 'Lab results & orders',              usage: '/labs {patient}',          roles: [...DOCTOR_ROLES, 'lab_technician', 'senior_lab_technician', ...NURSE_ROLES], icon: '🧪' },
+    { name: 'meds',             description: 'Medications & orders',              usage: '/meds {patient}',          roles: [...NURSE_ROLES, ...DOCTOR_ROLES, 'pharmacist', 'senior_pharmacist'], icon: '💊', actionLabel: NURSE_ROLES.includes(role) ? 'eMAR' : DOCTOR_ROLES.includes(role) ? 'Order Medication' : 'Dispense' },
+    { name: 'handoff',          description: 'SBAR handoff template',             usage: '/handoff {patient}',       roles: NURSE_ROLES, icon: '🤝' },
+    { name: 'escalate',         description: 'Create escalation',                 usage: '/escalate {patient} {reason}', roles: ALL_CLINICAL, icon: '🚨' },
+    { name: 'discharge-status', description: 'Discharge milestone checklist',     usage: '/discharge-status {patient}', roles: [...DOCTOR_ROLES, 'ip_coordinator', 'customer_care'], icon: '🏁' },
+    { name: 'billing',          description: 'Billing summary',                   usage: '/billing {patient}',       roles: [...BILLING_ROLES, ...DOCTOR_ROLES], icon: '💰' },
+    { name: 'consult',          description: 'Send consult request',              usage: '/consult {specialty} {patient}', roles: DOCTOR_ROLES, icon: '🩺' },
+  ];
+
+  const result: SlashCommandDef[] = [];
+  for (const fb of fallbacks) {
+    if (fb.roles.length === 0 || fb.roles.includes(role) || role === 'super_admin') {
+      result.push({
+        name: fb.name,
+        description: fb.description,
+        usage: fb.usage,
+        icon: fb.icon,
+        type: 'read_only', // Fallback to read-only card behavior
+        actionLabel: fb.actionLabel,
+      });
+    }
+  }
+  return result;
+}
+
+// ── Read-Only Command Executors ──────────────────────────
+// These execute SQL and return formatted cards (same as OC.5b).
 
 async function findPatient(query: string, hospitalId: string): Promise<{ id: string; name: string; uhid: string; encounter_id: string | null } | null> {
   const sql = getSql();
 
-  // Try UHID first
   const byUhid = await sql`
     SELECT p.id, p.name_full, p.uhid, e.id as encounter_id
     FROM patients p
@@ -108,7 +253,6 @@ async function findPatient(query: string, hospitalId: string): Promise<{ id: str
     return { id: byUhid[0].id as string, name: byUhid[0].name_full as string, uhid: byUhid[0].uhid as string, encounter_id: byUhid[0].encounter_id as string | null };
   }
 
-  // Try name search
   const byName = await sql`
     SELECT p.id, p.name_full, p.uhid, e.id as encounter_id
     FROM patients p
@@ -123,8 +267,6 @@ async function findPatient(query: string, hospitalId: string): Promise<{ id: str
 
   return null;
 }
-
-// ── Command Executors ────────────────────────────────────
 
 async function execVitals(args: string, hospitalId: string): Promise<SlashCommandResult> {
   if (!args) return { success: false, card_title: 'Vitals', card_content: '', card_icon: '📊', error: 'Usage: /vitals {patient name or UHID}' };
@@ -257,7 +399,6 @@ async function execHandoff(args: string, hospitalId: string): Promise<SlashComma
   if (!patient) return { success: false, card_title: 'Handoff', card_content: '', card_icon: '🤝', error: `Patient "${args}" not found` };
 
   const sql = getSql();
-  // Get encounter info
   const encounter = patient.encounter_id ? (await sql`
     SELECT chief_complaint, preliminary_diagnosis_icd10, assigned_bed, attending_physician_name
     FROM encounters WHERE id = ${patient.encounter_id}::uuid LIMIT 1
@@ -429,27 +570,16 @@ async function execEscalate(args: string, hospitalId: string, senderName: string
   return { success: true, card_title: `🚨 Escalation — ${patientName}`, card_content: content.join('\n'), card_icon: '🚨' };
 }
 
-// ── Main Executor ────────────────────────────────────────
+// ── Main Executor (for read-only/fallback commands) ─────
+// Form-backed commands are handled client-side by opening FormModal.
 
-export async function executeSlashCommand(
+export async function executeReadOnlyCommand(
   command: string,
   args: string,
   hospitalId: string,
   userRole: string,
   userName: string,
 ): Promise<SlashCommandResult> {
-  // Check if command exists
-  const cmdDef = SLASH_COMMANDS.find(c => c.name === command);
-  if (!cmdDef) {
-    return { success: false, card_title: 'Unknown Command', card_content: '', card_icon: '❓', error: `Unknown command: /${command}` };
-  }
-
-  // Check role
-  if (cmdDef.roles.length > 0 && !cmdDef.roles.includes(userRole) && userRole !== 'super_admin') {
-    return { success: false, card_title: cmdDef.name, card_content: '', card_icon: cmdDef.icon, error: `/${command} is not available for your role.` };
-  }
-
-  // Execute
   try {
     switch (command) {
       case 'vitals':           return await execVitals(args, hospitalId);
@@ -463,13 +593,61 @@ export async function executeSlashCommand(
       case 'bed-status':       return await execBedStatus(hospitalId);
       case 'consult':          return await execConsult(args, hospitalId, userName);
       case 'task':
-        // Task is handled separately by the composer/task-bridge
         return { success: false, card_title: 'Task', card_content: '', card_icon: '☑️', error: 'Use the message type selector to create tasks.' };
       default:
-        return { success: false, card_title: 'Unknown', card_content: '', card_icon: '❓', error: `Command /${command} not implemented.` };
+        return { success: false, card_title: 'Unknown', card_content: '', card_icon: '❓', error: `Command /${command} not recognized.` };
     }
   } catch (err) {
     console.error(`[slash-commands] /${command} failed:`, err);
     return { success: false, card_title: command, card_content: '', card_icon: '❓', error: `Command failed: ${err instanceof Error ? err.message : 'Unknown error'}` };
   }
+}
+
+// ── Resolve a command to form or read-only ──────────────
+// Used by the chat router to decide what to do.
+
+export interface CommandResolution {
+  type: 'form' | 'read_only' | 'task';
+  formDefinitionId?: string;
+  formSlug?: string;
+  requiresPatient?: boolean;
+}
+
+export async function resolveCommand(
+  command: string,
+  role: string,
+  hospitalId: string,
+): Promise<CommandResolution> {
+  // Task command
+  if (command === 'task') return { type: 'task' };
+
+  // Read-only commands never resolve to forms
+  if (command === 'census' || command === 'bed-status') {
+    return { type: 'read_only' };
+  }
+
+  // Check if a form_definition exists for this command + role
+  const sql = getSql();
+  const formDefs = await sql`
+    SELECT id, slug, applicable_roles, requires_patient
+    FROM form_definitions
+    WHERE hospital_id = ${hospitalId}
+      AND status = 'active'
+      AND slash_command = ${'/' + command}
+  `;
+
+  for (const fd of formDefs) {
+    const roles = (fd.applicable_roles as string[]) || [];
+    if (roles.length === 0 || roles.includes(role) || role === 'super_admin') {
+      return {
+        type: 'form',
+        formDefinitionId: fd.id as string,
+        formSlug: fd.slug as string,
+        requiresPatient: fd.requires_patient as boolean,
+      };
+    }
+  }
+
+  // No form found → fall back to read-only
+  return { type: 'read_only' };
 }
