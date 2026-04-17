@@ -20,10 +20,12 @@
     "@trpc/next": "^11.0.0-rc.0",
     "@trpc/react-query": "^11.0.0-rc.0",
     "@trpc/server": "^11.0.0-rc.0",
+    "@vercel/blob": "^0.23.4",
     "bcryptjs": "^2.4.3",
     "drizzle-orm": "^0.30.0",
     "jose": "^5.2.0",
     "lucide-react": "^1.8.0",
+    "mammoth": "^1.8.0",
     "next": "14.2.0",
     "openai": "^6.34.0",
     "react": "^18.2.0",
@@ -32,8 +34,8 @@
     "recharts": "^2.12.7",
     "stream-chat": "^9.41.0",
     "superjson": "^2.2.0",
-    "zod": "^3.22.0",
-    "@vercel/blob": "^0.23.4"
+    "unpdf": "^0.12.1",
+    "zod": "^3.22.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

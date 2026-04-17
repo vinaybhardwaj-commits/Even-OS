@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 import { generateInsight } from '@/lib/ai/llm-client';
+import { processIngestDocument } from '@/lib/document-ingest/worker';
 
 let _sql: any = null;
 function getSql() {
@@ -66,6 +67,33 @@ export async function POST(req: NextRequest) {
           `UPDATE ai_request_queue SET status = 'processing', last_attempt_at = NOW() WHERE id = $1`,
           [item.id]
         );
+
+        // ─────────────────────────────────────────────────────────
+        // N.4 — ingest_document branch.
+        // Routes to the document-ingest worker, which reads the
+        // mrd_document_references row, extracts text, calls the LLM,
+        // writes chart_update_proposals, and auto-accepts safe high-
+        // confidence items into canonical clinical tables.
+        // ─────────────────────────────────────────────────────────
+        if (item.prompt_template === 'ingest_document') {
+          const ingestRes = await processIngestDocument(sql, {
+            id: item.id,
+            hospital_id: item.hospital_id,
+            input_data: item.input_data,
+            attempts: item.attempts || 0,
+            max_attempts: item.max_attempts || 3,
+          });
+          if (ingestRes.ok) {
+            await sql(
+              `UPDATE ai_request_queue SET status = 'completed', last_attempt_at = NOW() WHERE id = $1`,
+              [item.id]
+            );
+            cardsGenerated++; // counted alongside insight cards for the cron summary
+            continue;
+          }
+          // Fall through to error handler with the worker's error message.
+          throw new Error(ingestRes.error || 'ingest_document failed');
+        }
 
         const inputData = typeof item.input_data === 'string' ? JSON.parse(item.input_data) : item.input_data;
 
