@@ -66,6 +66,7 @@ import { billAdjustmentsRouter } from './bill-adjustments';
 import { implantsRouter } from './implants';
 import { externalLabsRouter } from './external-labs';
 import { testCatalogV2Router } from './test-catalog-v2';
+import { labWorklistRouter } from './lab-worklist';
 
 export const appRouter = router({
   auth: authRouter,
@@ -135,6 +136,7 @@ export const appRouter = router({
   implants: implantsRouter,
   externalLabs: externalLabsRouter,
   testCatalogV2: testCatalogV2Router,
+  labWorklist: labWorklistRouter,
 });
 
 export type AppRouter = typeof appRouter;
