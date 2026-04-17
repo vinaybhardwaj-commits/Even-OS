@@ -3,6 +3,24 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@even-os/db', '@even-os/config', '@even-os/types'],
 
+  // N.6: Native binaries (@napi-rs/canvas for OCR PDF rasterisation) and
+  // tesseract.js's worker scripts/WASM must stay outside the webpack bundle
+  // so Node can load them from node_modules at runtime.
+  experimental: {
+    serverComponentsExternalPackages: ['@napi-rs/canvas', 'tesseract.js', 'unpdf'],
+  },
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      const externals = Array.isArray(config.externals) ? config.externals : [config.externals].filter(Boolean);
+      externals.push({
+        '@napi-rs/canvas': 'commonjs @napi-rs/canvas',
+        'tesseract.js': 'commonjs tesseract.js',
+      });
+      config.externals = externals;
+    }
+    return config;
+  },
+
   // Security headers (G-4.2 from 00E Bug Lessons)
   async headers() {
     return [
