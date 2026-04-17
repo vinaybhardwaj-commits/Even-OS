@@ -34,3 +34,4 @@ export * from './33-templates';
 export * from './34-journey';
 export * from './35-chat';
 export * from './36-forms';
+export * from './37-insurers';
