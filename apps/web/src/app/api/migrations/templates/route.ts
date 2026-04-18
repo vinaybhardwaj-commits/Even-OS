@@ -102,7 +102,7 @@ export async function GET() {
 
     // ── Seed 20 pre-built templates ───────────────────────────────────
     // Get first super_admin user for created_by
-    const adminRows = await sql`SELECT id FROM users WHERE role = 'super_admin' LIMIT 1`;
+    const adminRows = await sql`SELECT id FROM users WHERE 'super_admin' = ANY(roles) LIMIT 1`;
     const adminId = (adminRows as any[])?.[0]?.id;
     if (!adminId) {
       return NextResponse.json({ status: 'tables_created', templates_seeded: 0, note: 'No super_admin user found for seeding' });

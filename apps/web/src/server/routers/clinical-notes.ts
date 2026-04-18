@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
+import { sql } from 'drizzle-orm';
+import { db } from '@/lib/db';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { onClinicalNoteSaved } from '@/lib/chat/auto-events';
 import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
@@ -764,20 +766,20 @@ export const clinicalNotesRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        // Build query with optional filters
-        let whereConditions = `hospital_id = '${hospitalId}' AND patient_id = '${input.patient_id}'`;
+        // Composable sql fragments require Drizzle's `sql` tag — Neon HTTP's
+        // tagged-template executes eagerly and serializes the builder object
+        // into the outer query (D-03: "invalid input syntax for boolean ...").
+        const encounterFilter = input.encounter_id
+          ? sql`AND encounter_id = ${input.encounter_id}::uuid`
+          : sql``;
+        const noteTypeFilter = input.note_type
+          ? sql`AND note_type = ${input.note_type}`
+          : sql``;
+        const statusFilter = input.status
+          ? sql`AND status = ${input.status}`
+          : sql``;
 
-        if (input.encounter_id) {
-          whereConditions += ` AND encounter_id = '${input.encounter_id}'`;
-        }
-        if (input.note_type) {
-          whereConditions += ` AND note_type = '${input.note_type}'`;
-        }
-        if (input.status) {
-          whereConditions += ` AND status = '${input.status}'`;
-        }
-
-        const result = await getSql()`
+        const result = await db.execute(sql`
           SELECT
             id,
             note_type,
@@ -793,16 +795,20 @@ export const clinicalNotesRouter = router({
             plan,
             shift_summary
           FROM clinical_impressions
-          WHERE ${getSql()(whereConditions)}
+          WHERE hospital_id = ${hospitalId}
+            AND patient_id = ${input.patient_id}::uuid
+            ${encounterFilter}
+            ${noteTypeFilter}
+            ${statusFilter}
           ORDER BY created_at DESC
-          LIMIT ${input.limit} OFFSET ${input.offset};
-        `;
+          LIMIT ${input.limit} OFFSET ${input.offset}
+        `);
 
-        const rows = (result as any);
+        const rows = (result as any).rows ?? result;
 
         return {
-          notes: rows || [],
-          count: rows?.length || 0,
+          notes: (rows as any) || [],
+          count: (rows as any)?.length || 0,
           limit: input.limit,
           offset: input.offset,
         };
