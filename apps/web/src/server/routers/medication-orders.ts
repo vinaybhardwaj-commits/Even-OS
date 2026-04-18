@@ -483,9 +483,9 @@ export const medicationOrdersRouter = router({
             mr.narcotics_class, mr.instructions, mr.substitution_allowed,
             mr.start_date, mr.end_date, mr.status,
             mr.created_at, mr.updated_at,
-            u.name_full as prescriber_name
+            u.full_name as prescriber_name
           FROM medication_requests mr
-          LEFT JOIN users u ON mr.prescriber_id = u.sub
+          LEFT JOIN users u ON mr.prescriber_id = u.id
           WHERE mr.patient_id = ${input.patient_id}::uuid
             AND mr.hospital_id = ${hospitalId}
             AND mr.is_deleted = false
@@ -1111,9 +1111,9 @@ export const medicationOrdersRouter = router({
             sr.request_type, sr.order_name, sr.order_code,
             sr.clinical_indication, sr.instructions, sr.priority,
             sr.status, sr.sr_ordered_at, sr.created_at,
-            u.name_full as requester_name
+            u.full_name as requester_name
           FROM service_requests sr
-          LEFT JOIN users u ON sr.requester_id = u.sub
+          LEFT JOIN users u ON sr.requester_id = u.id
           WHERE sr.patient_id = ${input.patient_id}::uuid
             AND sr.hospital_id = ${hospitalId}
             ${encounterFilter}
