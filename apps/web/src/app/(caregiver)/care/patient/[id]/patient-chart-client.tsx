@@ -1613,21 +1613,47 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                               </div>
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span style={{ fontSize: 12 }}>{meta.icon}</span>
-                                <span style={{ fontSize: 13, fontWeight: 600, color: '#002054' }}>
-                                  {event.title}
-                                </span>
-                              </div>
-                              <div style={{
-                                fontSize: 12, color: '#666', marginTop: 3,
-                                overflow: isExpanded ? 'visible' : 'hidden',
-                                textOverflow: isExpanded ? 'clip' : 'ellipsis',
-                                whiteSpace: isExpanded ? 'normal' : 'nowrap',
-                                lineHeight: 1.5,
-                              }}>
-                                {event.description}
-                              </div>
+                              {(() => {
+                                // PC.3.3.B — notes_snippet / procedures / mlc_reason redaction
+                                // for CCE / billing / pharmacist / lab when a timeline row
+                                // surfaces a sensitive category.
+                                let field: string | null = null;
+                                if (event.category === 'note') {
+                                  field = /mlc/i.test(event.title) ? 'mlc_reason' : 'notes_snippet';
+                                } else if (event.category === 'procedure') {
+                                  field = 'procedures';
+                                }
+                                const Body = (
+                                  <>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                      <span style={{ fontSize: 12 }}>{meta.icon}</span>
+                                      <span style={{ fontSize: 13, fontWeight: 600, color: '#002054' }}>
+                                        {event.title}
+                                      </span>
+                                    </div>
+                                    <div style={{
+                                      fontSize: 12, color: '#666', marginTop: 3,
+                                      overflow: isExpanded ? 'visible' : 'hidden',
+                                      textOverflow: isExpanded ? 'clip' : 'ellipsis',
+                                      whiteSpace: isExpanded ? 'normal' : 'nowrap',
+                                      lineHeight: 1.5,
+                                    }}>
+                                      {event.description}
+                                    </div>
+                                  </>
+                                );
+                                if (!field) return Body;
+                                return (
+                                  <SensitiveText
+                                    field={field}
+                                    chartConfig={chartConfig}
+                                    patientId={patientId}
+                                    tabId="timeline"
+                                  >
+                                    {Body}
+                                  </SensitiveText>
+                                );
+                              })()}
                               {/* Expanded: show source link + timestamp */}
                               {isExpanded && event.source && (
                                 <button
