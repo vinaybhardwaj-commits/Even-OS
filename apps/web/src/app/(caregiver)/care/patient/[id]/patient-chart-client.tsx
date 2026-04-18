@@ -424,7 +424,9 @@ function calculateNews2(vitals: {
 
 // ── Utility functions ───────────────────────────────────────────────────────
 function calculateAge(dobString: string): number {
+  if (!dobString) return NaN;
   const dob = new Date(dobString);
+  if (isNaN(dob.getTime())) return NaN;
   const today = new Date();
   let age = today.getFullYear() - dob.getFullYear();
   const monthDiff = today.getMonth() - dob.getMonth();
@@ -1077,7 +1079,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
             {patient.name_full || patient.full_name || `${patient.name_given || ''} ${patient.name_family || ''}`.trim() || 'Patient'}
           </div>
           <div style={{ fontSize: 12, opacity: 0.7, margin: '2px 0 0', lineHeight: 1.3 }}>
-            {patient.uhid} · {age}y {(patient.sex || patient.gender || '').toUpperCase()} · {encounter?.chief_complaint || encounter?.preliminary_diagnosis_icd10 || patient.primary_diagnosis || ''}
+            {patient.uhid} · {Number.isFinite(age) ? `${age}y` : '—'} {(patient.sex || patient.gender || '').toUpperCase()} · {encounter?.chief_complaint || encounter?.preliminary_diagnosis_icd10 || patient.primary_diagnosis || ''}
           </div>
         </div>
 
