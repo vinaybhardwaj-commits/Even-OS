@@ -82,6 +82,7 @@ import { mrdDoctorRouter } from './mrd-doctor';
 import { chartProposalsRouter } from './chart-proposals';
 import { noteDraftsRouter } from './note-drafts';
 import { chartLocksRouter } from './chart-locks';
+import { calculatorsRouter } from './calculators';
 
 export const appRouter = router({
   auth: authRouter,
@@ -167,6 +168,7 @@ export const appRouter = router({
   chartProposals: chartProposalsRouter,
   noteDrafts: noteDraftsRouter,
   chartLocks: chartLocksRouter,
+  calculators: calculatorsRouter,
 });
 
 export type AppRouter = typeof appRouter;
