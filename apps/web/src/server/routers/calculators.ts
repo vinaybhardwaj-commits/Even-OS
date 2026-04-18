@@ -40,6 +40,7 @@ import {
   type CalcRule,
   type CalcBand,
 } from '@/lib/calculators/scoring-engine';
+import { resolveHospitalUuid } from '@/lib/patient-brief/enqueue';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -271,28 +272,35 @@ export const calculatorsRouter = router({
         RETURNING *
       ` as unknown as ResultRow[];
 
-      // Enqueue Qwen prose — actual worker ships in PC.2c. We write the
-      // request to ai_request_queue if the table exists; failure is non-fatal
-      // so the deterministic score is never blocked on LLM infra.
+      // PC.2c2: enqueue Qwen prose. The worker lives at
+      // apps/web/src/lib/calculators/prose-worker.ts and is dispatched from
+      // /api/ai/jobs/process-queue. Failure here is non-fatal — the score is
+      // deterministic and authoritative; prose is strictly additive narrative.
       try {
-        await sql`
-          INSERT INTO ai_request_queue (
-            hospital_id, prompt_template, context, status, priority
-          ) VALUES (
-            ${hospitalId}, 'calc_interpret',
-            ${JSON.stringify({
-              calc_result_id: inserted[0].id,
-              calc_slug: calc.slug,
-              score,
-              band_key: bandKey,
-              inputs: input.inputs,
-            })}::jsonb,
-            'queued', 5
-          )
-        `;
+        const hospitalUuid = await resolveHospitalUuid(sql, hospitalId);
+        if (hospitalUuid) {
+          const payload = {
+            calc_result_id: inserted[0].id,
+            calc_slug: calc.slug,
+            score,
+            band_key: bandKey,
+            inputs: input.inputs,
+          };
+          await sql`
+            INSERT INTO ai_request_queue (
+              hospital_id, module, priority,
+              input_data, prompt_template,
+              status, attempts, max_attempts
+            ) VALUES (
+              ${hospitalUuid}, 'clinical', 'medium',
+              ${JSON.stringify(payload)}::jsonb, 'calc_interpret',
+              'pending', 0, 3
+            )
+          `;
+        }
       } catch {
-        // ai_request_queue shape may differ or table may not exist yet —
-        // deterministic score is authoritative, prose is additive.
+        // ai_request_queue may not be provisioned yet on very old envs.
+        // Deterministic score is authoritative, prose is additive.
       }
 
       return {
@@ -361,6 +369,73 @@ export const calculatorsRouter = router({
       ` as unknown as ResultRow[];
       if (rows.length === 0) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Result not found or prose not reviewable' });
+      }
+      return rows[0];
+    }),
+
+  // ─── PUBLIC: FLAG PROSE ─────────────────────────────────────
+  // PC.2c2 — reviewer dissent path. Sets prose_status='declined' and
+  // stashes the reason on calculator_results.inputs (scratch) until
+  // PC.2c3 ships the dedicated hallucination_flags queue + table.
+  flagProse: protectedProcedure
+    .input(z.object({
+      result_id: z.string().uuid(),
+      reason: z.string().min(3).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const userId = ctx.user.sub;
+      const userName = ctx.user.name || ctx.user.email || 'Unknown';
+      if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED' });
+      const rows = await sql`
+        UPDATE calculator_results
+           SET prose_status = 'declined',
+               inputs = jsonb_set(
+                 COALESCE(inputs, '{}'::jsonb),
+                 '{__flag}',
+                 ${JSON.stringify({
+                   reason: input.reason,
+                   by_user_id: userId,
+                   by_user_name: userName,
+                   flagged_at: new Date().toISOString(),
+                 })}::jsonb,
+                 true
+               ),
+               updated_at = now()
+         WHERE id = ${input.result_id}
+           AND prose_status IN ('ready','pending')
+         RETURNING *
+      ` as unknown as ResultRow[];
+      if (rows.length === 0) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Result not found or prose not flaggable' });
+      }
+      return rows[0];
+    }),
+
+  // ─── PUBLIC: EDIT PROSE ─────────────────────────────────────
+  // PC.2c2 — lets the reviewer fix small wording before Add-to-Note.
+  // Only allowed when prose_status is 'ready' or 'reviewed'. Always
+  // re-sets status to 'reviewed' so the edit itself counts as review.
+  editProse: protectedProcedure
+    .input(z.object({
+      result_id: z.string().uuid(),
+      prose_text: z.string().min(3).max(2000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const userId = ctx.user.sub;
+      if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED' });
+      const rows = await sql`
+        UPDATE calculator_results
+           SET prose_text = ${input.prose_text},
+               prose_status = 'reviewed',
+               updated_at = now()
+         WHERE id = ${input.result_id}
+           AND prose_status IN ('ready','reviewed')
+         RETURNING *
+      ` as unknown as ResultRow[];
+      if (rows.length === 0) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Result not found or prose not editable' });
       }
       return rows[0];
     }),

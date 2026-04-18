@@ -87,6 +87,21 @@ async function trpcMutate(path: string, input: any) {
   return json.result?.data?.json;
 }
 
+async function trpcQuery(path: string, input: any) {
+  const qs = encodeURIComponent(JSON.stringify({ json: input }));
+  const res = await fetch(`/api/trpc/${path}?input=${qs}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) throw new Error(`Query failed: ${res.status}`);
+  const json = await res.json();
+  if (json.error) {
+    const msg = json.error?.message || json.error?.json?.message || 'Query error';
+    throw new Error(msg);
+  }
+  return json.result?.data?.json;
+}
+
 const BAND_COLORS: Record<BandRow['color'], { bg: string; fg: string; border: string }> = {
   green:  { bg: '#dcfce7', fg: '#166534', border: '#86efac' },
   yellow: { bg: '#fef9c3', fg: '#854d0e', border: '#fde047' },
@@ -163,6 +178,19 @@ export default function CalcRunner({ bundle, patientId, encounterId, chartContex
   const [actionDone, setActionDone] = useState<Partial<Record<ActionKey, number>>>({});
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // ── PC.2c2 — narrative prose gate ─────────────────────────────────────
+  // We poll calculators.getResult until prose_status advances past 'pending'.
+  // Add-to-Note is gated until prose_status is 'reviewed' / 'declined' / 'added'.
+  type ProseStatus = 'pending' | 'ready' | 'reviewed' | 'declined' | 'added';
+  const [proseText, setProseText] = useState<string | null>(null);
+  const [proseStatus, setProseStatus] = useState<ProseStatus>('pending');
+  const [proseError, setProseError] = useState<string | null>(null);
+  const [proseBusy, setProseBusy] = useState<null | 'review' | 'flag' | 'edit'>(null);
+  const [editing, setEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState('');
+  const [flagging, setFlagging] = useState(false);
+  const [flagReason, setFlagReason] = useState('');
+
   const markDone = (k: ActionKey) => {
     setActionDone(prev => ({ ...prev, [k]: Date.now() }));
     // clear "✓ Added" badge after 2.4s
@@ -174,14 +202,104 @@ export default function CalcRunner({ bundle, patientId, encounterId, chartContex
     }, 2400);
   };
 
+  // Poll prose status after a successful run.
+  useEffect(() => {
+    if (!result) return;
+    if (proseStatus !== 'pending') return;
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 12; // ~36s at 3s interval
+    const tick = async () => {
+      if (cancelled) return;
+      attempts += 1;
+      try {
+        const row: any = await trpcQuery('calculators.getResult', { result_id: result.result_id });
+        if (cancelled) return;
+        if (row?.prose_text) setProseText(row.prose_text);
+        const status: ProseStatus = (row?.prose_status as ProseStatus) || 'pending';
+        setProseStatus(status);
+        if (status !== 'pending') return; // done polling
+      } catch (e: any) {
+        if (cancelled) return;
+        setProseError(e?.message || 'Failed to fetch narrative.');
+      }
+      if (attempts < maxAttempts) {
+        setTimeout(tick, 3000);
+      } else if (!cancelled) {
+        // Give up politely — reviewer can still Flag or skip.
+        setProseError('Narrative is taking longer than usual. You can retry or proceed without it.');
+      }
+    };
+    const t0 = setTimeout(tick, 1200); // short initial delay so worker has time
+    return () => { cancelled = true; clearTimeout(t0); };
+  }, [result, proseStatus]);
+
+  const handleReviewProse = async () => {
+    if (!result) return;
+    setProseBusy('review'); setProseError(null);
+    try {
+      const row: any = await trpcMutate('calculators.reviewProse', {
+        result_id: result.result_id, decision: 'reviewed',
+      });
+      if (row?.prose_text) setProseText(row.prose_text);
+      setProseStatus((row?.prose_status as ProseStatus) || 'reviewed');
+    } catch (e: any) {
+      setProseError(e?.message || 'Failed to mark reviewed.');
+    } finally {
+      setProseBusy(null);
+    }
+  };
+
+  const handleFlagProse = async () => {
+    if (!result) return;
+    const reason = flagReason.trim();
+    if (reason.length < 3) { setProseError('Flag reason must be at least 3 characters.'); return; }
+    setProseBusy('flag'); setProseError(null);
+    try {
+      const row: any = await trpcMutate('calculators.flagProse', {
+        result_id: result.result_id, reason,
+      });
+      setProseStatus((row?.prose_status as ProseStatus) || 'declined');
+      setFlagging(false); setFlagReason('');
+    } catch (e: any) {
+      setProseError(e?.message || 'Failed to flag narrative.');
+    } finally {
+      setProseBusy(null);
+    }
+  };
+
+  const handleEditProse = async () => {
+    if (!result) return;
+    const next = editDraft.trim();
+    if (next.length < 3) { setProseError('Narrative must be at least 3 characters.'); return; }
+    setProseBusy('edit'); setProseError(null);
+    try {
+      const row: any = await trpcMutate('calculators.editProse', {
+        result_id: result.result_id, prose_text: next,
+      });
+      if (row?.prose_text) setProseText(row.prose_text);
+      setProseStatus((row?.prose_status as ProseStatus) || 'reviewed');
+      setEditing(false);
+    } catch (e: any) {
+      setProseError(e?.message || 'Failed to save edit.');
+    } finally {
+      setProseBusy(null);
+    }
+  };
+
   // Build a clinician-readable snippet with attribution (PRD lock #20).
+  // PC.2c2: when the reviewer has accepted or edited prose, we use the prose
+  // verbatim. When the reviewer declined, we fall back to the band-default
+  // text so the note never carries unreviewed LLM content.
   const buildSnippet = (): string => {
     if (!result) return '';
     const bandLabel = result.band?.label || result.band_key;
     const interp = result.band?.interpretation_default || '';
+    const useProse = (proseStatus === 'reviewed' || proseStatus === 'added') && proseText;
+    const narrative = useProse ? proseText : interp;
     const lines = [
       `${calc.name} — Score ${String(result.score)} (${bandLabel})`,
-      interp ? interp : null,
+      narrative ? narrative : null,
       `Calculator result: ${result.result_id}`,
     ].filter(Boolean);
     return lines.join('\n');
@@ -257,6 +375,11 @@ export default function CalcRunner({ bundle, patientId, encounterId, chartContex
     setRunning(true);
     setError(null);
     setResult(null);
+    setProseText(null);
+    setProseStatus('pending');
+    setProseError(null);
+    setEditing(false);
+    setFlagging(false);
     try {
       const payload: Record<string, any> = {};
       for (const inp of inputs) {
@@ -287,6 +410,11 @@ export default function CalcRunner({ bundle, patientId, encounterId, chartContex
     setValues(initial);
     setResult(null);
     setError(null);
+    setProseText(null);
+    setProseStatus('pending');
+    setProseError(null);
+    setEditing(false);
+    setFlagging(false);
   };
 
   const bandColorKey: BandRow['color'] = result?.band?.color ?? 'grey';
@@ -448,11 +576,167 @@ export default function CalcRunner({ bundle, patientId, encounterId, chartContex
               ) : null}
             </div>
           </div>
+          {/* ── PC.2c2 — Narrative interpretation block ────────────────── */}
           <div style={{
-            fontSize: 12, color: bandColors.fg, padding: '6px 10px', borderRadius: 6,
-            background: 'rgba(255,255,255,0.6)', marginTop: 10,
+            marginTop: 10, padding: '10px 12px', borderRadius: 8,
+            background: 'rgba(255,255,255,0.85)',
+            border: `1px solid ${bandColors.border}`,
           }}>
-            Narrative interpretation generating… PC.2c will enable auto-written prose.
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+              marginBottom: 6,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: bandColors.fg, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                Narrative · Qwen
+              </div>
+              <div style={{ fontSize: 10, color: bandColors.fg, opacity: 0.75 }}>
+                Prose only · LLM never touches the score
+              </div>
+            </div>
+
+            {proseStatus === 'pending' && !proseText ? (
+              <div style={{ fontSize: 13, color: bandColors.fg, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{
+                  display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
+                  background: bandColors.fg, opacity: 0.5, animation: 'pulse 1.4s infinite',
+                }} />
+                Generating narrative interpretation…
+              </div>
+            ) : null}
+
+            {proseText && !editing ? (
+              <div style={{ fontSize: 13, color: bandColors.fg, lineHeight: 1.5 }}>
+                {proseText}
+              </div>
+            ) : null}
+
+            {editing ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <textarea
+                  value={editDraft}
+                  onChange={(e) => setEditDraft(e.target.value)}
+                  rows={4}
+                  style={{
+                    width: '100%', padding: 8, fontSize: 13, borderRadius: 6,
+                    border: '1px solid #cbd5e1', fontFamily: 'inherit', resize: 'vertical',
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={handleEditProse}
+                    disabled={proseBusy === 'edit'}
+                    style={{
+                      padding: '4px 10px', fontSize: 12, fontWeight: 600, borderRadius: 5,
+                      background: '#0055FF', color: '#fff', border: 'none',
+                      cursor: proseBusy === 'edit' ? 'not-allowed' : 'pointer',
+                    }}
+                  >{proseBusy === 'edit' ? 'Saving…' : 'Save'}</button>
+                  <button
+                    onClick={() => { setEditing(false); setEditDraft(''); }}
+                    disabled={proseBusy === 'edit'}
+                    style={{
+                      padding: '4px 10px', fontSize: 12, fontWeight: 500, borderRadius: 5,
+                      background: '#fff', color: '#475569', border: '1px solid #cbd5e1',
+                      cursor: 'pointer',
+                    }}
+                  >Cancel</button>
+                </div>
+              </div>
+            ) : null}
+
+            {flagging ? (
+              <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <textarea
+                  value={flagReason}
+                  onChange={(e) => setFlagReason(e.target.value)}
+                  rows={2}
+                  placeholder="What's wrong with this narrative?"
+                  style={{
+                    width: '100%', padding: 8, fontSize: 12, borderRadius: 6,
+                    border: '1px solid #fca5a5', fontFamily: 'inherit', resize: 'vertical',
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={handleFlagProse}
+                    disabled={proseBusy === 'flag'}
+                    style={{
+                      padding: '4px 10px', fontSize: 12, fontWeight: 600, borderRadius: 5,
+                      background: '#b91c1c', color: '#fff', border: 'none',
+                      cursor: proseBusy === 'flag' ? 'not-allowed' : 'pointer',
+                    }}
+                  >{proseBusy === 'flag' ? 'Flagging…' : 'Submit flag'}</button>
+                  <button
+                    onClick={() => { setFlagging(false); setFlagReason(''); }}
+                    disabled={proseBusy === 'flag'}
+                    style={{
+                      padding: '4px 10px', fontSize: 12, fontWeight: 500, borderRadius: 5,
+                      background: '#fff', color: '#475569', border: '1px solid #cbd5e1',
+                      cursor: 'pointer',
+                    }}
+                  >Cancel</button>
+                </div>
+              </div>
+            ) : null}
+
+            {proseStatus === 'ready' && !editing && !flagging ? (
+              <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                <button
+                  onClick={handleReviewProse}
+                  disabled={proseBusy !== null}
+                  style={{
+                    padding: '4px 10px', fontSize: 12, fontWeight: 600, borderRadius: 5,
+                    background: '#16a34a', color: '#fff', border: 'none',
+                    cursor: proseBusy ? 'not-allowed' : 'pointer',
+                  }}
+                >{proseBusy === 'review' ? 'Saving…' : "✓ I've reviewed"}</button>
+                <button
+                  onClick={() => { setEditDraft(proseText || ''); setEditing(true); }}
+                  disabled={proseBusy !== null}
+                  style={{
+                    padding: '4px 10px', fontSize: 12, fontWeight: 500, borderRadius: 5,
+                    background: '#fff', color: '#475569', border: '1px solid #cbd5e1',
+                    cursor: 'pointer',
+                  }}
+                >✎ Edit</button>
+                <button
+                  onClick={() => setFlagging(true)}
+                  disabled={proseBusy !== null}
+                  style={{
+                    padding: '4px 10px', fontSize: 12, fontWeight: 500, borderRadius: 5,
+                    background: '#fff', color: '#b91c1c', border: '1px solid #fca5a5',
+                    cursor: 'pointer',
+                  }}
+                >⚠ Flag</button>
+              </div>
+            ) : null}
+
+            {(proseStatus === 'reviewed' || proseStatus === 'added') && !editing ? (
+              <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: '#166534', fontWeight: 600 }}>
+                  ✓ Reviewed{proseStatus === 'added' ? ' · in note' : ''}
+                </span>
+                <button
+                  onClick={() => { setEditDraft(proseText || ''); setEditing(true); }}
+                  disabled={proseBusy !== null}
+                  style={{
+                    padding: '3px 8px', fontSize: 11, fontWeight: 500, borderRadius: 5,
+                    background: '#fff', color: '#475569', border: '1px solid #cbd5e1',
+                    cursor: 'pointer',
+                  }}
+                >✎ Edit</button>
+              </div>
+            ) : null}
+
+            {proseStatus === 'declined' ? (
+              <div style={{ fontSize: 11, color: '#991b1b', marginTop: 6, fontWeight: 600 }}>
+                ⚠ Narrative declined — band-default text will be used if you Add-to-Note.
+              </div>
+            ) : null}
+
+            {proseError ? (
+              <div style={{ fontSize: 11, color: '#991b1b', marginTop: 6 }}>{proseError}</div>
+            ) : null}
           </div>
 
           {/* ── PC.2b3 — chart actions (Add-to-Note / Add-to-Plan / Share-to-Comms) ── */}
@@ -462,13 +746,22 @@ export default function CalcRunner({ bundle, patientId, encounterId, chartContex
               const handler = key === 'note' ? handleAddToNote : key === 'plan' ? handleAddToPlan : handleShareToComms;
               const busy = actionBusy === key;
               const done = !!actionDone[key];
-              const disabled = !encounterId || busy || actionBusy !== null;
+              // PC.2c2: gate Add-to-Note on prose review status. Plan and Comms
+              // are allowed without narrative review since they're softer artefacts.
+              const noteGated = key === 'note' && proseStatus !== 'reviewed' && proseStatus !== 'declined' && proseStatus !== 'added';
+              const disabled = !encounterId || busy || actionBusy !== null || noteGated;
               return (
                 <button
                   key={key}
                   onClick={handler}
                   disabled={disabled}
-                  title={!encounterId ? 'Action unavailable — this patient has no active encounter.' : ''}
+                  title={
+                    !encounterId
+                      ? 'Action unavailable — this patient has no active encounter.'
+                      : key === 'note' && noteGated
+                        ? 'Review, edit, or flag the narrative first.'
+                        : ''
+                  }
                   style={{
                     padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6,
                     background: done ? '#16a34a' : busy ? '#94a3b8' : 'rgba(255,255,255,0.9)',

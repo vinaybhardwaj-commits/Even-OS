@@ -4,6 +4,7 @@ import { generateInsight } from '@/lib/ai/llm-client';
 import { processIngestDocument } from '@/lib/document-ingest/worker';
 import { processRegenerateBrief } from '@/lib/patient-brief/worker';
 import { processOcrDocument } from '@/lib/document-ingest/ocr-worker';
+import { processCalcInterpret } from '@/lib/calculators/prose-worker';
 
 let _sql: any = null;
 function getSql() {
@@ -146,6 +147,32 @@ export async function POST(req: NextRequest) {
             continue;
           }
           throw new Error(briefRes.error || 'regenerate_brief failed');
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // PC.2c2 — calc_interpret branch.
+        // Routes to the calculator prose worker, which loads the
+        // calculator_results row, calls Qwen with hard constraints
+        // (never touch the score, no ungrounded numbers), runs a
+        // grounding check, then writes prose_text + prose_status='ready'.
+        // ─────────────────────────────────────────────────────────
+        if (item.prompt_template === 'calc_interpret') {
+          const calcRes = await processCalcInterpret(sql, {
+            id: item.id,
+            hospital_id: item.hospital_id,
+            input_data: item.input_data,
+            attempts: item.attempts || 0,
+            max_attempts: item.max_attempts || 3,
+          });
+          if (calcRes.ok) {
+            await sql(
+              `UPDATE ai_request_queue SET status = 'completed', last_attempt_at = NOW() WHERE id = $1`,
+              [item.id]
+            );
+            cardsGenerated++;
+            continue;
+          }
+          throw new Error(calcRes.error || 'calc_interpret failed');
         }
 
         const inputData = typeof item.input_data === 'string' ? JSON.parse(item.input_data) : item.input_data;
