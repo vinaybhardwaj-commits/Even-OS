@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
+import { sql } from 'drizzle-orm';
+import { db } from '@/lib/db';
 import { writeEvent } from '@/lib/event-log';
 import { addCareTeamMember } from '@/lib/chat/channel-manager';
 import { onMedicationOrdered, onMedicationAdministered, onDietOrdered, onNursingOrderCreated } from '@/lib/chat/auto-events';
@@ -458,17 +460,19 @@ export const medicationOrdersRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
+        // Composable sql fragments require Drizzle's `sql` tag, NOT the Neon
+        // HTTP tagged-template — which executes eagerly and cannot be nested.
         const encounterFilter = input.encounter_id
-          ? getSql()`AND mr.encounter_id = ${input.encounter_id}::uuid`
-          : getSql()``;
+          ? sql`AND mr.encounter_id = ${input.encounter_id}::uuid`
+          : sql``;
 
         const statusFilter = input.status
-          ? getSql()`AND mr.status = ${input.status}`
+          ? sql`AND mr.status = ${input.status}`
           : input.include_completed
-            ? getSql()``
-            : getSql()`AND mr.status NOT IN ('completed', 'cancelled')`;
+            ? sql``
+            : sql`AND mr.status NOT IN ('completed', 'cancelled')`;
 
-        const result = await getSql()`
+        const result = await db.execute(sql`
           SELECT
             mr.id, mr.patient_id, mr.encounter_id,
             mr.drug_name, mr.generic_name, mr.drug_code,
@@ -487,10 +491,11 @@ export const medicationOrdersRouter = router({
             AND mr.is_deleted = false
             ${encounterFilter}
             ${statusFilter}
-          ORDER BY mr.created_at DESC;
-        `;
+          ORDER BY mr.created_at DESC
+        `);
 
-        return (result as any) || [];
+        const rows = (result as any).rows ?? result;
+        return (rows as any) || [];
       } catch (error) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -1087,19 +1092,20 @@ export const medicationOrdersRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
+        // Composable fragments must use Drizzle's `sql` tag.
         const encounterFilter = input.encounter_id
-          ? getSql()`AND sr.encounter_id = ${input.encounter_id}::uuid`
-          : getSql()``;
+          ? sql`AND sr.encounter_id = ${input.encounter_id}::uuid`
+          : sql``;
 
         const typeFilter = input.request_type
-          ? getSql()`AND sr.request_type = ${input.request_type}`
-          : getSql()``;
+          ? sql`AND sr.request_type = ${input.request_type}`
+          : sql``;
 
         const statusFilter = input.status
-          ? getSql()`AND sr.status = ${input.status}`
-          : getSql()``;
+          ? sql`AND sr.status = ${input.status}`
+          : sql``;
 
-        const result = await getSql()`
+        const result = await db.execute(sql`
           SELECT
             sr.id, sr.patient_id, sr.encounter_id,
             sr.request_type, sr.order_name, sr.order_code,
@@ -1113,10 +1119,11 @@ export const medicationOrdersRouter = router({
             ${encounterFilter}
             ${typeFilter}
             ${statusFilter}
-          ORDER BY sr.sr_ordered_at DESC;
-        `;
+          ORDER BY sr.sr_ordered_at DESC
+        `);
 
-        return (result as any) || [];
+        const rows = (result as any).rows ?? result;
+        return (rows as any) || [];
       } catch (error) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
