@@ -10,6 +10,7 @@ import LabsTab from '@/components/patient-chart/LabsTab';
 import DocumentsTab from '@/components/patient-chart/DocumentsTab';
 import NotesTab from '@/components/patient-chart/NotesTab';
 import BriefTab from '@/components/patient-brief/BriefTab';
+import CalculatorsTab from '@/components/patient-chart/CalculatorsTab';
 import ChatPanel, { type Channel as ChatChannel } from '@/components/chat/ChatPanel';
 import { useChartAction, getActionsForRole } from './use-chart-action';
 import { useLock, LockBanner } from './use-lock';
@@ -122,7 +123,7 @@ interface JourneyData {
   next_milestone: string;
 }
 
-type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan' | 'emar' | 'assessments' | 'billing' | 'journey' | 'forms' | 'documents' | 'brief';
+type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan' | 'emar' | 'assessments' | 'billing' | 'journey' | 'forms' | 'documents' | 'brief' | 'calculators';
 
 // ── Unified Orders types (PC.1b1) ──────────────────────────────────────────
 // All order sources (medication_requests, service_requests, clinical_orders)
@@ -169,6 +170,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
       { label: 'Notes', id: 'notes', icon: '📝' },
       { label: 'Tasks', id: 'orders', icon: '🎯' },
       { label: 'Brief', id: 'brief', icon: '🧠' },
+      { label: 'Calculators', id: 'calculators', icon: '🧮' },
       { label: 'Documents', id: 'documents', icon: '📁' },
       { label: 'Forms', id: 'forms', icon: '📋' },
     ];
@@ -184,6 +186,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
       { label: 'Care Plan', id: 'plan', icon: '🗺️' },
       { label: 'Journey', id: 'journey', icon: '🗓️' },
       { label: 'Brief', id: 'brief', icon: '🧠' },
+      { label: 'Calculators', id: 'calculators', icon: '🧮' },
       { label: 'Documents', id: 'documents', icon: '📁' },
       { label: 'Forms', id: 'forms', icon: '📋' },
     ];
@@ -221,6 +224,7 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
     { label: 'Notes', id: 'notes', icon: '📝' },
     { label: 'Plan', id: 'plan', icon: '🗺️' },
     { label: 'Brief', id: 'brief', icon: '🧠' },
+    { label: 'Calculators', id: 'calculators', icon: '🧮' },
     { label: 'Documents', id: 'documents', icon: '📁' },
     { label: 'Forms', id: 'forms', icon: '📋' },
   ];
@@ -4710,6 +4714,27 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
           patientId={patientId}
           userRole={userRole}
           userName={userName}
+        />
+      )}
+
+      {/* ── Calculators Tab (PC.2b1) ─────────────────────────────────────── */}
+      {activeTab === 'calculators' && (
+        <CalculatorsTab
+          patientId={patientId}
+          encounterId={encounter?.id ?? null}
+          userRole={userRole}
+          userName={userName}
+          chartContext={{
+            patient: { age: Number.isFinite(age) ? age : undefined, sex: patient.sex ?? patient.gender ?? null },
+            conditions: conditions.map((c) => ({ condition_name: c.condition_name, status: c.status })),
+            medications: medications.map((m) => ({ medication_name: m.medication_name, status: m.status })),
+            vitals: vitals.map((v) => ({
+              observation_type: v.observation_type,
+              value: v.value,
+              unit: v.unit,
+              effective_datetime: v.effective_datetime,
+            })),
+          }}
         />
       )}
 
