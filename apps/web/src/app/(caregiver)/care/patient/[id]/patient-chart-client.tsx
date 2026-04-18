@@ -161,6 +161,42 @@ interface Props {
 }
 
 // ── Role-specific tab config ────────────────────────────────────────────────
+// PC.3.2.1 (18 Apr 2026): canonical catalog of every possible tab. When
+// chartConfig.tabs is present (source='matrix'), we filter this catalog by
+// those ids so the matrix is authoritative. Inline fallback in getTabsForRole
+// below stays as the safety net when chartConfig is missing/empty.
+const TAB_CATALOG: Record<string, { label: string; id: PatientTab; icon: string }> = {
+  overview:    { label: 'Overview',         id: 'overview',    icon: '📋' },
+  vitals:      { label: 'Vitals',           id: 'vitals',      icon: '📊' },
+  emar:        { label: 'eMAR',             id: 'emar',        icon: '💊' },
+  assessments: { label: 'Assessments',      id: 'assessments', icon: '✅' },
+  labs:        { label: 'Labs & Results',   id: 'labs',        icon: '🧪' },
+  orders:      { label: 'Orders',           id: 'orders',      icon: '📋' },
+  notes:       { label: 'Notes',            id: 'notes',       icon: '📝' },
+  plan:        { label: 'Care Plan',        id: 'plan',        icon: '🗺️' },
+  journey:     { label: 'Journey',          id: 'journey',     icon: '🗓️' },
+  brief:       { label: 'Brief',            id: 'brief',       icon: '🧠' },
+  calculators: { label: 'Calculators',      id: 'calculators', icon: '🧮' },
+  documents:   { label: 'Documents',        id: 'documents',   icon: '📁' },
+  forms:       { label: 'Forms',            id: 'forms',       icon: '📋' },
+  billing:     { label: 'Billing',          id: 'billing',     icon: '💳' },
+};
+
+// Resolve tab list: matrix-driven when chartConfig.tabs is populated,
+// inline fallback otherwise. Preserves the order in chartConfig.tabs.
+function resolveTabs(
+  role: string,
+  chartConfig?: ChartConfig | null
+): { label: string; id: PatientTab; icon: string }[] {
+  if (chartConfig?.tabs && chartConfig.tabs.length > 0 && chartConfig.source === 'matrix') {
+    const resolved = chartConfig.tabs
+      .map(id => TAB_CATALOG[id])
+      .filter((t): t is NonNullable<typeof t> => !!t);
+    if (resolved.length > 0) return resolved;
+  }
+  return getTabsForRole(role);
+}
+
 function getTabsForRole(role: string): { label: string; id: PatientTab; icon: string }[] {
   const nurseRoles = ['nurse', 'senior_nurse', 'charge_nurse', 'nursing_supervisor', 'nursing_manager', 'ot_nurse'];
   const doctorRoles = ['resident', 'senior_resident', 'intern', 'visiting_consultant', 'hospitalist', 'specialist_cardiologist', 'specialist_neurologist', 'specialist_orthopedic', 'surgeon', 'anaesthetist'];
@@ -769,7 +805,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
 
 
-  const tabs = getTabsForRole(userRole);
+  const tabs = resolveTabs(userRole, chartConfig);
   const actionButtons = getActionButtonsForRole(userRole);
 
   // ── Load all data in parallel ────────────────────────────────────────────
