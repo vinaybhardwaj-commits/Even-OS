@@ -13,7 +13,7 @@ import BriefTab from '@/components/patient-brief/BriefTab';
 import CalculatorsTab from '@/components/patient-chart/CalculatorsTab';
 import OverviewCalculatorsCard from '@/components/patient-chart/OverviewCalculatorsCard';
 import ChatPanel, { type Channel as ChatChannel } from '@/components/chat/ChatPanel';
-import { useChartAction, getActionsForRole } from './use-chart-action';
+import { useChartAction, getActionsForRole, resolveActionsFromSlugs } from './use-chart-action';
 import { useLock, LockBanner } from './use-lock';
 import type { ChartConfig } from '@/lib/chart/selectors';
 
@@ -276,8 +276,25 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
 // ── Floating action buttons for role ────────────────────────────────────────
 // PC.1b1 (18 Apr 2026): role-to-pill mapping moved to use-chart-action.ts
 // so the registry is shared with the action handler (single source of truth).
-// This wrapper keeps the existing call site stable.
+// PC.3.2.2 (18 Apr 2026): if chartConfig.action_bar_preset is provided by
+// the matrix, resolve slugs → pills. Safe fallback to inline role preset
+// if any slug is unknown (e.g., 'verify_order' for pharmacist not yet in
+// CHART_ACTIONS registry). This keeps the matrix authoritative where it
+// can be, and the inline preset authoritative everywhere else.
 function getActionButtonsForRole(role: string): { label: string; icon: string }[] {
+  return getActionsForRole(role);
+}
+
+function resolveActionButtons(
+  role: string,
+  chartConfig?: ChartConfig | null
+): { label: string; icon: string }[] {
+  if (chartConfig?.source === 'matrix' && chartConfig.action_bar_preset) {
+    const primary = chartConfig.action_bar_preset.primary || [];
+    const resolved = resolveActionsFromSlugs(primary);
+    if (resolved && resolved.length > 0) return resolved;
+    // Any unknown slug → safe fallback to inline preset
+  }
   return getActionsForRole(role);
 }
 
@@ -806,7 +823,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
 
 
   const tabs = resolveTabs(userRole, chartConfig);
-  const actionButtons = getActionButtonsForRole(userRole);
+  const actionButtons = resolveActionButtons(userRole, chartConfig);
 
   // ── Load all data in parallel ────────────────────────────────────────────
   const loadData = useCallback(async () => {

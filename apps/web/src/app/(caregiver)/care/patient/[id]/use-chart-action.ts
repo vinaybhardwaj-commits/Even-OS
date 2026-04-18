@@ -36,6 +36,8 @@ export interface ChartActionDeps {
 export interface ChartAction {
   label: string;
   icon: string;
+  /** Stable slug for matrix action_bar_preset lookups (PC.3.2.2). */
+  slug: string;
   /** The side-effect when the pill is tapped. */
   run: (deps: ChartActionDeps) => void;
 }
@@ -81,24 +83,39 @@ function roleBucket(role: string):
 /** Registry — each action appears exactly once. Label is the dispatch key. */
 export const CHART_ACTIONS: ChartAction[] = [
   // Clinician actions
-  { label: 'SOAP Note',    icon: '📝', run: ({ setActiveTab }) => setActiveTab('notes') },
-  { label: 'Prescribe Med', icon: '💊', run: ({ setOrderPanel }) => setOrderPanel('medication') },
-  { label: 'Order Labs',   icon: '🧪', run: ({ setOrderPanel }) => setOrderPanel('labs') },
-  { label: 'Consult',      icon: '👥', run: ({ setOrderPanel }) => setOrderPanel('consult') },
+  { label: 'SOAP Note',     icon: '📝', slug: 'soap',           run: ({ setActiveTab }) => setActiveTab('notes') },
+  { label: 'Prescribe Med', icon: '💊', slug: 'prescribe',      run: ({ setOrderPanel }) => setOrderPanel('medication') },
+  { label: 'Order Labs',    icon: '🧪', slug: 'labs',           run: ({ setOrderPanel }) => setOrderPanel('labs') },
+  { label: 'Consult',       icon: '👥', slug: 'consults',       run: ({ setOrderPanel }) => setOrderPanel('consult') },
 
   // Nurse actions
-  { label: 'Record Vitals',   icon: '📊', run: ({ setActiveTab }) => setActiveTab('vitals') },
-  { label: 'Give Medication', icon: '💊', run: ({ setActiveTab }) => setActiveTab('emar') },
-  { label: 'Nursing Note',    icon: '📝', run: ({ setActiveTab }) => setActiveTab('notes') },
-  { label: 'Assessment',      icon: '✅', run: ({ setActiveTab }) => setActiveTab('forms') },
+  { label: 'Record Vitals',   icon: '📊', slug: 'record_vitals',  run: ({ setActiveTab }) => setActiveTab('vitals') },
+  { label: 'Give Medication', icon: '💊', slug: 'administer_med', run: ({ setActiveTab }) => setActiveTab('emar') },
+  { label: 'Nursing Note',    icon: '📝', slug: 'nursing_note',   run: ({ setActiveTab }) => setActiveTab('notes') },
+  { label: 'Assessment',      icon: '✅', slug: 'assessment',     run: ({ setActiveTab }) => setActiveTab('forms') },
 
   // PC.1b2 — new actions
-  { label: 'Handoff',  icon: '🔁', run: ({ setActiveTab }) => setActiveTab('forms') },
-  { label: 'Escalate', icon: '🚨', run: ({ setCommsOpen }) => { if (setCommsOpen) setCommsOpen(true); } },
+  { label: 'Handoff',  icon: '🔁', slug: 'handoff',  run: ({ setActiveTab }) => setActiveTab('forms') },
+  { label: 'Escalate', icon: '🚨', slug: 'escalate', run: ({ setCommsOpen }) => { if (setCommsOpen) setCommsOpen(true); } },
 
   // Fallback
-  { label: 'Add Note', icon: '📝', run: ({ setActiveTab }) => setActiveTab('notes') },
+  { label: 'Add Note', icon: '📝', slug: 'add_note', run: ({ setActiveTab }) => setActiveTab('notes') },
 ];
+
+// PC.3.2.2: resolve matrix slug list → action button list.
+// Returns null if any slug is unknown (caller should fall back to role preset).
+export function resolveActionsFromSlugs(
+  slugs: string[]
+): { label: string; icon: string }[] | null {
+  const bySlug = new Map(CHART_ACTIONS.map((a) => [a.slug, a] as const));
+  const resolved: { label: string; icon: string }[] = [];
+  for (const s of slugs) {
+    const action = bySlug.get(s);
+    if (!action) return null; // abort; safe fallback in caller
+    resolved.push({ label: action.label, icon: action.icon });
+  }
+  return resolved;
+}
 
 /**
  * Per-role pill presets from PRD §8. The order here IS the display order.
