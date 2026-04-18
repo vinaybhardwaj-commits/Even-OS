@@ -156,6 +156,99 @@ export default function CalcRunner({ bundle, patientId, encounterId, chartContex
     return () => clearTimeout(t);
   }, [result]);
 
+  // ── PC.2b3 — chart actions on the result card (Add-to-Note / Add-to-Plan / Share-to-Comms) ──
+  // All three mutations need encounter_id. The buttons disable themselves when it's absent.
+  type ActionKey = 'note' | 'plan' | 'comms';
+  const [actionBusy, setActionBusy] = useState<ActionKey | null>(null);
+  const [actionDone, setActionDone] = useState<Partial<Record<ActionKey, number>>>({});
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const markDone = (k: ActionKey) => {
+    setActionDone(prev => ({ ...prev, [k]: Date.now() }));
+    // clear "✓ Added" badge after 2.4s
+    setTimeout(() => {
+      setActionDone(prev => {
+        const { [k]: _drop, ...rest } = prev;
+        return rest;
+      });
+    }, 2400);
+  };
+
+  // Build a clinician-readable snippet with attribution (PRD lock #20).
+  const buildSnippet = (): string => {
+    if (!result) return '';
+    const bandLabel = result.band?.label || result.band_key;
+    const interp = result.band?.interpretation_default || '';
+    const lines = [
+      `${calc.name} — Score ${String(result.score)} (${bandLabel})`,
+      interp ? interp : null,
+      `Calculator result: ${result.result_id}`,
+    ].filter(Boolean);
+    return lines.join('\n');
+  };
+
+  const handleAddToNote = async () => {
+    if (!result || !encounterId) return;
+    setActionBusy('note'); setActionError(null);
+    try {
+      const snippet = buildSnippet();
+      await trpcMutate('clinicalNotes.createProgressNote', {
+        patient_id: patientId,
+        encounter_id: encounterId,
+        assessment: snippet,
+        status: 'draft',
+      });
+      markDone('note');
+    } catch (e: any) {
+      setActionError(e?.message || 'Failed to add to note.');
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const handleAddToPlan = async () => {
+    if (!result || !encounterId) return;
+    setActionBusy('plan'); setActionError(null);
+    try {
+      const bandLabel = result.band?.label || result.band_key;
+      const interp = result.band?.interpretation_default || '';
+      await trpcMutate('conditions.create', {
+        patient_id: patientId,
+        encounter_id: encounterId,
+        condition_name: `${calc.name} risk: ${bandLabel}`,
+        clinical_status: 'active',
+        verification_status: 'provisional',
+        notes: `Score ${String(result.score)} (${bandLabel}).${interp ? ' ' + interp : ''} Calculator result: ${result.result_id}`,
+      });
+      markDone('plan');
+    } catch (e: any) {
+      setActionError(e?.message || 'Failed to add to plan.');
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const handleShareToComms = async () => {
+    if (!result || !encounterId) return;
+    setActionBusy('comms'); setActionError(null);
+    try {
+      const snippet = buildSnippet();
+      const isRed = result.band?.color === 'red';
+      await trpcMutate('chat.sendMessage', {
+        channelId: `patient-${encounterId}`,
+        content: snippet,
+        messageType: 'chat',
+        priority: isRed ? 'high' : 'normal',
+        metadata: { source: 'calc-runner', calc_id: calc.id, calc_result_id: result.result_id },
+      });
+      markDone('comms');
+    } catch (e: any) {
+      setActionError(e?.message || 'Failed to share to comms.');
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
   const setVal = (key: string, v: any) => {
     setValues(prev => ({ ...prev, [key]: { value: v, source: null } })); // overriding clears the badge
   };
@@ -360,6 +453,43 @@ export default function CalcRunner({ bundle, patientId, encounterId, chartContex
             background: 'rgba(255,255,255,0.6)', marginTop: 10,
           }}>
             Narrative interpretation generating… PC.2c will enable auto-written prose.
+          </div>
+
+          {/* ── PC.2b3 — chart actions (Add-to-Note / Add-to-Plan / Share-to-Comms) ── */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            {(['note','plan','comms'] as const).map(key => {
+              const label = key === 'note' ? '+ Add to Note' : key === 'plan' ? '+ Add to Plan' : '📤 Share to Comms';
+              const handler = key === 'note' ? handleAddToNote : key === 'plan' ? handleAddToPlan : handleShareToComms;
+              const busy = actionBusy === key;
+              const done = !!actionDone[key];
+              const disabled = !encounterId || busy || actionBusy !== null;
+              return (
+                <button
+                  key={key}
+                  onClick={handler}
+                  disabled={disabled}
+                  title={!encounterId ? 'Action unavailable — this patient has no active encounter.' : ''}
+                  style={{
+                    padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6,
+                    background: done ? '#16a34a' : busy ? '#94a3b8' : 'rgba(255,255,255,0.9)',
+                    color: done ? '#fff' : busy ? '#fff' : bandColors.fg,
+                    border: `1px solid ${done ? '#16a34a' : bandColors.border}`,
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    opacity: !encounterId ? 0.6 : 1,
+                  }}
+                >
+                  {done ? '✓ Added' : busy ? 'Working…' : label}
+                </button>
+              );
+            })}
+            {actionError ? (
+              <span style={{ fontSize: 12, color: '#991b1b', marginLeft: 4 }}>{actionError}</span>
+            ) : null}
+            {!encounterId ? (
+              <span style={{ fontSize: 11, color: bandColors.fg, marginLeft: 4, opacity: 0.8 }}>
+                No active encounter — actions unavailable.
+              </span>
+            ) : null}
           </div>
         </div>
       ) : null}
