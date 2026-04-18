@@ -22,12 +22,9 @@ export async function GET() {
     await sql`ALTER TABLE calculators ADD COLUMN IF NOT EXISTS formula_ref text NULL`;
     steps.push('ALTER TABLE calculators ADD COLUMN formula_ref');
 
-    await sql`COMMENT ON COLUMN calculators.formula_ref IS ${
-      'Optional named-formula key. When set, scoring engine dispatches to ' +
-      'lib/calculators/formulas[formula_ref] instead of running rule-based ' +
-      'scoring. Used for non-linear calculators like MELD 3.0.'
-    }`;
-    steps.push('COMMENT on formula_ref');
+    // Note: COMMENT ON COLUMN was omitted — Postgres doesn't allow the
+    // comment text to be a bound parameter, and inlining it as a string
+    // literal has zero behavioural impact on the scoring engine.
 
     // ── 2. Verify column present ─────────────────────────────────────
     const colCheck = (await sql`
