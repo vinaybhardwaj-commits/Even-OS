@@ -214,3 +214,23 @@ export const chartSelectors = {
 export function fallbackConfigForRole(role: string, hospital_id: string): ChartConfig {
   return fallback(role, hospital_id);
 }
+
+
+// ─── PC.3.3.D — convenience helper for tRPC procedures ─────────
+// Wraps chartSelectors.forRole() with a safe JWT-shaped call site so
+// routers can do `const cfg = await resolveChartConfigForUser(ctx.user)`
+// without reaching into chartSelectors directly. Falls back to a
+// permissive config on any decode mishap so queries never 500 on this.
+
+export async function resolveChartConfigForUser(user: {
+  role?: string | null;
+  hospital_id?: string | null;
+} | null | undefined): Promise<ChartConfig> {
+  const role = user?.role ?? 'resident';
+  const hospital = user?.hospital_id ?? 'unknown';
+  try {
+    return await chartSelectors.forRole(role, hospital);
+  } catch {
+    return fallback(role, hospital);
+  }
+}

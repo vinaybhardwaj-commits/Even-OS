@@ -7,6 +7,9 @@ import { db } from '@/lib/db';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { onClinicalNoteSaved } from '@/lib/chat/auto-events';
 import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
+// PC.3.3.D — server-side projection.
+import { resolveChartConfigForUser } from '@/lib/chart/selectors';
+import { projectRowsForRole } from '@/lib/chart/redact';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -804,11 +807,27 @@ export const clinicalNotesRouter = router({
           LIMIT ${input.limit} OFFSET ${input.offset}
         `);
 
-        const rows = (result as any).rows ?? result;
+        const rawRows = (result as any).rows ?? result;
+
+        // PC.3.3.D — server-side projection. Redact note body + procedure
+        // fields when the caller's chartConfig marks them sensitive.
+        const chartConfig = await resolveChartConfigForUser(ctx.user);
+        const projected = projectRowsForRole(
+          (rawRows as Record<string, unknown>[]) ?? [],
+          {
+            subjective: 'notes_snippet',
+            objective: 'notes_snippet',
+            assessment: 'notes_snippet',
+            plan: 'notes_snippet',
+            shift_summary: 'notes_snippet',
+            procedure_name: 'procedures',
+          },
+          chartConfig,
+        );
 
         return {
-          notes: (rows as any) || [],
-          count: (rows as any)?.length || 0,
+          notes: projected || [],
+          count: projected?.length || 0,
           limit: input.limit,
           offset: input.offset,
         };

@@ -62,3 +62,66 @@ export function hasAnySensitiveFields(chartConfig?: ChartConfig | null): boolean
   if (chartConfig.source !== 'matrix') return false;
   return Array.isArray(chartConfig.sensitive_fields) && chartConfig.sensitive_fields.length > 0;
 }
+
+
+// ─── PC.3.3.D — server-side projection ─────────────────────────
+//
+// Until PC.3.3, sensitive-field redaction was a *client-side* render pass
+// (SensitiveText) — the raw value still travelled over the wire. PRD §7
+// demands server-side projection. `projectRowsForRole` gives tRPC
+// procedures a one-line helper to enforce it before the query returns.
+//
+//   rows   — the raw DB rows (array of POJOs)
+//   fieldMap — { dbColumn: sensitiveFieldName }  (so the caller maps
+//              e.g. `drug_name` → `medications`)
+//   chartConfig — from chartSelectors.forRole()
+//
+// If `chartConfig.source !== 'matrix'` we do NOT redact (fallback mode
+// is permissive by design, per the same safety argument as the client
+// layer — don't hide fields when the matrix is offline, clinicians need
+// them). When the field IS sensitive we replace the cell with the
+// REDACTED_LABEL sentinel string, leaving all other columns untouched.
+//
+// Safe on empty / null values (they stay null), safe on arrays (mapped
+// row-by-row), safe on non-string values (coerced to sentinel string).
+
+export function projectRowsForRole<T extends Record<string, unknown>>(
+  rows: T[] | null | undefined,
+  fieldMap: Record<string, string>,
+  chartConfig?: ChartConfig | null,
+): T[] {
+  if (!Array.isArray(rows) || rows.length === 0) return rows ?? [];
+  if (!chartConfig) return rows;
+  if (chartConfig.source !== 'matrix') return rows;
+  const sensitive = new Set(chartConfig.sensitive_fields ?? []);
+  if (sensitive.size === 0) return rows;
+
+  // Compute which DB columns to redact once, not per-row.
+  const redactCols: string[] = [];
+  for (const [col, field] of Object.entries(fieldMap)) {
+    if (sensitive.has(field)) redactCols.push(col);
+  }
+  if (redactCols.length === 0) return rows;
+
+  return rows.map((row) => {
+    const out: Record<string, unknown> = { ...row };
+    for (const col of redactCols) {
+      if (out[col] !== null && out[col] !== undefined) {
+        out[col] = REDACTED_LABEL;
+      }
+    }
+    return out as T;
+  });
+}
+
+// Single-row variant. Same semantics as projectRowsForRole but for
+// procedures that return a scalar object (e.g. getDetail).
+export function projectRowForRole<T extends Record<string, unknown>>(
+  row: T | null | undefined,
+  fieldMap: Record<string, string>,
+  chartConfig?: ChartConfig | null,
+): T | null {
+  if (!row) return null;
+  const [r] = projectRowsForRole([row], fieldMap, chartConfig);
+  return r ?? null;
+}

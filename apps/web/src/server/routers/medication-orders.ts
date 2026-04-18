@@ -8,6 +8,9 @@ import { writeEvent } from '@/lib/event-log';
 import { addCareTeamMember } from '@/lib/chat/channel-manager';
 import { onMedicationOrdered, onMedicationAdministered, onDietOrdered, onNursingOrderCreated } from '@/lib/chat/auto-events';
 import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
+// PC.3.3.D — server-side projection.
+import { resolveChartConfigForUser } from '@/lib/chart/selectors';
+import { projectRowsForRole } from '@/lib/chart/redact';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -496,8 +499,20 @@ export const medicationOrdersRouter = router({
           ORDER BY mr.created_at DESC
         `);
 
-        const rows = (result as any).rows ?? result;
-        return (rows as any) || [];
+        const rawRows = (result as any).rows ?? result;
+        // PC.3.3.D — server-side projection.
+        const chartConfig = await resolveChartConfigForUser(ctx.user);
+        const projected = projectRowsForRole(
+          (rawRows as Record<string, unknown>[]) ?? [],
+          {
+            drug_name: 'medications',
+            generic_name: 'medications',
+            drug_code: 'medications',
+            instructions: 'notes_snippet',
+          },
+          chartConfig,
+        );
+        return (projected as any) || [];
       } catch (error) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -1133,8 +1148,21 @@ export const medicationOrdersRouter = router({
           ORDER BY sr.sr_ordered_at DESC
         `);
 
-        const rows = (result as any).rows ?? result;
-        return (rows as any) || [];
+        const rawRows = (result as any).rows ?? result;
+        // PC.3.3.D — service_requests has no drug fields; redact
+        // clinical_indication / instructions when procedures or
+        // notes_snippet is sensitive for this role.
+        const chartConfig = await resolveChartConfigForUser(ctx.user);
+        const projected = projectRowsForRole(
+          (rawRows as Record<string, unknown>[]) ?? [],
+          {
+            clinical_indication: 'procedures',
+            order_name: 'procedures',
+            instructions: 'notes_snippet',
+          },
+          chartConfig,
+        );
+        return (projected as any) || [];
       } catch (error) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
