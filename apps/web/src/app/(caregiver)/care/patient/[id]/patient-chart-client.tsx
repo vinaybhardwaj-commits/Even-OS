@@ -11,6 +11,7 @@ import DocumentsTab from '@/components/patient-chart/DocumentsTab';
 import NotesTab from '@/components/patient-chart/NotesTab';
 import BriefTab from '@/components/patient-brief/BriefTab';
 import CalculatorsTab from '@/components/patient-chart/CalculatorsTab';
+import { SensitiveText } from '@/components/patient-chart/SensitiveText';
 import OverviewCalculatorsCard from '@/components/patient-chart/OverviewCalculatorsCard';
 import ChatPanel, { type Channel as ChatChannel } from '@/components/chat/ChatPanel';
 import { useChartAction, getActionsForRole, resolveActionsFromSlugs } from './use-chart-action';
@@ -1153,7 +1154,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
             {patient.name_full || patient.full_name || `${patient.name_given || ''} ${patient.name_family || ''}`.trim() || 'Patient'}
           </div>
           <div style={{ fontSize: 12, opacity: 0.7, margin: '2px 0 0', lineHeight: 1.3 }}>
-            {patient.uhid} · {Number.isFinite(age) ? `${age}y` : '—'} {(patient.sex || patient.gender || '').toUpperCase()} · {encounter?.chief_complaint || encounter?.preliminary_diagnosis_icd10 || patient.primary_diagnosis || ''}
+            {patient.uhid} · {Number.isFinite(age) ? `${age}y` : '—'} {(patient.sex || patient.gender || '').toUpperCase()} · <SensitiveText field="diagnosis" chartConfig={chartConfig} patientId={patientId} tabId="header">{encounter?.chief_complaint || encounter?.preliminary_diagnosis_icd10 || patient.primary_diagnosis || ''}</SensitiveText>
           </div>
         </div>
 
@@ -1292,7 +1293,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
           <AlertBanner
             variant="critical"
             title="Known Allergies"
-            message={allergies.map(a => `${a.allergen} (${a.severity}): ${a.reaction}`).join(' · ')}
+            message={<SensitiveText field="allergies" chartConfig={chartConfig} patientId={patientId} tabId="header">{allergies.map(a => `${a.allergen} (${a.severity}): ${a.reaction}`).join(' · ')}</SensitiveText>}
             dismissible={false}
           />
         </div>
@@ -3414,7 +3415,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                     {/* Card Header */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
                       <div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: '#002054' }}>{med.name}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#002054' }}><SensitiveText field="medications" chartConfig={chartConfig} patientId={patientId} tabId="emar">{med.name}</SensitiveText></div>
                         <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>{med.doctor} | Started {med.startDate}</div>
                       </div>
                       <div style={{

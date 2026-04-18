@@ -83,6 +83,7 @@ import { chartProposalsRouter } from './chart-proposals';
 import { noteDraftsRouter } from './note-drafts';
 import { chartLocksRouter } from './chart-locks';
 import { calculatorsRouter } from './calculators';
+import { chartAuditRouter } from './chart-audit';
 
 export const appRouter = router({
   auth: authRouter,
@@ -169,6 +170,7 @@ export const appRouter = router({
   noteDrafts: noteDraftsRouter,
   chartLocks: chartLocksRouter,
   calculators: calculatorsRouter,
+  chartAudit: chartAuditRouter,
 });
 
 export type AppRouter = typeof appRouter;

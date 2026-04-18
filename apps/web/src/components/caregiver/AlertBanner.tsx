@@ -7,12 +7,12 @@
  * Variants: critical (red), warning (amber), info (blue), success (green)
  */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
 interface AlertBannerProps {
   variant: 'critical' | 'warning' | 'info' | 'success';
   title: string;
-  message?: string;
+  message?: ReactNode;
   dismissible?: boolean;
   onDismiss?: () => void;
   action?: {
