@@ -141,12 +141,44 @@ export function resolveBand(bands: CalcBand[], score: number): CalcBand | null {
   return null;
 }
 
+/**
+ * Named-formula registry — for calculators whose scoring cannot be expressed
+ * in the `sum | weighted | conditional` DSL (e.g. MELD 3.0 needs ln(), eGFR
+ * needs min/max/exponent). When `calculators.formula_ref` is set on a row,
+ * `runCalculator()` dispatches here instead of running rule-based scoring.
+ *
+ * All formulas must be:
+ *   - Pure TS (no I/O, no async, no mutation of inputs)
+ *   - Deterministic (same inputs => same score)
+ *   - Server-side (PRD §53 guard — LLM never touches the number)
+ *
+ * Register a new formula by adding its key below and importing the pure
+ * function. Then set `formula_ref` on the calculator row + seed a fixture.
+ */
+import { meld_3_0 } from './formulas/meld-3-0';
+
+export type FormulaFn = (inputs: CalcInputs) => number;
+
+export const FORMULAS: Record<string, FormulaFn> = {
+  meld_3_0,
+};
+
 export function runCalculator(
   rules: CalcRule[],
   bands: CalcBand[],
   inputs: CalcInputs,
+  formulaRef?: string | null,
 ): { score: number; band: CalcBand | null } {
-  const score = scoreCalculator(rules, inputs);
+  // If a named formula is registered, dispatch to it. Rules are ignored
+  // (formulas own the math end-to-end). Bands still resolve for display.
+  let score: number;
+  if (formulaRef && FORMULAS[formulaRef]) {
+    score = FORMULAS[formulaRef](inputs);
+    // Match the numeric(10,3) precision convention used by scoreCalculator.
+    score = Math.round(score * 1000) / 1000;
+  } else {
+    score = scoreCalculator(rules, inputs);
+  }
   const band = resolveBand(bands, score);
   return { score, band };
 }

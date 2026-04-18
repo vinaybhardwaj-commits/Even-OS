@@ -26,7 +26,7 @@ export type CalcFixtureInput = {
   helper_text?: string | null;
   type: 'boolean' | 'number' | 'select' | 'date';
   unit?: string | null;
-  options?: Array<{ value: string; label: string }> | null;
+  options?: Array<{ value: string; label: string }> | { min?: number; max?: number; step?: number } | null;
   chart_source_path?: string | null;
   required?: boolean;
   display_order?: number;
@@ -58,6 +58,8 @@ export type CalcFixtureDef = {
   is_active?: boolean;
   pin_default_for_roles?: string[];
   source_citation?: string | null;
+  /** PC.2c1: named-formula key in scoring-engine FORMULAS registry. */
+  formula_ref?: string | null;
 };
 export type CalcFixture = {
   def: CalcFixtureDef;
@@ -661,6 +663,68 @@ const MELD_BANDED: CalcFixture = {
   ],
 };
 
+
+// ─── 11. MELD 3.0 (2022 UNOS — exact formula via named-formula registry) ────
+// PC.2c1: uses formula_ref dispatch. The scoring engine skips rules and
+// calls meld_3_0() with the raw inputs (bilirubin, INR, creatinine, albumin,
+// sodium, sex, on_dialysis). Bands mirror UNOS allocation tiers.
+const MELD_3_0: CalcFixture = {
+  def: {
+    slug: 'meld-3-0',
+    name: 'MELD 3.0 (2022 UNOS)',
+    specialty: 'gastroenterology',
+    short_description: 'Exact MELD 3.0 (sex + albumin adjusted) — used for U.S. liver allocation.',
+    long_description: 'MELD 3.0 is the 2022 OPTN/UNOS score for liver-allocation priority. It extends MELD-Na with sex and albumin adjustments (Kim WR et al., Gastroenterology 2021). Clamps applied per UNOS rules: creatinine [1.0-3.0], bilirubin ≥1.0, INR ≥1.0, albumin [1.5-3.5], sodium [125-137]. Patients on dialysis ≥2×/week or 24h CVVH use Cr=3.0. Final score clamped to [6, 40]. Scoring is deterministic, server-side, via the named-formula registry (formula_ref: meld_3_0).',
+    version: '1.0',
+    pin_default_for_roles: ['doctor', 'gastroenterologist', 'hepatologist', 'consultant'],
+    source_citation: 'Kim WR et al. Gastroenterology 2021;161:1887-1895. doi:10.1053/j.gastro.2021.08.050. OPTN policy eff. 2023-07-11.',
+    formula_ref: 'meld_3_0',
+  },
+  inputs: [
+    { key: 'sex', label: 'Sex',
+      type: 'select', chart_source_path: 'patient.sex',
+      options: [
+        { value: 'female', label: 'Female (+1.33)' },
+        { value: 'male', label: 'Male' },
+      ],
+      display_order: 10 },
+    { key: 'on_dialysis', label: 'On dialysis ≥2×/week or 24h CVVH?',
+      type: 'boolean', helper_text: 'If true, creatinine is forced to 3.0 mg/dL per UNOS rules.',
+      display_order: 20 },
+    { key: 'creatinine', label: 'Serum creatinine (mg/dL)',
+      type: 'number', unit: 'mg/dL', chart_source_path: 'labs.creatinine',
+      options: { min: 0.1, max: 20, step: 0.1 },
+      helper_text: 'Clamped to [1.0, 3.0] by formula.', display_order: 30 },
+    { key: 'bilirubin', label: 'Total bilirubin (mg/dL)',
+      type: 'number', unit: 'mg/dL', chart_source_path: 'labs.bilirubin',
+      options: { min: 0.1, max: 50, step: 0.1 },
+      helper_text: 'Clamped to ≥1.0 by formula.', display_order: 40 },
+    { key: 'inr', label: 'INR',
+      type: 'number', chart_source_path: 'labs.inr',
+      options: { min: 0.5, max: 10, step: 0.1 },
+      helper_text: 'Clamped to ≥1.0 by formula.', display_order: 50 },
+    { key: 'albumin', label: 'Serum albumin (g/dL)',
+      type: 'number', unit: 'g/dL', chart_source_path: 'labs.albumin',
+      options: { min: 1.0, max: 5.5, step: 0.1 },
+      helper_text: 'Clamped to [1.5, 3.5] by formula.', display_order: 60 },
+    { key: 'sodium', label: 'Serum sodium (mEq/L)',
+      type: 'number', unit: 'mEq/L', chart_source_path: 'labs.sodium',
+      options: { min: 100, max: 155, step: 1 },
+      helper_text: 'Clamped to [125, 137] by formula.', display_order: 70 },
+  ],
+  scoring: [
+    // No rules — scoring is entirely via the named formula. Keeping this
+    // array empty is valid; runCalculator dispatches to FORMULAS.meld_3_0.
+  ],
+  bands: [
+    { band_key: 'low',       label: 'Low (MELD <10)',          min_score: 6,  max_score: 9,  color: 'green',  interpretation_default: '3-month mortality ~2%. Low ESLD severity. Routine follow-up.', display_order: 10 },
+    { band_key: 'moderate',  label: 'Moderate (MELD 10-19)',   min_score: 10, max_score: 19, color: 'yellow', interpretation_default: '3-month mortality ~6%. Optimise and monitor. Consider transplant referral if decompensated.', display_order: 20 },
+    { band_key: 'high',      label: 'High (MELD 20-29)',       min_score: 20, max_score: 29, color: 'yellow', interpretation_default: '3-month mortality ~20%. Transplant evaluation if not already in progress.', display_order: 30 },
+    { band_key: 'very_high', label: 'Very high (MELD 30-39)',  min_score: 30, max_score: 39, color: 'red',    interpretation_default: '3-month mortality ~50%. Urgent transplant evaluation / ICU-level support.', display_order: 40 },
+    { band_key: 'critical',  label: 'Critical (MELD 40)',      min_score: 40, max_score: 40, color: 'red',    interpretation_default: '3-month mortality ~70%. Status 1A/exception territory; immediate transplant team involvement.', display_order: 50 },
+  ],
+};
+
 // ─── Export ────────────────────────────────────────────────────
 export const CALCULATOR_FIXTURES: CalcFixture[] = [
   CHA2DS2_VASC,
@@ -673,4 +737,5 @@ export const CALCULATOR_FIXTURES: CalcFixture[] = [
   QSOFA,
   CHILD_PUGH,
   MELD_BANDED,
+  MELD_3_0,
 ];

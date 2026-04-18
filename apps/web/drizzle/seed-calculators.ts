@@ -39,6 +39,7 @@ async function upsertFixture(sql: NeonQueryFunction<false, false>, f: CalcFixtur
         is_active = ${def.is_active ?? true},
         pin_default_for_roles = ${JSON.stringify(def.pin_default_for_roles ?? [])}::jsonb,
         source_citation = ${def.source_citation ?? null},
+        formula_ref = ${def.formula_ref ?? null},
         updated_at = now()
       WHERE id = ${calcId}
     `;
@@ -53,12 +54,12 @@ async function upsertFixture(sql: NeonQueryFunction<false, false>, f: CalcFixtur
         hospital_id, slug, name, specialty,
         short_description, long_description, version,
         is_active, pin_default_for_roles, source_citation,
-        created_by_user_id
+        formula_ref, created_by_user_id
       ) VALUES (
         ${HOSPITAL_ID}, ${def.slug}, ${def.name}, ${def.specialty},
         ${def.short_description ?? null}, ${def.long_description ?? null}, ${def.version ?? '1.0'},
         ${def.is_active ?? true}, ${JSON.stringify(def.pin_default_for_roles ?? [])}::jsonb, ${def.source_citation ?? null},
-        NULL
+        ${def.formula_ref ?? null}, NULL
       )
       RETURNING id
     `) as Array<{ id: string }>;

@@ -35,6 +35,8 @@ import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import {
   scoreCalculator,
   resolveBand,
+  runCalculator,
+  FORMULAS,
   type CalcRule,
   type CalcBand,
 } from '@/lib/calculators/scoring-engine';
@@ -101,6 +103,7 @@ const calcDefSchema = z.object({
   is_active: z.boolean().default(true),
   pin_default_for_roles: z.array(z.string()).default([]),
   source_citation: z.string().nullable().optional(),
+  formula_ref: z.string().nullable().optional(),
 });
 
 // ─── ROW TYPES (for casting raw sql results) ───────────────────
@@ -109,6 +112,7 @@ type CalcRow = {
   short_description: string | null; long_description: string | null;
   version: string; is_active: boolean;
   pin_default_for_roles: string[]; source_citation: string | null;
+  formula_ref: string | null;
   created_by_user_id: string | null;
   authored_at: string; created_at: string; updated_at: string;
 };
@@ -249,8 +253,8 @@ export const calculatorsRouter = router({
 
       const rules = scoringRows.map(scoringToRule);
       const bands = bandRows.map(bandRowToBand);
-      const score = scoreCalculator(rules, input.inputs);
-      const band = resolveBand(bands, score);
+      // PC.2c1: runCalculator dispatches to named formula when formula_ref set.
+      const { score, band } = runCalculator(rules, bands, input.inputs, calc.formula_ref);
       const bandKey = band?.band_key ?? 'unknown';
 
       const inserted = await sql`
@@ -516,6 +520,7 @@ export const calculatorsRouter = router({
             is_active = ${input.def.is_active},
             pin_default_for_roles = ${JSON.stringify(input.def.pin_default_for_roles)}::jsonb,
             source_citation = ${input.def.source_citation ?? null},
+            formula_ref = ${input.def.formula_ref ?? null},
             updated_at = now()
           WHERE id = ${existing[0].id}
           RETURNING *
@@ -529,13 +534,13 @@ export const calculatorsRouter = router({
         const insertedCalc = await sql`
           INSERT INTO calculators (
             hospital_id, slug, name, specialty, short_description, long_description,
-            version, is_active, pin_default_for_roles, source_citation, created_by_user_id
+            version, is_active, pin_default_for_roles, source_citation, formula_ref, created_by_user_id
           ) VALUES (
             ${hospitalId}, ${input.def.slug}, ${input.def.name}, ${input.def.specialty},
             ${input.def.short_description ?? null}, ${input.def.long_description ?? null},
             ${input.def.version}, ${input.def.is_active},
             ${JSON.stringify(input.def.pin_default_for_roles)}::jsonb,
-            ${input.def.source_citation ?? null}, ${userId ?? null}
+            ${input.def.source_citation ?? null}, ${input.def.formula_ref ?? null}, ${userId ?? null}
           )
           RETURNING *
         ` as unknown as CalcRow[];
@@ -579,6 +584,50 @@ export const calculatorsRouter = router({
       }
 
       return { created: existing.length === 0, calc };
+    }),
+
+  // ─── SUPER-ADMIN: LIST AVAILABLE NAMED FORMULAS ─────────────
+  // Returns keys from the FORMULAS registry so the admin UI can offer a
+  // dropdown when authoring a non-linear calculator (e.g. MELD 3.0).
+  listFormulas: protectedProcedure
+    .query(async ({ ctx }) => {
+      requireSuperAdmin(ctx);
+      return Object.keys(FORMULAS);
+    }),
+
+  // ─── SUPER-ADMIN: FULL BUNDLE FOR EDITOR ────────────────────
+  // Used by /admin/calculators editor page. Returns calc + inputs +
+  // scoring + bands so the form can render pre-filled.
+  adminGetById: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      requireSuperAdmin(ctx);
+      const sql = getSql();
+      const hospitalId = ctx.user.hospital_id;
+      const calcs = await sql`
+        SELECT * FROM calculators WHERE hospital_id = ${hospitalId} AND id = ${input.id} LIMIT 1
+      ` as unknown as CalcRow[];
+      if (calcs.length === 0) throw new TRPCError({ code: 'NOT_FOUND', message: 'Calculator not found' });
+      return loadCalcBundle(sql, calcs[0]);
+    }),
+
+  // ─── SUPER-ADMIN: TOGGLE ACTIVE ─────────────────────────────
+  // Reactivate a soft-deleted calc (or deactivate a live one). Flips
+  // `is_active` idempotently. Historical results remain readable.
+  adminToggleActive: protectedProcedure
+    .input(z.object({ id: z.string().uuid(), is_active: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      requireSuperAdmin(ctx);
+      const sql = getSql();
+      const hospitalId = ctx.user.hospital_id;
+      const rows = await sql`
+        UPDATE calculators
+           SET is_active = ${input.is_active}, updated_at = now()
+         WHERE id = ${input.id} AND hospital_id = ${hospitalId}
+         RETURNING *
+      ` as unknown as CalcRow[];
+      if (rows.length === 0) throw new TRPCError({ code: 'NOT_FOUND' });
+      return rows[0];
     }),
 
   // Soft delete — keeps historical calculator_results readable.

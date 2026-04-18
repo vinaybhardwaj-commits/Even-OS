@@ -68,6 +68,13 @@ export const calculators = pgTable(
       .default([]),
     /** Source citation — doi / PMID / url — for attribution. */
     sourceCitation: text('source_citation'),
+    /**
+     * PC.2c1 — Named-formula key. When set, scoring engine dispatches to
+     * `lib/calculators/formulas[formula_ref]` instead of rule-based scoring.
+     * Used for non-linear calcs that need ln/log/exp (e.g. MELD 3.0).
+     * See scoring-engine.ts FORMULAS registry.
+     */
+    formulaRef: text('formula_ref'),
     createdByUserId: uuid('created_by_user_id')
       .references(() => users.id, { onDelete: 'set null' }),
     authoredAt: timestamp('authored_at', { withTimezone: true }).notNull().defaultNow(),
