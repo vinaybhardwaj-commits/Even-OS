@@ -752,30 +752,57 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   // ── Load all data in parallel ────────────────────────────────────────────
   const loadData = useCallback(async () => {
     try {
-      const [patientData, encounterData, vitalsData, allergiesData, conditionsData, medsData, notesData, journeyData] = await Promise.all([
+      // D-07 / D-08 contract fix: the previous one-shot Promise.all called
+      //   - observations.latestVitals  (actual proc is observations.getLatestVitals → 404)
+      //   - medicationOrders.emarSchedule({patient_id}) (actual schema needs {encounter_id} → 400)
+      // Both are now renamed + reshaped. emarSchedule depends on encounter_id so we
+      // phase-load: phase 1 gets patient + active encounter, phase 2 fans out the rest.
+      const [patientData, encounterData] = await Promise.all([
         trpcQuery('patient.get', { id: patientId }),
         trpcQuery('encounter.getActive', { patient_id: patientId }),
-        trpcQuery('observations.latestVitals', { patient_id: patientId }),
+      ]);
+      const _encId = (encounterData as any)?.id as string | undefined;
+
+      const [vitalsData, allergiesData, conditionsData, medsData, notesData, journeyData] = await Promise.all([
+        trpcQuery('observations.getLatestVitals', { patient_id: patientId }),
         trpcQuery('allergies.list', { patient_id: patientId }),
         trpcQuery('conditions.list', { patient_id: patientId }),
-        trpcQuery('medicationOrders.emarSchedule', { patient_id: patientId }),
+        _encId
+          ? trpcQuery('medicationOrders.emarSchedule', { encounter_id: _encId })
+          : Promise.resolve(null),
         trpcQuery('clinicalNotes.listNotes', { patient_id: patientId, limit: 5 }),
         trpcQuery('journeyEngine.getPatientJourney', { patient_id: patientId }),
       ]);
 
       setPatient(patientData || null);
       setEncounter(encounterData || null);
-      setVitals(Array.isArray(vitalsData) ? vitalsData : (vitalsData?.vitals || []));
+      // observations.getLatestVitals returns { success, vitals: { temperature: {value, unit, recorded_at} | null, pulse: ..., ... } }
+      // Downstream renderers (line ~1013 + NEWS2 calc) expect an array of { observation_type, value, unit, effective_datetime }.
+      let vitalsArr: VitalData[] = [];
+      if (Array.isArray(vitalsData)) {
+        vitalsArr = vitalsData as VitalData[];
+      } else if (vitalsData?.vitals && typeof vitalsData.vitals === 'object') {
+        vitalsArr = Object.entries(vitalsData.vitals)
+          .filter(([_k, v]) => v !== null && v !== undefined)
+          .map(([k, v]: [string, any]) => ({
+            observation_type: `vital_${k}`,
+            value: v.value,
+            unit: v.unit,
+            recorded_at: v.recorded_at,
+            effective_datetime: v.recorded_at,
+          }) as VitalData);
+      }
+      setVitals(vitalsArr);
       setAllergies(Array.isArray(allergiesData) ? allergiesData : (allergiesData?.items || []));
       setConditions(Array.isArray(conditionsData) ? conditionsData : (conditionsData?.items || []));
       setMedications(Array.isArray(medsData) ? medsData : (medsData?.medications || []));
       setNotes(Array.isArray(notesData) ? notesData : (notesData?.items || []));
       setJourney(journeyData || null);
 
-      // Calculate NEWS2 from vitals
-      if (vitalsData && Array.isArray(vitalsData)) {
+      // Calculate NEWS2 from normalised vitals array
+      if (vitalsArr.length > 0) {
         const vitalMap: Record<string, number> = {};
-        vitalsData.forEach((v: VitalData) => {
+        vitalsArr.forEach((v: VitalData) => {
           if (v.observation_type === 'vital_temperature') vitalMap.temperature = v.value;
           if (v.observation_type === 'vital_pulse') vitalMap.pulse = v.value;
           if (v.observation_type === 'vital_bp_systolic') vitalMap.systolic_bp = v.value;

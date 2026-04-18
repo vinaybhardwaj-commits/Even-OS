@@ -90,7 +90,7 @@ export function getMatchingCommands(partial: string): SlashCommand[] {
 
 async function execVitals(args: string[]): Promise<CommandResult> {
   const patientName = args.join(' ');
-  const data = await trpcQuery('observations.latestVitals', { search: patientName });
+  const data = await trpcQuery('observations.getLatestVitals', { search: patientName });
   if (!data) return { type: 'card', title: 'Vitals', icon: '🫀', body: `No vitals found for "${patientName}"` };
 
   return {

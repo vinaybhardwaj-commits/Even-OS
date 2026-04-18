@@ -889,7 +889,7 @@ export const medicationOrdersRouter = router({
           SELECT COUNT(*) as count
           FROM medication_requests mr
           WHERE mr.hospital_id = ${hospitalId}
-            AND mr.status = 'active'
+            AND mr.med_req_status = 'active'
             AND mr.is_deleted = false
             ${patientFilter}
             ${encounterFilter};
@@ -933,7 +933,7 @@ export const medicationOrdersRouter = router({
           FROM medication_requests mr
           WHERE mr.hospital_id = ${hospitalId}
             AND mr.is_high_alert = true
-            AND mr.status = 'active'
+            AND mr.med_req_status = 'active'
             AND mr.is_deleted = false
             ${patientFilter}
             ${encounterFilter};
@@ -948,7 +948,7 @@ export const medicationOrdersRouter = router({
           FROM medication_requests mr
           WHERE mr.hospital_id = ${hospitalId}
             AND mr.narcotics_class IS NOT NULL
-            AND mr.status = 'active'
+            AND mr.med_req_status = 'active'
             AND mr.is_deleted = false
             ${patientFilter}
             ${encounterFilter};
@@ -1587,7 +1587,7 @@ export const medicationOrdersRouter = router({
           FROM medication_requests mr
           WHERE mr.encounter_id = ${input.encounter_id}::uuid
             AND mr.hospital_id = ${hospitalId}
-            AND mr.status = 'active'
+            AND mr.med_req_status = 'active'
             AND mr.start_date <= ${endOfDay}::timestamp
             AND (mr.end_date IS NULL OR mr.end_date >= ${startOfDay}::timestamp)
           ORDER BY mr.drug_name;
@@ -1627,7 +1627,7 @@ export const medicationOrdersRouter = router({
 
             // Check for existing administration record
             const adminResult = await getSql()`
-              SELECT id, status, administered_datetime, dose_given, route
+              SELECT id, med_admin_status as status, administered_datetime, dose_given, admin_route as route
               FROM medication_administrations
               WHERE medication_request_id = ${req.id}::uuid
                 AND hospital_id = ${hospitalId}

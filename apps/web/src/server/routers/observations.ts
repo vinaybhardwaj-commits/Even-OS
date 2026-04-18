@@ -1,3 +1,5 @@
+import { db } from '@/lib/db';
+import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
@@ -601,8 +603,13 @@ export const observationsRouter = router({
       try {
         const hospitalId = ctx.user.hospital_id;
 
-        // Fetch latest observation for each vital type
-        const query = getSql()`
+        // Drizzle sql tag — Neon HTTP getSql() is not composable, so the original
+        // inline conditional fragment serialised the builder into the outer query.
+        // Cast observation_type enum to text so LIKE 'vital_%' matches.
+        const encounterClause = input.encounter_id
+          ? sql`AND encounter_id = ${input.encounter_id}::uuid`
+          : sql``;
+        const result = await db.execute(sql`
           WITH ranked_vitals AS (
             SELECT
               observation_type,
@@ -612,9 +619,9 @@ export const observationsRouter = router({
               ROW_NUMBER() OVER (PARTITION BY observation_type ORDER BY effective_datetime DESC) as rn
             FROM observations
             WHERE hospital_id = ${hospitalId}
-              AND patient_id = ${input.patient_id}
-              AND observation_type LIKE 'vital_%'
-              ${input.encounter_id ? getSql()`AND encounter_id = ${input.encounter_id}` : getSql()``}
+              AND patient_id = ${input.patient_id}::uuid
+              AND observation_type::text LIKE 'vital_%'
+              ${encounterClause}
           )
           SELECT
             observation_type,
@@ -624,9 +631,8 @@ export const observationsRouter = router({
           FROM ranked_vitals
           WHERE rn = 1
           ORDER BY effective_datetime DESC;
-        `;
-
-        const rows = (await query) as any[];
+        `);
+        const rows = ((result as any).rows ?? (result as any)) as any[];
 
         // Transform to object keyed by vital type
         const vitals: Record<string, any> = {
