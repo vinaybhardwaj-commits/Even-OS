@@ -735,6 +735,11 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   const [ordersList, setOrdersList] = useState<UnifiedOrder[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersLoaded, setOrdersLoaded] = useState(false);
+  // D-05: per-source error tracking so a failing endpoint does not silently
+  // masquerade as "no orders" — clinical-safety red banner (see render below).
+  const [ordersErrors, setOrdersErrors] = useState<{ medication: string | null; services: string | null; clinical: string | null }>({
+    medication: null, services: null, clinical: null,
+  });
   const [ordersSearch, setOrdersSearch] = useState('');
   const [ordersTypeFilter, setOrdersTypeFilter] = useState<OrderTypeFilter>('all');
   const [ordersStatusFilter, setOrdersStatusFilter] = useState<OrderStatusBucket>('all');
@@ -842,21 +847,50 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   // ── Orders tab lazy-loader (PC.1b1) ───────────────────────────────────────
   const loadOrdersData = useCallback(async () => {
     setOrdersLoading(true);
+    setOrdersErrors({ medication: null, services: null, clinical: null });
     try {
       const encId = encounter?.id;
-      const [medsRes, srRes, clinRes] = await Promise.all([
-        trpcQuery('medicationOrders.listMedicationOrders', {
+      // D-05: Promise.allSettled so one failed source doesn't blank the tab.
+      // Each failure is surfaced in a red banner above the list.
+      // D-05: local throw-on-error fetch (global trpcQuery swallows errors → null,
+      // which would blank the tab silently — exactly the clinical-safety hazard
+      // this commit is fixing). Rejecting promises surface to Promise.allSettled.
+      const trpcFetchOrThrow = async (path: string, input: any) => {
+        const params = `?input=${encodeURIComponent(JSON.stringify({ json: input }))}`;
+        const res = await fetch(`/api/trpc/${path}${params}`);
+        let json: any = null;
+        try { json = await res.json(); } catch {}
+        if (!res.ok || json?.error) {
+          const msg = json?.error?.json?.message || json?.error?.message || `HTTP ${res.status}`;
+          throw new Error(msg);
+        }
+        return json?.result?.data?.json;
+      };
+      const settled = await Promise.allSettled([
+        trpcFetchOrThrow('medicationOrders.listMedicationOrders', {
           patient_id: patientId,
           include_completed: true,
-        }).catch((e) => { console.warn('[orders] listMedicationOrders failed:', e); return []; }),
-        trpcQuery('medicationOrders.listServiceRequests', {
+        }),
+        trpcFetchOrThrow('medicationOrders.listServiceRequests', {
           patient_id: patientId,
-        }).catch((e) => { console.warn('[orders] listServiceRequests failed:', e); return []; }),
+        }),
         encId
-          ? trpcQuery('clinicalOrders.listOrders', { encounter_id: encId, limit: 100 })
-              .catch((e) => { console.warn('[orders] clinicalOrders.listOrders failed:', e); return { items: [] }; })
+          ? trpcFetchOrThrow('clinicalOrders.listOrders', { encounter_id: encId, limit: 100 })
           : Promise.resolve({ items: [] }),
       ]);
+      const medsRes = settled[0].status === 'fulfilled' ? settled[0].value : [];
+      const srRes   = settled[1].status === 'fulfilled' ? settled[1].value : [];
+      const clinRes = settled[2].status === 'fulfilled' ? settled[2].value : { items: [] };
+      const errMsg = (r: any) => r?.message || (typeof r === 'string' ? r : 'Failed to load.');
+      const nextErrs = {
+        medication: settled[0].status === 'rejected' ? errMsg(settled[0].reason) : null,
+        services:   settled[1].status === 'rejected' ? errMsg(settled[1].reason) : null,
+        clinical:   settled[2].status === 'rejected' ? errMsg(settled[2].reason) : null,
+      };
+      if (nextErrs.medication) console.warn('[orders] listMedicationOrders failed:', settled[0].status === 'rejected' ? settled[0].reason : null);
+      if (nextErrs.services)   console.warn('[orders] listServiceRequests failed:',   settled[1].status === 'rejected' ? settled[1].reason : null);
+      if (nextErrs.clinical)   console.warn('[orders] clinicalOrders.listOrders failed:', settled[2].status === 'rejected' ? settled[2].reason : null);
+      setOrdersErrors(nextErrs);
 
       const medList: UnifiedOrder[] = (Array.isArray(medsRes) ? medsRes : []).map((m: any) => ({
         id: String(m.id),
@@ -2725,6 +2759,26 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                     {ordersLoading ? 'Refreshing…' : '↻ Refresh'}
                   </button>
                 </div>
+
+                {/* PC.1b2 / D-05: red banner when any orders source failed */}
+                {(ordersErrors.medication || ordersErrors.services || ordersErrors.clinical) && (
+                  <div style={{
+                    background: '#fef2f2',
+                    border: '1px solid #fecaca',
+                    color: '#991b1b',
+                    padding: 12,
+                    borderRadius: 8,
+                    marginBottom: 14,
+                    fontSize: 13,
+                  }}>
+                    <strong>⚠ Some order sources failed to load.</strong> Showing partial list — do not assume absence of an order means none exists.
+                    <ul style={{ margin: '6px 0 0 20px', padding: 0 }}>
+                      {ordersErrors.medication && <li>Medications: {ordersErrors.medication}</li>}
+                      {ordersErrors.services && <li>Labs / imaging / consults: {ordersErrors.services}</li>}
+                      {ordersErrors.clinical && <li>Other clinical orders: {ordersErrors.clinical}</li>}
+                    </ul>
+                  </div>
+                )}
 
                 {/* Search + filter row */}
                 <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
