@@ -98,6 +98,42 @@ export const CHART_ACTIONS: ChartAction[] = [
   { label: 'Handoff',  icon: '🔁', slug: 'handoff',  run: ({ setActiveTab }) => setActiveTab('forms') },
   { label: 'Escalate', icon: '🚨', slug: 'escalate', run: ({ setCommsOpen }) => { if (setCommsOpen) setCommsOpen(true); } },
 
+  // PC.3.3 Track A — matrix-driven role actions
+  // Pharmacist (primary: verify_order, dispense, clarify_dose, ddi_check)
+  { label: 'Verify Order',  icon: '🔍', slug: 'verify_order',  run: ({ setActiveTab }) => setActiveTab('orders') },
+  { label: 'Dispense',      icon: '💊', slug: 'dispense',      run: ({ setActiveTab }) => setActiveTab('orders') },
+  { label: 'Clarify Dose',  icon: '❓', slug: 'clarify_dose',  run: ({ setActiveTab }) => setActiveTab('orders') },
+  { label: 'DDI Check',     icon: '⚠️', slug: 'ddi_check',     run: ({ setActiveTab }) => setActiveTab('orders') },
+
+  // Lab (primary: collect_sample, verify_result, flag_critical, batch_accept)
+  { label: 'Collect Sample', icon: '🧪', slug: 'collect_sample', run: ({ setActiveTab }) => setActiveTab('labs') },
+  { label: 'Verify Result',  icon: '✅', slug: 'verify_result',  run: ({ setActiveTab }) => setActiveTab('labs') },
+  { label: 'Flag Critical',  icon: '🚨', slug: 'flag_critical',  run: ({ setActiveTab }) => setActiveTab('labs') },
+  { label: 'Batch Accept',   icon: '📋', slug: 'batch_accept',   run: ({ setActiveTab }) => setActiveTab('labs') },
+
+  // CCE (primary: raise_complaint, create_ticket, contact_family, log_visit)
+  { label: 'Raise Complaint', icon: '📣', slug: 'raise_complaint', run: ({ setCommsOpen }) => { if (setCommsOpen) setCommsOpen(true); } },
+  { label: 'Create Ticket',   icon: '🎫', slug: 'create_ticket',   run: ({ setCommsOpen }) => { if (setCommsOpen) setCommsOpen(true); } },
+  { label: 'Contact Family',  icon: '📞', slug: 'contact_family',  run: ({ setCommsOpen }) => { if (setCommsOpen) setCommsOpen(true); } },
+  { label: 'Log Visit',       icon: '📝', slug: 'log_visit',       run: ({ setActiveTab }) => setActiveTab('documents') },
+
+  // Billing (primary: generate_bill, apply_adjustment, submit_preauth, raise_query)
+  { label: 'Generate Bill',    icon: '💵', slug: 'generate_bill',    run: ({ setActiveTab }) => setActiveTab('billing') },
+  { label: 'Apply Adjustment', icon: '✏️', slug: 'apply_adjustment', run: ({ setActiveTab }) => setActiveTab('billing') },
+  { label: 'Submit Pre-Auth',  icon: '📤', slug: 'submit_preauth',   run: ({ setActiveTab }) => setActiveTab('billing') },
+  { label: 'Raise Query',      icon: '❓', slug: 'raise_query',      run: ({ setActiveTab }) => setActiveTab('billing') },
+
+  // Admin (primary: admin_overlay, edit_lock_toggle, audit_trail, export_mrd)
+  // Admin overlay UI lands in PC.3.3 Track C — for now route to a tab the admin preset includes.
+  { label: 'Admin Overlay',   icon: '🛠️', slug: 'admin_overlay',    run: ({ setActiveTab }) => setActiveTab('documents') },
+  { label: 'Edit Locks',      icon: '🔒', slug: 'edit_lock_toggle', run: ({ setActiveTab }) => setActiveTab('notes') },
+  { label: 'Audit Trail',     icon: '📜', slug: 'audit_trail',      run: ({ setActiveTab }) => setActiveTab('documents') },
+  { label: 'Export MRD',      icon: '📦', slug: 'export_mrd',       run: ({ setActiveTab }) => setActiveTab('documents') },
+
+  // Shared secondary — referenced by several role presets' secondary list.
+  // resolveActionButtons currently only reads primary, but register for future use.
+  { label: 'Complaints', icon: '📣', slug: 'complaints', run: ({ setCommsOpen }) => { if (setCommsOpen) setCommsOpen(true); } },
+
   // Fallback
   { label: 'Add Note', icon: '📝', slug: 'add_note', run: ({ setActiveTab }) => setActiveTab('notes') },
 ];
