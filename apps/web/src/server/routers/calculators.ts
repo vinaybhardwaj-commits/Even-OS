@@ -407,6 +407,56 @@ export const calculatorsRouter = router({
       return rows;
     }),
 
+  // ─── PUBLIC: RED-BAND RECENT (last 24 h) ─────────────────────
+  // Powers the Overview smart card's "red-band last 24h" section.
+  // Joins calculator_results → calculator_bands to surface results whose
+  // band.color = 'red'. Scoped per-patient, newest first, capped at 20.
+  listRedBandRecent: protectedProcedure
+    .input(z.object({
+      patient_id: z.string().uuid(),
+      hours: z.number().int().min(1).max(168).default(24),
+      limit: z.number().int().min(1).max(100).default(20),
+    }))
+    .query(async ({ input }) => {
+      const sql = getSql();
+      const rows = await sql`
+        SELECT r.id as result_id,
+               r.calc_id,
+               r.score,
+               r.band_key,
+               r.ran_at,
+               r.ran_by_user_id,
+               c.name as calc_name,
+               c.slug as calc_slug,
+               c.specialty as calc_specialty,
+               b.label as band_label,
+               b.color as band_color,
+               b.clinical_action as band_clinical_action
+          FROM calculator_results r
+          JOIN calculators c ON c.id = r.calc_id
+          JOIN calculator_bands b ON b.calc_id = r.calc_id AND b.band_key = r.band_key
+         WHERE r.patient_id = ${input.patient_id}
+           AND b.color = 'red'
+           AND r.ran_at > now() - (${input.hours} || ' hours')::interval
+         ORDER BY r.ran_at DESC
+         LIMIT ${input.limit}
+      ` as unknown as {
+        result_id: string;
+        calc_id: string;
+        score: number;
+        band_key: string;
+        ran_at: string;
+        ran_by_user_id: string | null;
+        calc_name: string;
+        calc_slug: string;
+        calc_specialty: string;
+        band_label: string;
+        band_color: string;
+        band_clinical_action: string | null;
+      }[];
+      return rows;
+    }),
+
   // ─── SUPER-ADMIN: LIST FOR ADMIN ─────────────────────────────
   listForAdmin: protectedProcedure
     .query(async ({ ctx }) => {

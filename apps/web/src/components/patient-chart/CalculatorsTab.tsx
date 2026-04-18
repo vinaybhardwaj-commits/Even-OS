@@ -35,6 +35,22 @@ async function trpcQuery(path: string, input?: any) {
   return json.result?.data?.json;
 }
 
+async function trpcMutate(path: string, input: any) {
+  const res = await fetch(`/api/trpc/${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ json: input }),
+  });
+  if (!res.ok) {
+    let msg = `${path} ${res.status}`;
+    try { const j = await res.json(); if (j?.error?.message) msg = j.error.message; } catch {}
+    throw new Error(msg);
+  }
+  const json = await res.json();
+  if (json.error) throw new Error(json.error?.message || 'Request failed');
+  return json.result?.data?.json;
+}
+
 // ── Types (mirror calculators router CalcRow / loadCalcBundle) ─────────────
 interface CalcListRow {
   id: string;
@@ -53,6 +69,16 @@ interface Props {
   userRole: string;
   userName?: string;
   chartContext: ChartContext;
+  /** PC.2b2 — if set on mount (or change), that calc is auto-selected. */
+  initialCalcId?: string | null;
+  /** PC.2b2 — called once the initialCalcId has been applied so parent can clear it. */
+  onInitialCalcConsumed?: () => void;
+}
+
+interface PinRow {
+  calc_id: string;
+  pinned: boolean;
+  source: 'role_default' | 'user_pin';
 }
 
 // ── Display helpers ────────────────────────────────────────────────────────
@@ -96,6 +122,8 @@ export default function CalculatorsTab({
   userRole,
   userName,
   chartContext,
+  initialCalcId,
+  onInitialCalcConsumed,
 }: Props) {
   const [list, setList] = useState<CalcListRow[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -113,6 +141,15 @@ export default function CalculatorsTab({
   // Mobile disclosure — below 900px the list takes the top of the tab and
   // picking a calc scrolls the runner into view.
   const [mobileRunnerOpen, setMobileRunnerOpen] = useState(false);
+
+  // ── Pin state (PC.2b2) ───────────────────────────────────────────────────
+  // Map calc_id → pinned boolean. Seeded from calculators.listPins which
+  // merges per-user overrides on top of role defaults.
+  const [pinMap, setPinMap] = useState<Record<string, boolean>>({});
+  const [pinBusy, setPinBusy] = useState<Record<string, boolean>>({});
+  const [pinsLoaded, setPinsLoaded] = useState(false);
+  // Tracks last-applied initialCalcId so we don't re-apply on re-render.
+  const [initialApplied, setInitialApplied] = useState<string | null>(null);
 
   // ── Load calc list once on mount ─────────────────────────────────────────
   useEffect(() => {
@@ -142,7 +179,52 @@ export default function CalculatorsTab({
     };
   }, []);
 
-  // ── Load bundle on selection ─────────────────────────────────────────────
+  // ── Load pins once on mount (PC.2b2) ─────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    trpcQuery('calculators.listPins', {}).then((data) => {
+      if (cancelled) return;
+      const map: Record<string, boolean> = {};
+      if (Array.isArray(data)) {
+        for (const r of data as PinRow[]) {
+          if (r && typeof r.calc_id === 'string' && typeof r.pinned === 'boolean') {
+            map[r.calc_id] = r.pinned;
+          }
+        }
+      }
+      setPinMap(map);
+      setPinsLoaded(true);
+    }).catch(() => {
+      if (!cancelled) {
+        setPinMap({});
+        setPinsLoaded(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ── Auto-select initialCalcId once the list loads (PC.2b2 deep-link) ─────
+  useEffect(() => {
+    if (!initialCalcId) return;
+    if (!list || list.length === 0) return;
+    if (initialApplied === initialCalcId) return;
+    const found = list.find((c) => c.id === initialCalcId);
+    if (found) {
+      setSelectedId(found.id);
+      setInitialApplied(initialCalcId);
+      setMobileRunnerOpen(true);
+      if (typeof window !== 'undefined') {
+        setTimeout(() => {
+          document.getElementById('calc-runner-pane')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 80);
+      }
+      if (onInitialCalcConsumed) onInitialCalcConsumed();
+    }
+  }, [initialCalcId, list, initialApplied, onInitialCalcConsumed]);
+
+  // ── Load bundle on selection ───────────────────────────────────────────── ─────────────────────────────────────────────
   useEffect(() => {
     if (!selectedId) {
       setBundle(null);
@@ -202,6 +284,28 @@ export default function CalculatorsTab({
   // ── Render helpers ───────────────────────────────────────────────────────
   function toggleCollapsed(key: string) {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  async function togglePin(calcId: string) {
+    if (pinBusy[calcId]) return;
+    const current = !!pinMap[calcId];
+    const next = !current;
+    // Optimistic flip
+    setPinMap((prev) => ({ ...prev, [calcId]: next }));
+    setPinBusy((prev) => ({ ...prev, [calcId]: true }));
+    try {
+      await trpcMutate('calculators.pinToggle', { calc_id: calcId, pinned: next });
+    } catch (e: any) {
+      // Rollback on failure — surface via console; UI returns to prior state.
+      console.error('calculators.pinToggle failed', e);
+      setPinMap((prev) => ({ ...prev, [calcId]: current }));
+    } finally {
+      setPinBusy((prev) => {
+        const copy = { ...prev };
+        delete copy[calcId];
+        return copy;
+      });
+    }
   }
 
   function onPick(id: string) {
@@ -363,43 +467,84 @@ export default function CalculatorsTab({
                   {!isCollapsed &&
                     calcs.map((c) => {
                       const active = c.id === selectedId;
+                      const pinned = !!pinMap[c.id];
+                      const busy = !!pinBusy[c.id];
                       return (
-                        <button
-                          type="button"
+                        <div
                           key={c.id}
-                          onClick={() => onPick(c.id)}
-                          title={c.short_description ?? c.name}
                           style={{
-                            textAlign: 'left',
-                            padding: '8px 10px',
-                            border: `1px solid ${active ? '#3b82f6' : '#e2e8f0'}`,
-                            background: active ? '#eff6ff' : '#fff',
-                            borderRadius: 6,
-                            cursor: 'pointer',
+                            position: 'relative',
                             display: 'flex',
-                            flexDirection: 'column',
-                            gap: 2,
+                            alignItems: 'stretch',
                           }}
                         >
-                          <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>
-                            {c.name}
-                          </div>
-                          {c.short_description && (
-                            <div
-                              style={{
-                                fontSize: 11,
-                                color: '#64748b',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                display: '-webkit-box',
-                                WebkitLineClamp: 2,
-                                WebkitBoxOrient: 'vertical',
-                              }}
-                            >
-                              {c.short_description}
+                          <button
+                            type="button"
+                            onClick={() => onPick(c.id)}
+                            title={c.short_description ?? c.name}
+                            style={{
+                              flex: 1,
+                              textAlign: 'left',
+                              padding: '8px 36px 8px 10px',
+                              border: `1px solid ${active ? '#3b82f6' : '#e2e8f0'}`,
+                              background: active ? '#eff6ff' : '#fff',
+                              borderRadius: 6,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 2,
+                              minWidth: 0,
+                            }}
+                          >
+                            <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>
+                              {c.name}
                             </div>
-                          )}
-                        </button>
+                            {c.short_description && (
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: '#64748b',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                }}
+                              >
+                                {c.short_description}
+                              </div>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              togglePin(c.id);
+                            }}
+                            disabled={busy || !pinsLoaded}
+                            title={pinned ? 'Unpin from Overview' : 'Pin to Overview'}
+                            aria-label={pinned ? `Unpin ${c.name}` : `Pin ${c.name}`}
+                            style={{
+                              position: 'absolute',
+                              top: 6,
+                              right: 6,
+                              width: 26,
+                              height: 26,
+                              padding: 0,
+                              border: 'none',
+                              background: 'transparent',
+                              cursor: busy || !pinsLoaded ? 'default' : 'pointer',
+                              color: pinned ? '#f59e0b' : '#94a3b8',
+                              fontSize: 15,
+                              lineHeight: '26px',
+                              textAlign: 'center',
+                              opacity: busy ? 0.5 : 1,
+                              borderRadius: 4,
+                            }}
+                          >
+                            {pinned ? '★' : '☆'}
+                          </button>
+                        </div>
                       );
                     })}
                 </div>

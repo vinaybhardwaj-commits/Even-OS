@@ -11,6 +11,7 @@ import DocumentsTab from '@/components/patient-chart/DocumentsTab';
 import NotesTab from '@/components/patient-chart/NotesTab';
 import BriefTab from '@/components/patient-brief/BriefTab';
 import CalculatorsTab from '@/components/patient-chart/CalculatorsTab';
+import OverviewCalculatorsCard from '@/components/patient-chart/OverviewCalculatorsCard';
 import ChatPanel, { type Channel as ChatChannel } from '@/components/chat/ChatPanel';
 import { useChartAction, getActionsForRole } from './use-chart-action';
 import { useLock, LockBanner } from './use-lock';
@@ -665,6 +666,7 @@ function LabPanel({ title, timestamp, isOpen, onToggle, tests }: LabPanelProps) 
 // ── Main component ──────────────────────────────────────────────────────────
 export default function PatientChartClient({ patientId, userId, userRole, userName, hospitalId }: Props) {
   const [activeTab, setActiveTab] = useState<PatientTab>('overview');
+  const [initialCalcId, setInitialCalcId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [orderPanel, setOrderPanel] = useState<'none' | 'medication' | 'labs' | 'imaging' | 'consult'>('none');
   // PC.1a: right-side Comms slider (480px), reuses ChatPanel. Opens to encounter-scoped channel by default.
@@ -1653,6 +1655,15 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                 View all medications →
               </button>
             </div>
+
+            {/* Clinical Calculators (PC.2b2) */}
+            <OverviewCalculatorsCard
+              patientId={patientId}
+              onOpenCalc={(id) => {
+                setInitialCalcId(id ?? null);
+                setActiveTab('calculators');
+              }}
+            />
 
             {/* Journey Status */}
             {journey && (
@@ -4724,6 +4735,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
           encounterId={encounter?.id ?? null}
           userRole={userRole}
           userName={userName}
+          initialCalcId={initialCalcId}
+          onInitialCalcConsumed={() => setInitialCalcId(null)}
           chartContext={{
             patient: { age: Number.isFinite(age) ? age : undefined, sex: patient.sex ?? patient.gender ?? null },
             conditions: conditions.map((c) => ({ condition_name: c.condition_name, status: c.status })),

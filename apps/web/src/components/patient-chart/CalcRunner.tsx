@@ -15,7 +15,7 @@
  *     clinician can edit the value directly (override always wins).
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   resolveChartValue,
   type ChartContext,
@@ -143,6 +143,18 @@ export default function CalcRunner({ bundle, patientId, encounterId, chartContex
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RunResponse | null>(null);
+  // PC.2b2 polish — scroll result card into view after submit so the
+  // clinician doesn't miss the score below the fold.
+  const resultRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!result) return;
+    const node = resultRef.current;
+    if (!node || typeof node.scrollIntoView !== 'function') return;
+    const t = setTimeout(() => {
+      node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 40);
+    return () => clearTimeout(t);
+  }, [result]);
 
   const setVal = (key: string, v: any) => {
     setValues(prev => ({ ...prev, [key]: { value: v, source: null } })); // overriding clears the badge
@@ -320,7 +332,7 @@ export default function CalcRunner({ bundle, patientId, encounterId, chartContex
 
       {/* ── Result card ─────────────────────────────────────────────────── */}
       {result ? (
-        <div style={{
+        <div ref={resultRef} style={{
           padding: '16px 18px', borderRadius: 10, marginTop: 4,
           background: bandColors.bg, border: `1px solid ${bandColors.border}`,
         }}>
