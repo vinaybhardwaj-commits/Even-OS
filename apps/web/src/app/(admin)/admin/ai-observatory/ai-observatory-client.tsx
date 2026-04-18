@@ -102,7 +102,7 @@ async function trpcMutate(path: string, input?: any) {
 }
 
 export function AIObservatoryClient() {
-  const [tab, setTab] = useState<'overview' | 'audit-log' | 'template-rules' | 'claim-rubrics' | 'feedback'>('overview');
+  const [tab, setTab] = useState<'overview' | 'audit-log' | 'template-rules' | 'claim-rubrics' | 'feedback' | 'prose-flags'>('overview');
   const [data, setData] = useState<ObservatoryData | null>(null);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
   const [templateRules, setTemplateRules] = useState<TemplateRule[]>([]);
@@ -113,6 +113,67 @@ export function AIObservatoryClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [proseFlags, setProseFlags] = useState<any[]>([]);
+  const [proseFlagCount, setProseFlagCount] = useState<number>(0);
+  const [proseFlagFilter, setProseFlagFilter] = useState<'open' | 'resolved' | 'all'>('open');
+  const [proseFlagLoading, setProseFlagLoading] = useState(false);
+  const [resolvingFlagId, setResolvingFlagId] = useState<string | null>(null);
+  const [resolutionNotes, setResolutionNotes] = useState<string>('');
+
+  // PC.2c3 — Prose flag triage queue
+  const loadProseFlags = async (filter: 'open' | 'resolved' | 'all' = proseFlagFilter) => {
+    setProseFlagLoading(true);
+    try {
+      const [list, count] = await Promise.all([
+        trpcQuery('calculators.listFlagged', { status: filter, limit: 100 }),
+        trpcQuery('calculators.countFlagged'),
+      ]);
+      setProseFlags(Array.isArray(list) ? list : []);
+      setProseFlagCount(count?.open ?? 0);
+    } catch (e) {
+      console.error('[observatory] loadProseFlags failed', e);
+    } finally {
+      setProseFlagLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Keep the tab badge fresh regardless of which tab is active.
+    trpcQuery('calculators.countFlagged')
+      .then((r: any) => setProseFlagCount(r?.open ?? 0))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'prose-flags') {
+      loadProseFlags(proseFlagFilter);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, proseFlagFilter]);
+
+  const handleResolveFlag = async (flagId: string, disposition: 'real' | 'false_positive' | 'needs_prompt_patch') => {
+    try {
+      await trpcMutate('calculators.resolveFlag', {
+        flag_id: flagId,
+        disposition,
+        notes: resolutionNotes || undefined,
+      });
+      setResolvingFlagId(null);
+      setResolutionNotes('');
+      await loadProseFlags(proseFlagFilter);
+    } catch (e: any) {
+      alert('Failed to resolve flag: ' + (e?.message || 'unknown error'));
+    }
+  };
+
+  const handleReopenFlag = async (flagId: string) => {
+    try {
+      await trpcMutate('calculators.reopenFlag', { flag_id: flagId });
+      await loadProseFlags(proseFlagFilter);
+    } catch (e: any) {
+      alert('Failed to reopen flag: ' + (e?.message || 'unknown error'));
+    }
+  };
   const [selectedPrompt, setSelectedPrompt] = useState<AuditLogEntry | null>(null);
   const [tpaFilter, setTpaFilter] = useState('');
   const [expandedRule, setExpandedRule] = useState<string | null>(null);
@@ -280,7 +341,7 @@ export function AIObservatoryClient() {
 
       {/* Tab navigation */}
       <div className="flex gap-2 bg-white rounded-lg p-4 border border-gray-200">
-        {['overview', 'audit-log', 'template-rules', 'claim-rubrics', 'feedback'].map(t => (
+        {['overview', 'audit-log', 'template-rules', 'claim-rubrics', 'feedback', 'prose-flags'].map(t => (
           <button
             key={t}
             onClick={() => setTab(t as any)}
@@ -295,6 +356,16 @@ export function AIObservatoryClient() {
             {t === 'template-rules' && 'Template Rules'}
             {t === 'claim-rubrics' && 'Claim Rubrics'}
             {t === 'feedback' && 'Feedback'}
+            {t === 'prose-flags' && (
+              <span className="inline-flex items-center gap-2">
+                Prose Flags
+                {proseFlagCount > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold bg-red-500 text-white rounded-full">
+                    {proseFlagCount}
+                  </span>
+                )}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -934,6 +1005,165 @@ export function AIObservatoryClient() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* PROSE FLAGS TAB (PC.2c3) */}
+      {tab === 'prose-flags' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between bg-white rounded-lg p-4 border border-gray-200">
+            <div>
+              <h2 className="text-lg font-bold text-gray-800">Calculator Prose — Hallucination Triage</h2>
+              <p className="text-xs text-gray-500 mt-1">
+                Grounding failures auto-captured from prose-worker, plus prose explicitly declined by reviewers.
+              </p>
+            </div>
+            <div className="flex gap-2 items-center">
+              <select
+                value={proseFlagFilter}
+                onChange={(e) => setProseFlagFilter(e.target.value as any)}
+                className="px-3 py-1 text-sm border border-gray-300 rounded"
+              >
+                <option value="open">Open ({proseFlagCount})</option>
+                <option value="resolved">Resolved</option>
+                <option value="all">All</option>
+              </select>
+              <button
+                onClick={() => loadProseFlags(proseFlagFilter)}
+                disabled={proseFlagLoading}
+                className="px-3 py-1 text-sm bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50"
+              >
+                {proseFlagLoading ? 'Loading…' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+
+          {proseFlags.length === 0 && !proseFlagLoading && (
+            <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-sm text-gray-500">
+              No {proseFlagFilter === 'all' ? '' : proseFlagFilter} flags.
+            </div>
+          )}
+
+          {proseFlags.map((f: any) => {
+            const isOpen = f.status === 'open';
+            const details = (typeof f.details === 'string' ? JSON.parse(f.details) : f.details) || {};
+            const isResolving = resolvingFlagId === f.id;
+            return (
+              <div key={f.id} className="bg-white rounded-lg p-5 border border-gray-200 shadow-sm">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase rounded ${
+                        f.source === 'grounding_check' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {f.source === 'grounding_check' ? 'Grounding' : 'Reviewer Declined'}
+                      </span>
+                      <span className="text-sm font-semibold text-gray-800">
+                        {f.calc_name} <span className="text-gray-400">· {f.calc_slug}</span>
+                      </span>
+                      {!isOpen && f.disposition && (
+                        <span className="inline-block px-2 py-0.5 text-[10px] font-medium uppercase rounded bg-gray-200 text-gray-700">
+                          {f.disposition.replace(/_/g, ' ')}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 mb-3">
+                      Patient: {f.patient_name || '—'} {f.patient_uhid && <span className="text-gray-400">· {f.patient_uhid}</span>}
+                      {f.score != null && <> · Score <span className="font-medium">{f.score}</span> ({f.band_label})</>}
+                      <> · {new Date(f.created_at).toLocaleString('en-IN')}</>
+                    </div>
+
+                    {f.source === 'reviewer_declined' && details.reason && (
+                      <div className="mb-2 text-sm">
+                        <span className="font-semibold text-gray-700">Reason:</span>{' '}
+                        <span className="text-gray-800">{details.reason}</span>
+                        {details.by_user_name && <span className="text-gray-500"> — {details.by_user_name}</span>}
+                      </div>
+                    )}
+                    {f.source === 'grounding_check' && Array.isArray(details.flags) && (
+                      <div className="mb-2 text-sm">
+                        <span className="font-semibold text-gray-700">Flags:</span>{' '}
+                        <span className="text-gray-800 font-mono text-xs">{details.flags.join(' · ')}</span>
+                      </div>
+                    )}
+
+                    {f.prose_text && (
+                      <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded text-sm text-gray-800 italic">
+                        "{f.prose_text}"
+                      </div>
+                    )}
+
+                    {!isOpen && f.resolution_notes && (
+                      <div className="mt-2 text-xs text-gray-600">
+                        <span className="font-semibold">Resolution note:</span> {f.resolution_notes}
+                        {f.resolved_by_name && <> — {f.resolved_by_name}</>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {isOpen && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    {!isResolving ? (
+                      <button
+                        onClick={() => { setResolvingFlagId(f.id); setResolutionNotes(''); }}
+                        className="px-3 py-1.5 text-sm bg-violet-600 text-white rounded hover:bg-violet-700"
+                      >
+                        Resolve
+                      </button>
+                    ) : (
+                      <div className="space-y-3">
+                        <textarea
+                          value={resolutionNotes}
+                          onChange={(e) => setResolutionNotes(e.target.value)}
+                          placeholder="Optional notes for this resolution…"
+                          rows={2}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded"
+                        />
+                        <div className="flex gap-2 flex-wrap">
+                          <button
+                            onClick={() => handleResolveFlag(f.id, 'real')}
+                            className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                          >
+                            ⚠ Real hallucination
+                          </button>
+                          <button
+                            onClick={() => handleResolveFlag(f.id, 'false_positive')}
+                            className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700"
+                          >
+                            ✓ False positive
+                          </button>
+                          <button
+                            onClick={() => handleResolveFlag(f.id, 'needs_prompt_patch')}
+                            className="px-3 py-1.5 text-sm bg-amber-600 text-white rounded hover:bg-amber-700"
+                          >
+                            ⚙ Needs prompt patch
+                          </button>
+                          <button
+                            onClick={() => { setResolvingFlagId(null); setResolutionNotes(''); }}
+                            className="px-3 py-1.5 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!isOpen && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <button
+                      onClick={() => handleReopenFlag(f.id)}
+                      className="px-3 py-1.5 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                    >
+                      ↺ Reopen
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

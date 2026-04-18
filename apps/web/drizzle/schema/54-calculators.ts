@@ -277,3 +277,39 @@ export const calculatorPins = pgTable(
     byUser: index('idx_calculator_pins_user').on(t.userId),
   }),
 );
+
+// ─── 7. calc_prose_flags (PC.2c3) ───────────────────────────────
+// Triage queue for LLM prose concerns. Two sources:
+//   - 'grounding_check'    — prose-worker detected ungrounded numbers
+//   - 'reviewer_declined'  — doctor clicked "⚠ Flag" on CalcRunner
+//
+// Resolved in /admin/ai-observatory "Prose Flags" tab (super_admin only).
+// Disposition feeds v2 prompt-refinement loop:
+//   - 'real'               — genuine hallucination
+//   - 'false_positive'     — grounding check over-fired, prose was fine
+//   - 'needs_prompt_patch' — prompt should be tightened
+export const calcProseFlags = pgTable(
+  'calc_prose_flags',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    calcResultId: uuid('calc_result_id')
+      .notNull()
+      .references(() => calculatorResults.id, { onDelete: 'cascade' }),
+    hospitalId: text('hospital_id')
+      .notNull()
+      .references(() => hospitals.hospital_id, { onDelete: 'restrict' }),
+    source: text('source').notNull(), // 'grounding_check' | 'reviewer_declined'
+    details: jsonb('details').$type<Record<string, unknown>>().notNull().default({}),
+    status: text('status').notNull().default('open'), // 'open' | 'resolved'
+    disposition: text('disposition'), // 'real' | 'false_positive' | 'needs_prompt_patch' | null
+    resolvedBy: uuid('resolved_by').references(() => users.id, { onDelete: 'set null' }),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolutionNotes: text('resolution_notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    byStatus: index('idx_calc_prose_flags_status').on(t.status, t.createdAt),
+    byResult: index('idx_calc_prose_flags_result').on(t.calcResultId),
+    byHospital: index('idx_calc_prose_flags_hospital').on(t.hospitalId),
+  }),
+);

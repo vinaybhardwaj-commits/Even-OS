@@ -409,6 +409,21 @@ export const calculatorsRouter = router({
       if (rows.length === 0) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Result not found or prose not flaggable' });
       }
+      // PC.2c3 — enqueue reviewer-declined flag into triage queue
+      await sql`
+        INSERT INTO calc_prose_flags (calc_result_id, hospital_id, source, details, status)
+        VALUES (
+          ${rows[0].id},
+          ${rows[0].hospital_id},
+          'reviewer_declined',
+          ${JSON.stringify({
+            reason: input.reason,
+            by_user_id: userId,
+            by_user_name: userName,
+          })}::jsonb,
+          'open'
+        )
+      `;
       return rows[0];
     }),
 
@@ -719,6 +734,131 @@ export const calculatorsRouter = router({
          RETURNING *
       ` as unknown as CalcRow[];
       if (rows.length === 0) throw new TRPCError({ code: 'NOT_FOUND' });
+      return rows[0];
+    }),
+
+  // ─── ADMIN: PROSE FLAG TRIAGE (PC.2c3) ─────────────────────
+  // Triage queue for narrative hallucinations.
+  // Sources:
+  //   - 'grounding_check' — auto-captured ungrounded numbers from prose-worker.ts
+  //   - 'reviewer_declined' — doctor hit the ⚠ Flag button on CalcRunner
+  // Super_admin only. Resolution is 3-verb: real / false_positive / needs_prompt_patch.
+  listFlagged: protectedProcedure
+    .input(z.object({
+      status: z.enum(['open', 'resolved', 'all']).default('open'),
+      limit: z.number().min(1).max(200).default(50),
+    }))
+    .query(async ({ ctx, input }) => {
+      requireSuperAdmin(ctx);
+      const sql = getSql();
+      const hospitalId = ctx.user.hospital_id;
+      const filterStatus = input.status === 'all' ? null : input.status;
+      const rows = await sql`
+        SELECT
+          f.id,
+          f.calc_result_id,
+          f.source,
+          f.details,
+          f.status,
+          f.disposition,
+          f.resolved_at,
+          f.resolution_notes,
+          f.created_at,
+          ru.name             AS resolved_by_name,
+          c.name              AS calc_name,
+          c.slug              AS calc_slug,
+          cr.score            AS score,
+          cr.band_key         AS band_key,
+          b.label             AS band_label,
+          cr.prose_text       AS prose_text,
+          cr.prose_status     AS prose_status,
+          cr.patient_id       AS patient_id,
+          p.name_full         AS patient_name,
+          p.uhid              AS patient_uhid
+        FROM calc_prose_flags f
+        JOIN calculator_results cr ON cr.id = f.calc_result_id
+        JOIN calculators c         ON c.id = cr.calc_id
+        LEFT JOIN calculator_bands b
+          ON b.calc_id = cr.calc_id
+         AND b.band_key = cr.band_key
+        LEFT JOIN patients p       ON p.id = cr.patient_id
+        LEFT JOIN users ru         ON ru.id = f.resolved_by
+        WHERE f.hospital_id = ${hospitalId}
+          AND (${filterStatus}::text IS NULL OR f.status = ${filterStatus}::text)
+        ORDER BY f.created_at DESC
+        LIMIT ${input.limit}
+      ` as unknown as Array<Record<string, unknown>>;
+      return rows;
+    }),
+
+  // Open count for tab badge.
+  countFlagged: protectedProcedure
+    .query(async ({ ctx }) => {
+      requireSuperAdmin(ctx);
+      const sql = getSql();
+      const hospitalId = ctx.user.hospital_id;
+      const rows = await sql`
+        SELECT COUNT(*)::int AS n
+          FROM calc_prose_flags
+         WHERE hospital_id = ${hospitalId}
+           AND status = 'open'
+      ` as unknown as Array<{ n: number }>;
+      return { open: rows[0]?.n ?? 0 };
+    }),
+
+  // Close a flag with a 3-verb disposition.
+  resolveFlag: protectedProcedure
+    .input(z.object({
+      flag_id: z.string().uuid(),
+      disposition: z.enum(['real', 'false_positive', 'needs_prompt_patch']),
+      notes: z.string().max(1000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      requireSuperAdmin(ctx);
+      const sql = getSql();
+      const userId = ctx.user.sub;
+      if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED' });
+      const hospitalId = ctx.user.hospital_id;
+      const rows = await sql`
+        UPDATE calc_prose_flags
+           SET status           = 'resolved',
+               disposition      = ${input.disposition},
+               resolved_by      = ${userId},
+               resolved_at      = now(),
+               resolution_notes = ${input.notes ?? null}
+         WHERE id = ${input.flag_id}
+           AND hospital_id = ${hospitalId}
+           AND status = 'open'
+         RETURNING *
+      ` as unknown as Array<Record<string, unknown>>;
+      if (rows.length === 0) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Flag not found or already resolved' });
+      }
+      return rows[0];
+    }),
+
+  // Undo a resolution.
+  reopenFlag: protectedProcedure
+    .input(z.object({ flag_id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      requireSuperAdmin(ctx);
+      const sql = getSql();
+      const hospitalId = ctx.user.hospital_id;
+      const rows = await sql`
+        UPDATE calc_prose_flags
+           SET status           = 'open',
+               disposition      = NULL,
+               resolved_by      = NULL,
+               resolved_at      = NULL,
+               resolution_notes = NULL
+         WHERE id = ${input.flag_id}
+           AND hospital_id = ${hospitalId}
+           AND status = 'resolved'
+         RETURNING *
+      ` as unknown as Array<Record<string, unknown>>;
+      if (rows.length === 0) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Flag not found or already open' });
+      }
       return rows[0];
     }),
 });

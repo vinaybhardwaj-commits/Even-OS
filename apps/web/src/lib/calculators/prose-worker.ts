@@ -66,6 +66,7 @@ export async function processCalcInterpret(
   // 2. Load result + calc + band --------------------------------------------
   const rows = await sql`
     SELECT r.id              AS result_id,
+           r.hospital_id      AS hospital_id,
            r.score            AS score,
            r.band_key         AS band_key,
            r.inputs           AS inputs,
@@ -88,6 +89,7 @@ export async function processCalcInterpret(
      LIMIT 1
   ` as Array<{
     result_id: string;
+    hospital_id: string;
     score: string;                 // numeric in Neon comes back as string
     band_key: string;
     inputs: Record<string, unknown>;
@@ -187,9 +189,7 @@ export async function processCalcInterpret(
   // 8. Persist --------------------------------------------------------------
   // We save the prose even when grounding flags fire — the reviewer still
   // needs to see the text to decide whether to accept or flag/decline.
-  // PC.2c3 will add a proper hallucination_flags queue; until then, flags
-  // live in the worker return value (surfaced via cron summary) and the
-  // reviewer gate ('I've reviewed' vs 'Flag') catches issues manually.
+  // PC.2c3: on any grounding flag, also enqueue a triage row in calc_prose_flags.
   await sql`
     UPDATE calculator_results
        SET prose_text   = ${prose},
@@ -198,6 +198,25 @@ export async function processCalcInterpret(
      WHERE id = ${calcResultId}
        AND prose_status = 'pending'
   `;
+
+  if (flags.length > 0) {
+    try {
+      await sql`
+        INSERT INTO calc_prose_flags (calc_result_id, hospital_id, source, details, status)
+        VALUES (
+          ${calcResultId},
+          ${r.hospital_id},
+          'grounding_check',
+          ${JSON.stringify({ flags, prose_preview: prose.slice(0, 500), score: r.score })}::jsonb,
+          'open'
+        )
+      `;
+    } catch (e) {
+      // Table may not exist yet (migration not run). Swallow — grounding
+      // flag is advisory; the core prose write above has already succeeded.
+      console.warn('[prose-worker] calc_prose_flags insert failed:', e);
+    }
+  }
 
   return {
     ok: true,
