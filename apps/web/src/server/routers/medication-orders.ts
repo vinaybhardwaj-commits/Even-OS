@@ -466,11 +466,13 @@ export const medicationOrdersRouter = router({
           ? sql`AND mr.encounter_id = ${input.encounter_id}::uuid`
           : sql``;
 
+        // Schema truth: the Postgres column is `med_req_status`; the TS
+        // property is `status`. Alias it back for client compatibility.
         const statusFilter = input.status
-          ? sql`AND mr.status = ${input.status}`
+          ? sql`AND mr.med_req_status = ${input.status}`
           : input.include_completed
             ? sql``
-            : sql`AND mr.status NOT IN ('completed', 'cancelled')`;
+            : sql`AND mr.med_req_status NOT IN ('completed', 'cancelled')`;
 
         const result = await db.execute(sql`
           SELECT
@@ -481,14 +483,14 @@ export const medicationOrdersRouter = router({
             mr.duration_days, mr.max_dose_per_day,
             mr.is_prn, mr.prn_indication, mr.is_high_alert, mr.is_lasa,
             mr.narcotics_class, mr.instructions, mr.substitution_allowed,
-            mr.start_date, mr.end_date, mr.status,
+            mr.start_date, mr.end_date,
+            mr.med_req_status as status,
             mr.created_at, mr.updated_at,
             u.full_name as prescriber_name
           FROM medication_requests mr
           LEFT JOIN users u ON mr.prescriber_id = u.id
           WHERE mr.patient_id = ${input.patient_id}::uuid
             AND mr.hospital_id = ${hospitalId}
-            AND mr.is_deleted = false
             ${encounterFilter}
             ${statusFilter}
           ORDER BY mr.created_at DESC
@@ -1097,20 +1099,29 @@ export const medicationOrdersRouter = router({
           ? sql`AND sr.encounter_id = ${input.encounter_id}::uuid`
           : sql``;
 
+        // Schema truth: most service_requests columns use prefixed DB names
+        // (service_request_type, service_req_status, sr_order_name, etc.).
+        // Alias back to the TS property names for client compatibility.
         const typeFilter = input.request_type
-          ? sql`AND sr.request_type = ${input.request_type}`
+          ? sql`AND sr.service_request_type = ${input.request_type}`
           : sql``;
 
         const statusFilter = input.status
-          ? sql`AND sr.status = ${input.status}`
+          ? sql`AND sr.service_req_status = ${input.status}`
           : sql``;
 
         const result = await db.execute(sql`
           SELECT
             sr.id, sr.patient_id, sr.encounter_id,
-            sr.request_type, sr.order_name, sr.order_code,
-            sr.clinical_indication, sr.instructions, sr.priority,
-            sr.status, sr.sr_ordered_at, sr.created_at,
+            sr.service_request_type as request_type,
+            sr.sr_order_name as order_name,
+            sr.sr_order_code as order_code,
+            sr.clinical_indication,
+            sr.sr_instructions as instructions,
+            sr.sr_priority as priority,
+            sr.service_req_status as status,
+            sr.sr_ordered_at,
+            sr.sr_created_at as created_at,
             u.full_name as requester_name
           FROM service_requests sr
           LEFT JOIN users u ON sr.requester_id = u.id
