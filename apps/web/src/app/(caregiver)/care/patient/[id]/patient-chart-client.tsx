@@ -15,6 +15,7 @@ import OverviewCalculatorsCard from '@/components/patient-chart/OverviewCalculat
 import ChatPanel, { type Channel as ChatChannel } from '@/components/chat/ChatPanel';
 import { useChartAction, getActionsForRole } from './use-chart-action';
 import { useLock, LockBanner } from './use-lock';
+import type { ChartConfig } from '@/lib/chart/selectors';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -152,6 +153,11 @@ interface Props {
   userRole: string;
   userName: string;
   hospitalId: string;
+  /** PC.3.1 — server-side projection result. When `source === 'matrix'` the
+   *  client should prefer config.tabs / overview_layout / action_bar_preset
+   *  over the inline fallbacks. In PC.3.1 the prop is threaded but inline
+   *  fallbacks still drive the UI (no visible change); PC.3.2 activates it. */
+  chartConfig?: ChartConfig;
 }
 
 // ── Role-specific tab config ────────────────────────────────────────────────
@@ -664,8 +670,17 @@ function LabPanel({ title, timestamp, isOpen, onToggle, tests }: LabPanelProps) 
 }
 
 // ── Main component ──────────────────────────────────────────────────────────
-export default function PatientChartClient({ patientId, userId, userRole, userName, hospitalId }: Props) {
+export default function PatientChartClient({ patientId, userId, userRole, userName, hospitalId, chartConfig }: Props) {
   const [activeTab, setActiveTab] = useState<PatientTab>('overview');
+
+  // PC.3.1: projection result is threaded but not yet used for rendering.
+  // Log once (dev-only) to confirm the matrix lookup reached the client.
+  useEffect(() => {
+    if (chartConfig && typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.debug('[PC.3.1] chartConfig source:', chartConfig.source, 'tabs:', chartConfig.tabs.length);
+    }
+  }, [chartConfig]);
   const [initialCalcId, setInitialCalcId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [orderPanel, setOrderPanel] = useState<'none' | 'medication' | 'labs' | 'imaging' | 'consult'>('none');

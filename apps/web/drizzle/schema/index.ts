@@ -55,3 +55,5 @@ export * from './52-note-drafts';
 export * from './53-chart-edit-locks';
 
 export * from './54-calculators';
+
+export * from './55-chart-role';
