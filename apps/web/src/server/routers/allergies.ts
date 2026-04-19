@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
+import { assertRoleCanWrite } from '@/lib/chart/can-write';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeEvent } from '@/lib/event-log';
 import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
@@ -52,6 +53,7 @@ export const allergiesRouter = router({
   create: protectedProcedure
     .input(createAllergyInput)
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'problem.add'); // PC.3.4.C
       try {
         // Insert new allergy record
         const result = await getSql()`
@@ -147,6 +149,7 @@ export const allergiesRouter = router({
   update: protectedProcedure
     .input(updateAllergyInput)
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'problem.update'); // PC.3.4.C
       try {
         // Fetch current allergy record to validate ownership and prepare versioning
         const fetchResult = await getSql()`
@@ -257,6 +260,7 @@ export const allergiesRouter = router({
   delete: protectedProcedure
     .input(deleteAllergyInput)
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'problem.update'); // PC.3.4.C
       try {
         // Fetch current allergy for event log
         const currentResult = await getSql()`

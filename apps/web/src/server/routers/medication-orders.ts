@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
+import { assertRoleCanWrite } from '@/lib/chart/can-write';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
@@ -62,6 +63,7 @@ export const medicationOrdersRouter = router({
       end_date: z.string().datetime().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'order.place'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
         const cdsAlerts: any[] = [];
@@ -334,6 +336,7 @@ export const medicationOrdersRouter = router({
       instructions: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'medication.clarify'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
 
@@ -632,6 +635,7 @@ export const medicationOrdersRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'emar.administer'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
 
@@ -747,6 +751,7 @@ export const medicationOrdersRouter = router({
   generateSchedule: protectedProcedure
     .input(z.object({ medication_request_id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'medication.clarify'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
 
@@ -1011,6 +1016,7 @@ export const medicationOrdersRouter = router({
       referral_reason: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'order.place'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
 
@@ -1182,6 +1188,7 @@ export const medicationOrdersRouter = router({
       result_status: z.enum(['preliminary', 'final', 'corrected']),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'lab.release'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
 
@@ -1269,6 +1276,7 @@ export const medicationOrdersRouter = router({
       start_date: z.string().datetime(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'order.place'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
 
@@ -1396,6 +1404,7 @@ export const medicationOrdersRouter = router({
       start_date: z.string().datetime(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'order.place'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
 
@@ -1474,6 +1483,7 @@ export const medicationOrdersRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'note.create'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
 
@@ -1719,6 +1729,7 @@ export const medicationOrdersRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'emar.administer'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
 
@@ -1797,6 +1808,7 @@ export const medicationOrdersRouter = router({
       hold_reason: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'emar.hold'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
 
@@ -1876,6 +1888,7 @@ export const medicationOrdersRouter = router({
       not_done_reason: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'emar.refuse'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
 

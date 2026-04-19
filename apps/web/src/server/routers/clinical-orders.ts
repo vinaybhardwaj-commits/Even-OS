@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
+import { assertRoleCanWrite } from '@/lib/chart/can-write';
 import { db } from '@/lib/db';
 import {
   clinicalOrders, vitalSigns, nursingNotes,
@@ -46,6 +47,7 @@ export const clinicalOrdersRouter = router({
       unit_price: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'order.place'); // PC.3.4.C
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify encounter exists and is active
@@ -169,6 +171,7 @@ export const clinicalOrdersRouter = router({
       cancel_reason: z.string().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'order.cancel'); // PC.3.4.C
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify order exists
@@ -244,6 +247,7 @@ export const clinicalOrdersRouter = router({
       result_json: z.record(z.any()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'lab.release'); // PC.3.4.C
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify order exists and is lab/radiology
@@ -317,6 +321,7 @@ export const clinicalOrdersRouter = router({
       notes: z.string().max(1000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'vitals.record'); // PC.3.4.C
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify encounter exists and is active
@@ -431,6 +436,7 @@ export const clinicalOrdersRouter = router({
       content: z.string().min(1).max(5000),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'note.create'); // PC.3.4.C
       const hospitalId = ctx.user.hospital_id;
 
       // 1. Verify encounter exists and is active

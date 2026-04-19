@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
+import { assertRoleCanWrite } from '@/lib/chart/can-write';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeEvent } from '@/lib/event-log';
 import { onVitalsRecorded } from '@/lib/chat/auto-events';
@@ -184,6 +185,7 @@ export const observationsRouter = router({
       height: z.number().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'vitals.record'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
@@ -726,6 +728,7 @@ export const observationsRouter = router({
       alert_id: z.string().uuid(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'escalation.raise'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
@@ -775,6 +778,7 @@ export const observationsRouter = router({
       io_notes: z.string().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'vitals.record'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;

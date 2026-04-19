@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
+import { assertRoleCanWrite } from '@/lib/chart/can-write';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeEvent } from '@/lib/event-log';
 import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
@@ -31,6 +32,7 @@ export const conditionsRouter = router({
       notes: z.string().max(1000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'problem.add'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
@@ -184,6 +186,7 @@ export const conditionsRouter = router({
       notes: z.string().max(1000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'problem.update'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
@@ -316,6 +319,7 @@ export const conditionsRouter = router({
       condition_id: z.string().uuid(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'problem.update'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
 

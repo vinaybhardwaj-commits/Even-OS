@@ -10,6 +10,7 @@ import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
 // PC.3.3.D — server-side projection.
 import { resolveChartConfigForUser } from '@/lib/chart/selectors';
 import { projectRowsForRole } from '@/lib/chart/redact';
+import { assertRoleCanWrite } from '@/lib/chart/can-write';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -51,6 +52,7 @@ export const clinicalNotesRouter = router({
       required_signer_id: z.string().uuid(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'note.create'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
@@ -189,6 +191,7 @@ export const clinicalNotesRouter = router({
       skin_integrity_assessment: z.string().max(2000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'note.create'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
@@ -296,6 +299,7 @@ export const clinicalNotesRouter = router({
       operation_end_datetime: z.string().datetime(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'note.create'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
@@ -432,6 +436,7 @@ export const clinicalNotesRouter = router({
       discharge_destination: z.string().min(1).max(200),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'discharge.initiate'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
@@ -537,6 +542,7 @@ export const clinicalNotesRouter = router({
       followup_instructions: z.string().max(3000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'note.amend'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
 
@@ -678,6 +684,7 @@ export const clinicalNotesRouter = router({
       signature_hash: z.string().min(1).max(512),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'cosign.approve'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
@@ -1015,6 +1022,7 @@ export const clinicalNotesRouter = router({
       attachment_mimetype: z.string().min(1).max(100),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'note.create'); // PC.3.4.C
       try {
         const hospitalId = ctx.user.hospital_id;
         const userId = ctx.user.sub;
@@ -1166,6 +1174,7 @@ export const clinicalNotesRouter = router({
       status: z.enum(['draft','signed']).default('draft'),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'note.create'); // PC.3.4.C
       const sql = getSql();
       const inserted = await sql`
         INSERT INTO clinical_impressions (
@@ -1220,6 +1229,7 @@ export const clinicalNotesRouter = router({
       status: z.enum(['draft','signed']).default('draft'),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'note.create'); // PC.3.4.C
       const sql = getSql();
       const inserted = await sql`
         INSERT INTO clinical_impressions (
@@ -1270,6 +1280,7 @@ export const clinicalNotesRouter = router({
       status: z.enum(['draft','signed']).default('draft'),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'note.create'); // PC.3.4.C
       const sql = getSql();
       const inserted = await sql`
         INSERT INTO clinical_impressions (
@@ -1317,6 +1328,7 @@ export const clinicalNotesRouter = router({
       status: z.enum(['draft','signed']).default('draft'),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'note.create'); // PC.3.4.C
       const sql = getSql();
       const inserted = await sql`
         INSERT INTO clinical_impressions (
@@ -1366,6 +1378,7 @@ export const clinicalNotesRouter = router({
       status: z.enum(['draft','signed']).default('draft'),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'note.create'); // PC.3.4.C
       const sql = getSql();
       const inserted = await sql`
         INSERT INTO clinical_impressions (
@@ -1415,6 +1428,7 @@ export const clinicalNotesRouter = router({
       status: z.enum(['draft','signed']).default('draft'),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'note.create'); // PC.3.4.C
       const sql = getSql();
       const inserted = await sql`
         INSERT INTO clinical_impressions (
@@ -1459,6 +1473,7 @@ export const clinicalNotesRouter = router({
       status: z.enum(['draft','signed']).default('signed'),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'handoff.create'); // PC.3.4.C
       const sql = getSql();
       const inserted = await sql`
         INSERT INTO clinical_impressions (
@@ -1498,6 +1513,7 @@ export const clinicalNotesRouter = router({
       status: z.enum(['draft','signed']).default('draft'),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertRoleCanWrite(ctx.user, 'note.create'); // PC.3.4.C
       const sql = getSql();
       const inserted = await sql`
         INSERT INTO clinical_impressions (
