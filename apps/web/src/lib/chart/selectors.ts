@@ -84,7 +84,8 @@ const FALLBACK_PRESETS = {
     allowed_write_actions: ['lab.collect','lab.verify','lab.release','critical.flag'],
   },
   cce: {
-    tabs: ['overview','brief','documents','billing'],
+    // PC.4.A.6 (19 Apr 2026): PRD v2.0 lock #1 — CCE order Overview → Brief → Comms → Complaints → Bill.
+    tabs: ['overview','brief','comms','complaints','billing'],
     overview_layout: ['bed_attending','brief','complaints','comms_threads','bill_summary'],
     action_bar_preset: { primary: ['raise_complaint','create_ticket','contact_family','log_visit'], secondary: [] as string[] },
     sensitive_fields: ['diagnosis','notes_snippet','procedures','mlc_reason','medications','allergies'],

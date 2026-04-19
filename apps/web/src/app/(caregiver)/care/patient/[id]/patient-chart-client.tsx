@@ -15,6 +15,7 @@ import { SensitiveText } from '@/components/patient-chart/SensitiveText';
 import OverviewCalculatorsCard from '@/components/patient-chart/OverviewCalculatorsCard';
 import OverviewComplaintsCard from '@/components/patient-chart/OverviewComplaintsCard';
 import OverviewLsqCard from '@/components/patient-chart/OverviewLsqCard';
+import ComplaintsTab from '@/components/patient-chart/ComplaintsTab';
 import RaiseComplaintModal from '@/components/patient-chart/RaiseComplaintModal';
 import ChatPanel, { type Channel as ChatChannel } from '@/components/chat/ChatPanel';
 import { useChartAction, getActionsForRole, resolveActionsFromSlugs } from './use-chart-action';
@@ -136,7 +137,7 @@ interface JourneyData {
   next_milestone: string;
 }
 
-type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan' | 'emar' | 'assessments' | 'billing' | 'journey' | 'forms' | 'documents' | 'brief' | 'calculators';
+type PatientTab = 'overview' | 'vitals' | 'labs' | 'orders' | 'notes' | 'plan' | 'emar' | 'assessments' | 'billing' | 'journey' | 'forms' | 'documents' | 'brief' | 'calculators' | 'comms' | 'complaints';
 
 // ── Unified Orders types (PC.1b1) ──────────────────────────────────────────
 // All order sources (medication_requests, service_requests, clinical_orders)
@@ -191,6 +192,9 @@ const TAB_CATALOG: Record<string, { label: string; id: PatientTab; icon: string 
   documents:   { label: 'Documents',        id: 'documents',   icon: '📁' },
   forms:       { label: 'Forms',            id: 'forms',       icon: '📋' },
   billing:     { label: 'Billing',          id: 'billing',     icon: '💳' },
+  // PC.4.A.6 (19 Apr 2026): CCE role surfaces comms + complaints as full tabs
+  comms:       { label: 'Comms',            id: 'comms',       icon: '💬' },
+  complaints:  { label: 'Complaints',       id: 'complaints',  icon: '📣' },
 };
 
 // Resolve tab list: matrix-driven when chartConfig.tabs is populated,
@@ -266,6 +270,19 @@ function getTabsForRole(role: string): { label: string; id: PatientTab; icon: st
       { label: 'Overview', id: 'overview', icon: '📋' },
       { label: 'Billing', id: 'billing', icon: '💳' },
       { label: 'Journey', id: 'journey', icon: '🗓️' },
+    ];
+  }
+
+  // PC.4.A.6 (19 Apr 2026): CCE default tab order (PRD v2.0 lock #1)
+  // Overview → Brief → Comms → Complaints → Bill. Appointments dropped.
+  const cceRoles = ['cce', 'customer_care_executive', 'ip_coordinator', 'receptionist'];
+  if (cceRoles.includes(role)) {
+    return [
+      { label: 'Overview',   id: 'overview',   icon: '📋' },
+      { label: 'Brief',      id: 'brief',      icon: '🧠' },
+      { label: 'Comms',      id: 'comms',      icon: '💬' },
+      { label: 'Complaints', id: 'complaints', icon: '📣' },
+      { label: 'Billing',    id: 'billing',    icon: '💳' },
     ];
   }
 
@@ -1502,7 +1519,15 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
           <button
             key={tab.id}
             className="patient-chart-tab-btn"
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => {
+              // PC.4.A.6: comms tab opens the dual-room slider instead of activating.
+              if (tab.id === 'comms') {
+                setCommsInitialChannelId(`patient-persistent-${patientId}`);
+                setCommsOpen(true);
+                return;
+              }
+              setActiveTab(tab.id);
+            }}
             style={{
               padding: '12px 10px',
               minHeight: 44,
@@ -4642,6 +4667,18 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
       )}
 
       {/* ── TAB: JOURNEY ──────────────────────────────────────────────────────── */}
+      {/* PC.4.A.6 (19 Apr 2026): Complaints full-tab list (CCE role) */}
+      {activeTab === 'complaints' && (
+        <ComplaintsTab
+          patientId={patientId}
+          encounterId={encounter?.id ?? null}
+          onOpenChat={() => {
+            setCommsInitialChannelId(`patient-persistent-${patientId}`);
+            setCommsOpen(true);
+          }}
+        />
+      )}
+
       {activeTab === 'journey' && (
         <div style={{ padding: '24px' }}>
           {/* Discharge Checklist — shows only when discharge has been initiated */}
