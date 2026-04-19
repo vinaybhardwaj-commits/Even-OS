@@ -16,34 +16,25 @@ export const dynamic = 'force-dynamic';
  *
  * Response shape (stable — consumed by <LiveOpsStrip />):
  * {
- *   ops: {
- *     beds_occupied: number,
- *     beds_total: number,
- *     admissions_today: number,
- *     discharges_today: number,
- *     active_inpatients: number,
- *   },
- *   alerts: {
- *     open_incidents: number,
- *     unack_critical: number,
- *   },
- *   revenue: {
- *     collections_today_inr: number,
- *     pending_claims: number,
- *     draft_invoices: number,
- *   },
- *   health: {
- *     db:    { status: 'ok'|'degraded'|'down', latency_ms: number },
- *     sha:   string,
- *     env:   string,
- *   },
+ *   ops:     { beds_occupied, beds_total, admissions_today, discharges_today, active_inpatients },
+ *   alerts:  { open_incidents, unack_critical },
+ *   revenue: { collections_today_inr, pending_claims, draft_invoices },
+ *   health:  { db: { status: 'ok'|'degraded'|'down', latency_ms }, sha, env },
  *   timestamp: string,
  * }
  *
- * Performance: all queries run in parallel via Promise.all. Target p95 < 500ms.
- * If any sub-query fails, that metric returns 0 (or 'down' for health) so
- * the strip always renders — we never fail the whole endpoint on a single
- * probe error.
+ * BUG.1 (19 Apr 2026): Previously all 9 aggregates + the DB health probe
+ * shared one try/catch. If any single aggregate threw (schema drift on a
+ * less-used table), the catch flipped dbStatus to 'down' — which is how
+ * the Command Center strip showed SYSTEM=DOWN while /admin/status reported
+ * DB=OK. Fixed by:
+ *   1. Running a dedicated `SELECT 1` probe for dbStatus/dbLatency. Only
+ *      this probe's success/failure controls the health cell.
+ *   2. Wrapping each aggregate query in its own safeCount/safeSum helper so
+ *      one broken table defaults that one metric to 0 and logs the error,
+ *      instead of nuking the whole response.
+ *   3. Logging via console.error so next time we actually see the cause
+ *      in Vercel runtime logs (previously the catch was silent).
  */
 export async function GET() {
   const user = await getCurrentUser();
@@ -54,108 +45,136 @@ export async function GET() {
   const timestamp = new Date().toISOString();
   const sql = neon(process.env.DATABASE_URL!);
 
-  // DB probe timing — wrap around the parallel aggregate to get a realistic
-  // end-to-end latency number.
-  const dbStart = Date.now();
+  // ── 1. Dedicated DB health probe ────────────────────────────────────────
+  // This is the ONLY query that controls dbStatus. A slow/failing aggregate
+  // query no longer taints the health signal.
   let dbStatus: 'ok' | 'degraded' | 'down' = 'down';
   let dbLatency = 0;
-
-  // Default zeroed response — if any probe errors we still return a valid
-  // shape so the UI can render without conditional guards.
-  let beds_occupied = 0;
-  let beds_total = 0;
-  let admissions_today = 0;
-  let discharges_today = 0;
-  let active_inpatients = 0;
-  let open_incidents = 0;
-  let unack_critical = 0;
-  let collections_today_inr = 0;
-  let pending_claims = 0;
-  let draft_invoices = 0;
-
+  const dbStart = Date.now();
   try {
-    // All queries run in parallel. Each returns an array with a single row.
-    const [
-      bedStatsRes,
-      admissionsRes,
-      dischargesRes,
-      activeRes,
-      incidentsRes,
-      criticalRes,
-      collectionsRes,
-      pendingClaimsRes,
-      draftInvoicesRes,
-    ] = await Promise.all([
-      // Beds: total + occupied, scoped to location_type='bed'.
-      sql`SELECT
+    await sql`SELECT 1`;
+    dbLatency = Date.now() - dbStart;
+    dbStatus = dbLatency < 500 ? 'ok' : 'degraded';
+  } catch (err) {
+    dbLatency = Date.now() - dbStart;
+    dbStatus = 'down';
+    console.error('[live-ops] DB health probe failed', err);
+  }
+
+  // ── 2. Per-query helpers ────────────────────────────────────────────────
+  // Each aggregate is isolated so one failure defaults that one metric to 0
+  // and emits a log line — the other metrics + the health cell survive.
+  const safeCount = async (
+    label: string,
+    q: Promise<Array<Record<string, unknown>>>
+  ): Promise<number> => {
+    try {
+      const rows = await q;
+      return Number(rows[0]?.n ?? 0);
+    } catch (err) {
+      console.error(`[live-ops] aggregate "${label}" failed`, err);
+      return 0;
+    }
+  };
+
+  const safeBedStats = async (): Promise<{ occupied: number; total: number }> => {
+    try {
+      const rows = await sql`SELECT
             COUNT(*) FILTER (WHERE bed_status = 'occupied')::int AS occupied,
             COUNT(*)::int AS total
           FROM locations
-          WHERE location_type = 'bed'`,
-      // Admissions today: encounters admitted today.
+          WHERE location_type = 'bed'`;
+      return {
+        occupied: Number(rows[0]?.occupied ?? 0),
+        total: Number(rows[0]?.total ?? 0),
+      };
+    } catch (err) {
+      console.error('[live-ops] aggregate "bed_stats" failed', err);
+      return { occupied: 0, total: 0 };
+    }
+  };
+
+  const safeCollections = async (): Promise<number> => {
+    try {
+      const rows = await sql`SELECT COALESCE(SUM(amount), 0)::numeric AS total
+          FROM payments
+          WHERE payment_date >= CURRENT_DATE
+            AND payment_date < CURRENT_DATE + INTERVAL '1 day'`;
+      return Math.round(Number(rows[0]?.total ?? 0));
+    } catch (err) {
+      console.error('[live-ops] aggregate "collections_today" failed', err);
+      return 0;
+    }
+  };
+
+  // ── 3. Parallel aggregate probes ────────────────────────────────────────
+  const [
+    bedStats,
+    admissions_today,
+    discharges_today,
+    active_inpatients,
+    open_incidents,
+    unack_critical,
+    collections_today_inr,
+    pending_claims,
+    draft_invoices,
+  ] = await Promise.all([
+    safeBedStats(),
+    safeCount(
+      'admissions_today',
       sql`SELECT COUNT(*)::int AS n
           FROM encounters
           WHERE admission_at >= CURRENT_DATE
-            AND admission_at < CURRENT_DATE + INTERVAL '1 day'`,
-      // Discharges today: encounters discharged today.
+            AND admission_at < CURRENT_DATE + INTERVAL '1 day'`
+    ),
+    safeCount(
+      'discharges_today',
       sql`SELECT COUNT(*)::int AS n
           FROM encounters
           WHERE discharge_at >= CURRENT_DATE
-            AND discharge_at < CURRENT_DATE + INTERVAL '1 day'`,
-      // Active inpatients: status='in-progress' and class='IMP'.
+            AND discharge_at < CURRENT_DATE + INTERVAL '1 day'`
+    ),
+    safeCount(
+      'active_inpatients',
       sql`SELECT COUNT(*)::int AS n
           FROM encounters
           WHERE status = 'in-progress'
-            AND encounter_class = 'IMP'`,
-      // Open incidents: adverse_events with non-terminal status.
+            AND encounter_class = 'IMP'`
+    ),
+    safeCount(
+      'open_incidents',
       sql`SELECT COUNT(*)::int AS n
           FROM adverse_events
-          WHERE ae_status IN ('open', 'investigating')`,
-      // Unack critical values: awaiting clinician response.
+          WHERE ae_status IN ('open', 'investigating')`
+    ),
+    safeCount(
+      'unack_critical',
       sql`SELECT COUNT(*)::int AS n
           FROM critical_value_alerts
-          WHERE cva_status IN ('pending', 'sent', 'escalated_l1', 'escalated_l2', 'escalated_l3')`,
-      // Collections today: sum of payments received today.
-      sql`SELECT COALESCE(SUM(amount), 0)::numeric AS total
-          FROM payments
-          WHERE payment_date >= CURRENT_DATE
-            AND payment_date < CURRENT_DATE + INTERVAL '1 day'`,
-      // Pending claims: submitted or query_raised.
+          WHERE cva_status IN ('pending', 'sent', 'escalated_l1', 'escalated_l2', 'escalated_l3')`
+    ),
+    safeCollections(),
+    safeCount(
+      'pending_claims',
       sql`SELECT COUNT(*)::int AS n
           FROM tpa_claims
-          WHERE claim_status IN ('submitted', 'query_raised')`,
-      // Draft invoices: proxy for unbilled work.
+          WHERE claim_status IN ('submitted', 'query_raised')`
+    ),
+    safeCount(
+      'draft_invoices',
       sql`SELECT COUNT(*)::int AS n
           FROM invoices
-          WHERE invoice_status = 'draft'`,
-    ]);
-
-    dbLatency = Date.now() - dbStart;
-    dbStatus = dbLatency < 500 ? 'ok' : 'degraded';
-
-    beds_occupied = Number(bedStatsRes[0]?.occupied ?? 0);
-    beds_total = Number(bedStatsRes[0]?.total ?? 0);
-    admissions_today = Number(admissionsRes[0]?.n ?? 0);
-    discharges_today = Number(dischargesRes[0]?.n ?? 0);
-    active_inpatients = Number(activeRes[0]?.n ?? 0);
-    open_incidents = Number(incidentsRes[0]?.n ?? 0);
-    unack_critical = Number(criticalRes[0]?.n ?? 0);
-    collections_today_inr = Math.round(Number(collectionsRes[0]?.total ?? 0));
-    pending_claims = Number(pendingClaimsRes[0]?.n ?? 0);
-    draft_invoices = Number(draftInvoicesRes[0]?.n ?? 0);
-  } catch {
-    dbLatency = Date.now() - dbStart;
-    dbStatus = 'down';
-    // Zeroed defaults already in place.
-  }
+          WHERE invoice_status = 'draft'`
+    ),
+  ]);
 
   const sha = process.env.VERCEL_GIT_COMMIT_SHA?.substring(0, 7) || 'local';
   const env = process.env.VERCEL_ENV || 'development';
 
   return NextResponse.json({
     ops: {
-      beds_occupied,
-      beds_total,
+      beds_occupied: bedStats.occupied,
+      beds_total: bedStats.total,
       admissions_today,
       discharges_today,
       active_inpatients,
