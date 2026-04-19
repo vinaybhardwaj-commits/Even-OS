@@ -40,6 +40,8 @@ import { OrdersTemplate, type OrdersProps } from './templates/orders';
 import { CalculatorsTemplate, type CalculatorsProps } from './templates/calculators';
 import { DocumentsTemplate, type DocumentsProps } from './templates/documents';
 import { JourneyTemplate, type JourneyProps } from './templates/journey';
+import { BillingTemplate, type BillingProps } from './templates/billing';
+import { ComplaintsTemplate, type ComplaintsProps } from './templates/complaints';
 import type { ChartPrintPageProps } from './pdf-components';
 
 export type ScopeId =
@@ -51,7 +53,9 @@ export type ScopeId =
   | 'orders'
   | 'calculators'
   | 'documents'
-  | 'journey';
+  | 'journey'
+  | 'billing'
+  | 'complaints';
 
 export function normaliseScope(raw: string): ScopeId | null {
   const s = raw.toLowerCase().replace(/^tab[_:.-]/, '');
@@ -64,6 +68,8 @@ export function normaliseScope(raw: string): ScopeId | null {
   if (s === 'calculators' || s === 'calculator') return 'calculators';
   if (s === 'documents' || s === 'document') return 'documents';
   if (s === 'journey' || s === 'patient_journey') return 'journey';
+  if (s === 'billing' || s === 'billing_account' || s === 'billing_ops') return 'billing';
+  if (s === 'complaints' || s === 'patient_complaints' || s === 'complaint') return 'complaints';
   return null;
 }
 
@@ -220,6 +226,122 @@ export type JourneyStepRow = {
   skipped_reason: string | null;
 };
 
+// D.3.3 — Billing & Complaints row types.
+export type BillingAccountRow = {
+  id: string;
+  account_type: string;
+  insurer_name: string | null;
+  tpa_name: string | null;
+  policy_number: string | null;
+  member_id: string | null;
+  sum_insured: string | null;
+  co_pay_percent: string | null;
+  total_charges: string | null;
+  total_deposits: string | null;
+  total_payments: string | null;
+  total_approved: string | null;
+  balance_due: string | null;
+};
+
+export type BillingChargeRow = {
+  id: string;
+  charge_code: string | null;
+  charge_name: string;
+  category: string | null;            // room, procedure, lab, pharmacy, consultation, nursing, other
+  quantity: number | null;
+  unit_price: string | null;
+  net_amount: string | null;
+  service_date: string | null;
+};
+
+export type BillingDepositRow = {
+  id: string;
+  amount: string;
+  status: string;                     // deposit_status enum (collected, applied, refunded, cancelled)
+  payment_method: string;
+  reference_number: string | null;
+  receipt_number: string | null;
+  collected_at: string;
+  applied_at: string | null;
+};
+
+export type BillingClaimRow = {
+  id: string;
+  claim_number: string | null;
+  tpa_claim_ref: string | null;
+  insurer_name: string;
+  tpa: string | null;
+  status: string;                     // insurance_claim_status enum (16 values)
+  total_bill_amount: string | null;
+  pre_auth_amount: string | null;
+  enhancement_total: string | null;
+  approved_amount: string | null;
+  total_deductions: string | null;
+  settled_amount: string | null;
+  patient_liability: string | null;
+  primary_diagnosis: string | null;
+  icd_code: string | null;
+  procedure_name: string | null;
+  admission_date: string | null;
+  discharge_date: string | null;
+  submitted_at: string | null;
+  settled_at: string | null;
+};
+
+export type BillingInvoiceRow = {
+  id: string;
+  invoice_number: string;
+  invoice_status: string;
+  subtotal: string;
+  discount_total: string | null;
+  gst_total: string | null;
+  grand_total: string;
+  amount_paid: string | null;
+  balance_due: string;
+  generated_at: string;
+  due_date: string | null;
+};
+
+export type BillingRefundRow = {
+  id: string;
+  refund_number: string | null;
+  status: string;                     // refund_status enum
+  reason: string;                     // refund_reason enum
+  amount: string;
+  approved_amount: string | null;
+  approval_tier: number | null;
+  approved_at: string | null;
+  payment_method: string | null;
+  processed_at: string | null;
+  created_at: string;
+};
+
+export type BillingBundle = {
+  account: BillingAccountRow | null;
+  charges: BillingChargeRow[];
+  deposits: BillingDepositRow[];
+  claims: BillingClaimRow[];
+  invoices: BillingInvoiceRow[];
+  refunds: BillingRefundRow[];
+};
+
+export type ComplaintRow = {
+  id: string;
+  category: string;
+  priority: string;                   // pc_complaint_priority enum (low/normal/high/critical)
+  status: string;                     // pc_complaint_status enum (open/in_progress/resolved/closed)
+  subject: string;
+  description: string;
+  sla_due_at: string;
+  raised_by_user_name: string;
+  raised_by_user_role: string;
+  resolved_by_user_name: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ChartBundle = {
   hospital: { id: string; name: string };
   patient: {
@@ -284,6 +406,9 @@ export type ChartBundle = {
   documents: DocumentManifestRow[];
   // D.3.2
   journeySteps: JourneyStepRow[];
+  // D.3.3
+  billing: BillingBundle | null;
+  complaints: ComplaintRow[];
 };
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
@@ -811,6 +936,298 @@ export async function loadChartBundle(
     skipped_reason: r.skipped_reason ?? null,
   }));
 
+  // ---- Billing bundle (billing_accounts + encounter_charges + deposits +
+  //      insurance_claims + invoices + refund_requests) — D.3.3.
+  //      Scope: active billing_account for this patient (most recent) —
+  //      if none exists, billing bundle is null. Charges pulled from
+  //      encounter_charges scoped to the same encounter as the account.
+  const accountRows = (await sql`
+    SELECT id,
+           account_type::text    AS account_type,
+           insurer_name,
+           ba_tpa_name           AS tpa_name,
+           ba_policy_number      AS policy_number,
+           ba_member_id          AS member_id,
+           sum_insured::text     AS sum_insured,
+           co_pay_percent::text  AS co_pay_percent,
+           total_charges::text   AS total_charges,
+           total_deposits::text  AS total_deposits,
+           total_payments::text  AS total_payments,
+           total_approved::text  AS total_approved,
+           ba_balance_due::text  AS balance_due,
+           ba_encounter_id       AS encounter_id
+      FROM billing_accounts
+     WHERE hospital_id = ${hospitalId}
+       AND ba_patient_id = ${patientId}::uuid
+       AND COALESCE(ba_is_active, true) = true
+     ORDER BY ba_created_at DESC
+     LIMIT 1
+  `) as Array<any>;
+  const accountRow = accountRows[0] ?? null;
+  const accountEncounterId: string | null = accountRow?.encounter_id ?? null;
+
+  let billing: BillingBundle | null = null;
+  if (accountRow) {
+    const account: BillingAccountRow = {
+      id: accountRow.id,
+      account_type: accountRow.account_type,
+      insurer_name: accountRow.insurer_name ?? null,
+      tpa_name: accountRow.tpa_name ?? null,
+      policy_number: accountRow.policy_number ?? null,
+      member_id: accountRow.member_id ?? null,
+      sum_insured: accountRow.sum_insured ?? null,
+      co_pay_percent: accountRow.co_pay_percent ?? null,
+      total_charges: accountRow.total_charges ?? null,
+      total_deposits: accountRow.total_deposits ?? null,
+      total_payments: accountRow.total_payments ?? null,
+      total_approved: accountRow.total_approved ?? null,
+      balance_due: accountRow.balance_due ?? null,
+    };
+
+    // Charges — scope to the account's encounter if we have one, else to
+    // patient+hospital. Encounter-scoped is the dominant case.
+    let chargeRows: any[] = [];
+    if (accountEncounterId) {
+      chargeRows = (await sql`
+        SELECT id,
+               charge_code,
+               charge_name,
+               category,
+               quantity,
+               unit_price::text  AS unit_price,
+               net_amount::text  AS net_amount,
+               service_date
+          FROM encounter_charges
+         WHERE hospital_id = ${hospitalId}
+           AND encounter_id = ${accountEncounterId}::uuid
+         ORDER BY service_date DESC NULLS LAST, category ASC
+         LIMIT 500
+      `) as any[];
+    } else {
+      chargeRows = (await sql`
+        SELECT id,
+               charge_code,
+               charge_name,
+               category,
+               quantity,
+               unit_price::text  AS unit_price,
+               net_amount::text  AS net_amount,
+               service_date
+          FROM encounter_charges
+         WHERE hospital_id = ${hospitalId}
+           AND patient_id = ${patientId}::uuid
+         ORDER BY service_date DESC NULLS LAST, category ASC
+         LIMIT 500
+      `) as any[];
+    }
+    const charges: BillingChargeRow[] = chargeRows.map((r) => ({
+      id: r.id,
+      charge_code: r.charge_code ?? null,
+      charge_name: r.charge_name ?? '',
+      category: r.category ?? null,
+      quantity: r.quantity != null ? Number(r.quantity) : null,
+      unit_price: r.unit_price ?? null,
+      net_amount: r.net_amount ?? null,
+      service_date: r.service_date ?? null,
+    }));
+
+    // Deposits — scope to account + patient.
+    const depositRows = (await sql`
+      SELECT id,
+             dep_amount::text         AS amount,
+             dep_status::text         AS status,
+             dep_payment_method       AS payment_method,
+             dep_reference_number     AS reference_number,
+             receipt_number,
+             collected_at,
+             applied_at
+        FROM deposits
+       WHERE hospital_id = ${hospitalId}
+         AND dep_patient_id = ${patientId}::uuid
+       ORDER BY collected_at DESC
+       LIMIT 100
+    `) as any[];
+    const deposits: BillingDepositRow[] = depositRows.map((r) => ({
+      id: r.id,
+      amount: r.amount ?? '0',
+      status: r.status ?? 'collected',
+      payment_method: r.payment_method ?? '',
+      reference_number: r.reference_number ?? null,
+      receipt_number: r.receipt_number ?? null,
+      collected_at: r.collected_at,
+      applied_at: r.applied_at ?? null,
+    }));
+
+    // Insurance claims — patient + hospital scope, newest first.
+    const claimRows = (await sql`
+      SELECT id,
+             claim_number,
+             tpa_claim_ref,
+             ic_insurer_name               AS insurer_name,
+             ic_tpa::text                  AS tpa,
+             ic_status::text               AS status,
+             total_bill_amount::text       AS total_bill_amount,
+             ic_pre_auth_amount::text      AS pre_auth_amount,
+             enhancement_total::text       AS enhancement_total,
+             ic_approved_amount::text      AS approved_amount,
+             ic_total_deductions::text     AS total_deductions,
+             settled_amount::text          AS settled_amount,
+             patient_liability::text       AS patient_liability,
+             primary_diagnosis,
+             ic_icd_code                   AS icd_code,
+             ic_procedure_name             AS procedure_name,
+             ic_admission_date             AS admission_date,
+             ic_discharge_date             AS discharge_date,
+             ic_submitted_at               AS submitted_at,
+             ic_settled_at                 AS settled_at
+        FROM insurance_claims
+       WHERE hospital_id = ${hospitalId}
+         AND ic_patient_id = ${patientId}::uuid
+       ORDER BY ic_created_at DESC
+       LIMIT 25
+    `) as any[];
+    const claims: BillingClaimRow[] = claimRows.map((r) => ({
+      id: r.id,
+      claim_number: r.claim_number ?? null,
+      tpa_claim_ref: r.tpa_claim_ref ?? null,
+      insurer_name: r.insurer_name,
+      tpa: r.tpa ?? null,
+      status: r.status,
+      total_bill_amount: r.total_bill_amount ?? null,
+      pre_auth_amount: r.pre_auth_amount ?? null,
+      enhancement_total: r.enhancement_total ?? null,
+      approved_amount: r.approved_amount ?? null,
+      total_deductions: r.total_deductions ?? null,
+      settled_amount: r.settled_amount ?? null,
+      patient_liability: r.patient_liability ?? null,
+      primary_diagnosis: r.primary_diagnosis ?? null,
+      icd_code: r.icd_code ?? null,
+      procedure_name: r.procedure_name ?? null,
+      admission_date: r.admission_date ?? null,
+      discharge_date: r.discharge_date ?? null,
+      submitted_at: r.submitted_at ?? null,
+      settled_at: r.settled_at ?? null,
+    }));
+
+    // Invoices — patient + hospital scope, newest first.
+    const invoiceRows = (await sql`
+      SELECT id,
+             invoice_number,
+             invoice_status::text     AS invoice_status,
+             subtotal::text           AS subtotal,
+             discount_total::text     AS discount_total,
+             gst_total::text          AS gst_total,
+             grand_total::text        AS grand_total,
+             amount_paid::text        AS amount_paid,
+             balance_due::text        AS balance_due,
+             generated_at,
+             due_date
+        FROM invoices
+       WHERE hospital_id = ${hospitalId}
+         AND patient_id = ${patientId}::uuid
+       ORDER BY generated_at DESC
+       LIMIT 50
+    `) as any[];
+    const invoices: BillingInvoiceRow[] = invoiceRows.map((r) => ({
+      id: r.id,
+      invoice_number: r.invoice_number,
+      invoice_status: r.invoice_status,
+      subtotal: r.subtotal ?? '0',
+      discount_total: r.discount_total ?? null,
+      gst_total: r.gst_total ?? null,
+      grand_total: r.grand_total ?? '0',
+      amount_paid: r.amount_paid ?? null,
+      balance_due: r.balance_due ?? '0',
+      generated_at: r.generated_at,
+      due_date: r.due_date ?? null,
+    }));
+
+    // Refunds — patient + hospital scope, newest first.
+    const refundRows = (await sql`
+      SELECT id,
+             refund_number,
+             rr_status::text           AS status,
+             rr_reason::text           AS reason,
+             rr_amount::text           AS amount,
+             rr_approved_amount::text  AS approved_amount,
+             approval_tier,
+             rr_approved_at            AS approved_at,
+             rr_payment_method         AS payment_method,
+             rr_processed_at           AS processed_at,
+             rr_created_at             AS created_at
+        FROM refund_requests
+       WHERE hospital_id = ${hospitalId}
+         AND rr_patient_id = ${patientId}::uuid
+       ORDER BY rr_created_at DESC
+       LIMIT 50
+    `) as any[];
+    const refunds: BillingRefundRow[] = refundRows.map((r) => ({
+      id: r.id,
+      refund_number: r.refund_number ?? null,
+      status: r.status,
+      reason: r.reason,
+      amount: r.amount ?? '0',
+      approved_amount: r.approved_amount ?? null,
+      approval_tier: r.approval_tier != null ? Number(r.approval_tier) : null,
+      approved_at: r.approved_at ?? null,
+      payment_method: r.payment_method ?? null,
+      processed_at: r.processed_at ?? null,
+      created_at: r.created_at,
+    }));
+
+    billing = { account, charges, deposits, claims, invoices, refunds };
+  }
+
+  // ---- Patient complaints (patient_complaints) — D.3.3 ----
+  // Scope: hospital + patient, all statuses. SLA breach is computed at render
+  // time (now > sla_due_at AND status IN ('open','in_progress')).
+  const complaintRows = (await sql`
+    SELECT id,
+           category,
+           priority::text           AS priority,
+           status::text             AS status,
+           subject,
+           description,
+           sla_due_at,
+           raised_by_user_name,
+           raised_by_user_role,
+           resolved_by_user_name,
+           resolved_at,
+           resolution_note,
+           created_at,
+           updated_at
+      FROM patient_complaints
+     WHERE hospital_id = ${hospitalId}
+       AND patient_id = ${patientId}::uuid
+     ORDER BY
+       CASE status
+         WHEN 'open' THEN 0
+         WHEN 'in_progress' THEN 1
+         WHEN 'resolved' THEN 2
+         WHEN 'closed' THEN 3
+         ELSE 4
+       END ASC,
+       created_at DESC
+     LIMIT 200
+  `) as Array<any>;
+
+  const complaints: ComplaintRow[] = complaintRows.map((r) => ({
+    id: r.id,
+    category: r.category,
+    priority: r.priority,
+    status: r.status,
+    subject: r.subject,
+    description: r.description,
+    sla_due_at: r.sla_due_at,
+    raised_by_user_name: r.raised_by_user_name,
+    raised_by_user_role: r.raised_by_user_role,
+    resolved_by_user_name: r.resolved_by_user_name ?? null,
+    resolved_at: r.resolved_at ?? null,
+    resolution_note: r.resolution_note ?? null,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  }));
+
   return {
     hospital,
     patient,
@@ -828,6 +1245,8 @@ export async function loadChartBundle(
     calcResults,
     documents,
     journeySteps,
+    billing,
+    complaints,
   };
 }
 
@@ -900,6 +1319,16 @@ export async function renderChartPrint(
     case 'journey': {
       const props: JourneyProps = { bundle, chrome: common };
       doc = React.createElement(JourneyTemplate, props);
+      break;
+    }
+    case 'billing': {
+      const props: BillingProps = { bundle, chrome: common };
+      doc = React.createElement(BillingTemplate, props);
+      break;
+    }
+    case 'complaints': {
+      const props: ComplaintsProps = { bundle, chrome: common };
+      doc = React.createElement(ComplaintsTemplate, props);
       break;
     }
   }

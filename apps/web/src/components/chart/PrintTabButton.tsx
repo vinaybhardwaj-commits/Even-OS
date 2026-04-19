@@ -11,7 +11,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 
-export type PrintScope = 'overview' | 'brief' | 'notes' | 'meds' | 'labs' | 'orders' | 'calculators' | 'documents' | 'journey';
+export type PrintScope = 'overview' | 'brief' | 'notes' | 'meds' | 'labs' | 'orders' | 'calculators' | 'documents' | 'journey' | 'billing' | 'complaints';
 
 type ButtonState =
   | { kind: 'idle' }
@@ -72,6 +72,10 @@ function titleCase(scope: PrintScope): string {
       return 'Documents';
     case 'journey':
       return 'Journey';
+    case 'billing':
+      return 'Billing';
+    case 'complaints':
+      return 'Complaints';
   }
 }
 
