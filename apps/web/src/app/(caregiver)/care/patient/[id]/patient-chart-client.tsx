@@ -20,6 +20,10 @@ import type { ChartConfig } from '@/lib/chart/selectors';
 import { HealthDots } from '@/components/chart/HealthDots';
 import { DegradedBanner } from '@/components/chart/DegradedBanner';
 import { QueuedDraftsBadge } from '@/components/chart/QueuedDraftsBadge';
+// PC.4.C.4: offline-queue wiring for vitals write-path
+import { useOfflineQueue } from '@/components/chart/use-offline-queue';
+import { useChartHealth } from '@/components/chart/use-chart-health';
+import { shouldQueueVitals, vitalsReplayHandler, type VitalsPayload } from '@/lib/chart/save-vitals-offline';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -729,6 +733,20 @@ function LabPanel({ title, timestamp, isOpen, onToggle, tests }: LabPanelProps) 
 // ── Main component ──────────────────────────────────────────────────────────
 export default function PatientChartClient({ patientId, userId, userRole, userName, hospitalId, chartConfig }: Props) {
   const [activeTab, setActiveTab] = useState<PatientTab>('overview');
+  // PC.4.C.4: chart-level health + offline queue wiring
+  const { data: chartHealthData } = useChartHealth();
+  const dbStatus = chartHealthData?.db?.status;
+  const {
+    count: queuedDraftCount,
+    enqueue: enqueueDraftLocal,
+    flush: flushDraftsLocal,
+  } = useOfflineQueue(patientId, {
+    onRecover: () => {
+      // Fire-and-forget: replay all queued drafts via the generic handler.
+      // Any failure stays queued (attempts++) for the next recovery cycle.
+      void flushDraftsLocal(vitalsReplayHandler);
+    },
+  });
 
   // PC.3.1: projection result is threaded but not yet used for rendering.
   // Log once (dev-only) to confirm the matrix lookup reached the client.
@@ -2063,21 +2081,53 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                     return;
                   }
                   setVitalsSubmitting(true);
+                  const payload: VitalsPayload = {
+                    patient_id: patientId,
+                    encounter_id: encounter.id,
+                    effective_datetime: new Date().toISOString(),
+                    ...(v.bp_systolic ? { bp_systolic: parseInt(v.bp_systolic) } : {}),
+                    ...(v.bp_diastolic ? { bp_diastolic: parseInt(v.bp_diastolic) } : {}),
+                    ...(v.pulse ? { pulse: parseInt(v.pulse) } : {}),
+                    ...(v.spo2 ? { spo2: parseFloat(v.spo2) } : {}),
+                    ...(v.temperature ? { temperature: parseFloat(v.temperature) } : {}),
+                    ...(v.rr ? { rr: parseInt(v.rr) } : {}),
+                    ...(v.pain_score ? { pain_score: parseInt(v.pain_score) } : {}),
+                  };
+                  const resetForm = () => setVitalsForm({ bp_systolic: '', bp_diastolic: '', pulse: '', spo2: '', temperature: '', rr: '', pain_score: '' });
                   try {
-                    await trpcMutate('observations.createVitals', {
-                      patient_id: patientId,
-                      encounter_id: encounter.id,
-                      effective_datetime: new Date().toISOString(),
-                      ...(v.bp_systolic ? { bp_systolic: parseInt(v.bp_systolic) } : {}),
-                      ...(v.bp_diastolic ? { bp_diastolic: parseInt(v.bp_diastolic) } : {}),
-                      ...(v.pulse ? { pulse: parseInt(v.pulse) } : {}),
-                      ...(v.spo2 ? { spo2: parseFloat(v.spo2) } : {}),
-                      ...(v.temperature ? { temperature: parseFloat(v.temperature) } : {}),
-                      ...(v.rr ? { rr: parseInt(v.rr) } : {}),
-                      ...(v.pain_score ? { pain_score: parseInt(v.pain_score) } : {}),
-                    });
-                    setVitalsForm({ bp_systolic: '', bp_diastolic: '', pulse: '', spo2: '', temperature: '', rr: '', pain_score: '' });
-                    loadData();
+                    // PC.4.C.4: if DB is red/unknown, skip the mutate and enqueue offline
+                    if (shouldQueueVitals(dbStatus)) {
+                      await enqueueDraftLocal({
+                        patient_id: patientId,
+                        surface: 'vitals',
+                        field_set: 'record-vitals',
+                        payload,
+                      });
+                      resetForm();
+                      alert('Saved (queued offline) — will sync when database is back.');
+                      return;
+                    }
+                    // DB looks healthy: try the mutate; on network failure, enqueue as defense-in-depth
+                    try {
+                      await trpcMutate('observations.createVitals', payload);
+                      resetForm();
+                      loadData();
+                    } catch (netErr: any) {
+                      const msg = String(netErr?.message || '');
+                      const isNetwork = netErr instanceof TypeError || /Failed to fetch|NetworkError|HTTP 5\d\d|load failed/i.test(msg);
+                      if (isNetwork) {
+                        await enqueueDraftLocal({
+                          patient_id: patientId,
+                          surface: 'vitals',
+                          field_set: 'record-vitals',
+                          payload,
+                        });
+                        resetForm();
+                        alert('Saved (queued offline) — will sync when network is back.');
+                      } else {
+                        throw netErr;
+                      }
+                    }
                   } catch (err: any) {
                     alert(`Failed to save vitals: ${err.message}`);
                   } finally {
