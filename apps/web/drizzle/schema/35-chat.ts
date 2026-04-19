@@ -4,7 +4,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { hospitals, users } from './00-foundations';
-import { encounters } from './03-registration';
+import { encounters, patients } from './03-registration';
 
 // ============================================================
 // OMNIPRESENT CHAT — OC.1a
@@ -47,7 +47,8 @@ export const chatChannels = pgTable('chat_channels', {
   name: varchar('name', { length: 256 }).notNull(),
   description: text('description'),
   hospital_id: text('hospital_id').notNull().references(() => hospitals.hospital_id, { onDelete: 'restrict' }),
-  encounter_id: uuid('encounter_id').references(() => encounters.id), // For patient channels
+  encounter_id: uuid('encounter_id').references(() => encounters.id), // For encounter-scoped patient channels
+  patient_id: uuid('patient_id').references(() => patients.id), // PC.4.A.1: For persistent patient channels (spans all encounters). encounter_id is NULL when set.
   is_archived: boolean('is_archived').notNull().default(false),
   created_by: uuid('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
   last_message_at: timestamp('last_message_at', { withTimezone: true }),
@@ -57,6 +58,7 @@ export const chatChannels = pgTable('chat_channels', {
 }, (table) => ({
   hospitalTypeIdx: index('idx_chat_channels_hospital_type').on(table.hospital_id, table.channel_type),
   encounterIdx: index('idx_chat_channels_encounter').on(table.encounter_id),
+  patientIdx: index('idx_chat_channels_patient').on(table.hospital_id, table.patient_id), // PC.4.A.1: persistent patient channel lookup
   lastMsgIdx: index('idx_chat_channels_last_msg').on(table.hospital_id, table.last_message_at),
   channelIdIdx: uniqueIndex('idx_chat_channels_channel_id').on(table.channel_id),
 }));
@@ -199,6 +201,7 @@ export const chatNotificationPrefs = pgTable('chat_notification_prefs', {
 export const chatChannelRelations = relations(chatChannels, ({ one, many }) => ({
   hospital: one(hospitals, { fields: [chatChannels.hospital_id], references: [hospitals.hospital_id] }),
   encounter: one(encounters, { fields: [chatChannels.encounter_id], references: [encounters.id] }),
+  patient: one(patients, { fields: [chatChannels.patient_id], references: [patients.id] }),
   creator: one(users, { fields: [chatChannels.created_by], references: [users.id] }),
   members: many(chatChannelMembers),
   messages: many(chatMessages),

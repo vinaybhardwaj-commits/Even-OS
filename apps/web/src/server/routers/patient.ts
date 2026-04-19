@@ -6,6 +6,7 @@ import {
   patients, coverages, relatedPersons, mpiRecords, mpiLinks, uhidSequences, patientsAudit,
 } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
+import { createPersistentPatientChannel } from '@/lib/chat/channel-manager';
 import { eq, and, sql, desc, ilike, or } from 'drizzle-orm';
 
 const genderValues = ['male', 'female', 'other', 'unknown'] as const;
@@ -151,6 +152,15 @@ export const patientRouter = router({
         row_id: newPatient.id,
         new_values: { uhid, name: nameFull, phone: input.phone },
       });
+
+      // 8. PC.4.A.1: Create persistent patient chat channel (fire-and-forget)
+      createPersistentPatientChannel({
+        patient_id: newPatient.id,
+        patient_name: nameFull,
+        patient_uhid: uhid,
+        hospital_id: hospitalId,
+        created_by: ctx.user.sub,
+      }).catch((e) => { console.error('[patient.register] persistent channel create failed', e); });
 
       return { patient_id: newPatient.id, uhid, name: nameFull };
     }),

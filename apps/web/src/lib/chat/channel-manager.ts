@@ -209,6 +209,120 @@ export async function onBedTransfer(params: TransferHookParams) {
   }
 }
 
+// ── CREATE PERSISTENT PATIENT CHANNEL (PC.4.A.1) ───────────
+//
+// Persistent patient channel spans ALL of a patient's encounters. Created
+// on first registration (or backfilled via /api/migrations/chat-channels-patient-id).
+// Never archived; care team members persist across admissions.
+//
+// Semantics:
+//   channel_id   = 'patient-persistent-<patient_id>'
+//   channel_type = 'patient'
+//   patient_id   = set
+//   encounter_id = NULL  (distinguishes from per-encounter patient channel)
+
+interface CreatePersistentPatientChannelParams {
+  patient_id: string;
+  patient_name: string;
+  patient_uhid: string;
+  hospital_id: string;
+  created_by: string;
+}
+
+export async function createPersistentPatientChannel(
+  params: CreatePersistentPatientChannelParams
+) {
+  const sql = getSql();
+  const channelId = `patient-persistent-${params.patient_id}`;
+
+  try {
+    // Idempotent — skip if already present
+    const [existing] = await sql`
+      SELECT id FROM chat_channels WHERE channel_id = ${channelId}
+    `;
+    if (existing) return { channelId, id: existing.id, created: false };
+
+    const [channel] = await sql`
+      INSERT INTO chat_channels (
+        channel_id, hospital_id, channel_type, name, description,
+        patient_id, encounter_id, created_by
+      )
+      VALUES (
+        ${channelId},
+        ${params.hospital_id},
+        'patient',
+        ${`${params.patient_name} (${params.patient_uhid}) — all admissions`},
+        ${`Persistent patient channel — spans all encounters for UHID ${params.patient_uhid}`},
+        ${params.patient_id}::uuid,
+        NULL,
+        ${params.created_by}::uuid
+      )
+      RETURNING id
+    `;
+
+    // Creator joins as admin
+    await sql`
+      INSERT INTO chat_channel_members (channel_id, user_id, role)
+      VALUES (${channel.id}, ${params.created_by}::uuid, 'admin')
+      ON CONFLICT DO NOTHING
+    `;
+
+    await postSystemMessage(channel.id, params.hospital_id,
+      `🧍 Persistent patient channel opened for ${params.patient_name} (UHID ${params.patient_uhid}). This thread persists across all admissions.`
+    );
+
+    return { channelId, id: channel.id, created: true };
+  } catch (err) {
+    console.error('[channel-manager] createPersistentPatientChannel failed:', err);
+    return null;
+  }
+}
+
+// ── ADD CARE TEAM MEMBER TO PERSISTENT CHANNEL ─────────────
+// Used when a clinician is assigned to a patient via any encounter — they
+// should also be a member of the persistent patient channel so they see
+// history across admissions. Idempotent via ON CONFLICT.
+
+interface AddPersistentCareTeamMemberParams {
+  patient_id: string;
+  user_id: string;
+  role?: 'member' | 'admin' | 'read_only';
+  user_name?: string;
+  reason?: string;
+}
+
+export async function addPersistentCareTeamMember(
+  params: AddPersistentCareTeamMemberParams
+) {
+  const sql = getSql();
+  const channelId = `patient-persistent-${params.patient_id}`;
+
+  try {
+    const [channel] = await sql`
+      SELECT id, hospital_id FROM chat_channels
+      WHERE channel_id = ${channelId}
+    `;
+    if (!channel) return;
+
+    await sql`
+      INSERT INTO chat_channel_members (channel_id, user_id, role)
+      VALUES (${channel.id}, ${params.user_id}::uuid, ${params.role || 'member'})
+      ON CONFLICT (channel_id, user_id) DO UPDATE SET
+        role = EXCLUDED.role,
+        left_at = NULL
+    `;
+
+    if (params.user_name) {
+      const reason = params.reason ? ` (${params.reason})` : '';
+      await postSystemMessage(channel.id, channel.hospital_id,
+        `👤 ${params.user_name} joined the persistent care team${reason}`
+      );
+    }
+  } catch (err) {
+    console.error('[channel-manager] addPersistentCareTeamMember failed:', err);
+  }
+}
+
 // ── SYSTEM MESSAGE HELPER ──────────────────────────────────
 
 async function postSystemMessage(channelInternalId: string, hospital_id: string, content: string) {
