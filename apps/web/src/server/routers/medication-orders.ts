@@ -12,6 +12,7 @@ import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
 // PC.3.3.D — server-side projection.
 import { resolveChartConfigForUser } from '@/lib/chart/selectors';
 import { projectRowsForRole } from '@/lib/chart/redact';
+import { seedConsultantSubscription } from '@/lib/chart/notification-events';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -1102,6 +1103,16 @@ export const medicationOrdersRouter = router({
             user_id: input.referral_to_provider_id,
             role: 'member',
             reason: `Consult: ${input.order_name}`,
+          }).catch(() => {});
+
+          // PC.4.B.2: also subscribe the consulting specialist to this patient's
+          // chart notification feed on consult REQUEST (per V-lock: they need
+          // to see the triggering critical event, which predates acceptance).
+          void seedConsultantSubscription({
+            hospital_id: ctx.user.hospital_id,
+            patient_id: input.patient_id,
+            consultant_user_id: input.referral_to_provider_id,
+            created_by_user_id: ctx.user.sub,
           }).catch(() => {});
         }
 

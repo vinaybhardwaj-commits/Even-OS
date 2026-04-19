@@ -28,6 +28,7 @@ import {
 } from '@db/schema';
 import { users } from '@db/schema';
 import { eq, and, desc, count, sql, isNull, gte, lte, or, ne } from 'drizzle-orm';
+import { emitChartNotificationEvent } from '@/lib/chart/notification-events';
 
 // ============================================================
 // Router
@@ -145,6 +146,29 @@ export const criticalValuesRouter = router({
         .update(labOrders)
         .set({ is_critical: true })
         .where(eq(labOrders.id, input.lab_order_id));
+
+      // PC.4.B.2 — fire critical_lab event. Fire-and-forget; the alert row is
+      // the source of truth, the event is the notification signal.
+      void emitChartNotificationEvent({
+        hospital_id: ctx.user.hospital_id,
+        patient_id: order.patient_id,
+        encounter_id: order.encounter_id ?? null,
+        event_type: 'critical_lab',
+        severity: 'critical',
+        source_kind: 'critical_value_alerts',
+        source_id: alert.id,
+        dedup_key: `lab:${alert.id}`,
+        fired_by_user_id: ctx.user.sub,
+        payload: {
+          test_code: result.test_code,
+          test_name: result.test_name,
+          flag,
+          value_numeric: result.value_numeric,
+          unit: result.unit,
+          critical_low: criticalLow,
+          critical_high: criticalHigh,
+        },
+      }).catch(() => {});
 
       return { is_critical: true, flag, alert_id: alert.id };
     }),

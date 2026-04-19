@@ -11,6 +11,7 @@ import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
 import { resolveChartConfigForUser } from '@/lib/chart/selectors';
 import { projectRowsForRole } from '@/lib/chart/redact';
 import { assertRoleCanWrite } from '@/lib/chart/can-write';
+import { emitChartNotificationEvent } from '@/lib/chart/notification-events';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -934,7 +935,37 @@ export const clinicalNotesRouter = router({
           LIMIT ${input.limit} OFFSET ${input.offset};
         `;
 
-        const rows = (result as any);
+        const rows = (result as any[]) ?? [];
+
+        // PC.4.B.2 — lazy eval of cosign_overdue. Any row whose queue row
+        // age exceeds the 4-hour SLA emits a cosign_overdue event (deduped
+        // by queue id so repeat polls don't flood). fired_by_user_id = NULL
+        // because this is a system-origin observation, not an actor event.
+        const COSIGN_SLA_MS = 4 * 60 * 60 * 1000;
+        const now = Date.now();
+        for (const r of rows) {
+          const queuedAt = r?.queued_at ? new Date(r.queued_at).getTime() : null;
+          if (!queuedAt || Number.isNaN(queuedAt)) continue;
+          if (now - queuedAt < COSIGN_SLA_MS) continue;
+          void emitChartNotificationEvent({
+            hospital_id: hospitalId,
+            patient_id: r.patient_id,
+            encounter_id: r.encounter_id ?? null,
+            event_type: 'cosign_overdue',
+            severity: 'high',
+            source_kind: 'co_signature_queue',
+            source_id: r.queue_id,
+            dedup_key: `cosign:${r.queue_id}`,
+            fired_by_user_id: null,
+            payload: {
+              cosign_note_type: r.cosign_note_type,
+              author_id: r.author_id,
+              required_signer_id: userId,
+              sla_hours: 4,
+              age_hours: Number(((now - queuedAt) / 3600000).toFixed(2)),
+            },
+          }).catch(() => {});
+        }
 
         return {
           pending_notes: rows || [],

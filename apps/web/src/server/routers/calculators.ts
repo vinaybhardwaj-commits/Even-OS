@@ -41,6 +41,7 @@ import {
   type CalcBand,
 } from '@/lib/calculators/scoring-engine';
 import { resolveHospitalUuid } from '@/lib/patient-brief/enqueue';
+import { emitChartNotificationEvent } from '@/lib/chart/notification-events';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -301,6 +302,28 @@ export const calculatorsRouter = router({
       } catch {
         // ai_request_queue may not be provisioned yet on very old envs.
         // Deterministic score is authoritative, prose is additive.
+      }
+
+      // PC.4.B.2 — fire calc_red_band event only when the band is red. Severity
+      // high (matches locked mapping: calc red = clinically actionable).
+      if (band?.color === 'red') {
+        void emitChartNotificationEvent({
+          hospital_id: hospitalId,
+          patient_id: input.patient_id,
+          encounter_id: input.encounter_id ?? null,
+          event_type: 'calc_red_band',
+          severity: 'high',
+          source_kind: 'calculator_results',
+          source_id: inserted[0].id,
+          dedup_key: `calc:${inserted[0].id}`,
+          fired_by_user_id: userId,
+          payload: {
+            calc_slug: calc.slug,
+            calc_version: calc.version,
+            band_key: bandKey,
+            score: typeof score === 'number' ? score : String(score),
+          },
+        }).catch(() => {});
       }
 
       return {

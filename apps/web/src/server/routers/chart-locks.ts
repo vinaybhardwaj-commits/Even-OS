@@ -27,6 +27,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
+import { emitChartNotificationEvent } from '@/lib/chart/notification-events';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -210,5 +211,59 @@ export const chartLocksRouter = router({
         ORDER BY locked_at DESC
       ` as unknown as LockRow[];
       return rows;
+    }),
+
+  // ─── RELEASE WITH ADMIN OVERRIDE (PC.4.B.2) ─────────────────
+  // Super-admin / admin break-glass: force-release someone else's lock and
+  // emit an edit_lock_override event. Mandatory prose reason (4–500 chars);
+  // the reason is captured both in the event payload and the audit trail.
+  releaseWithAdminOverride: protectedProcedure
+    .input(z.object({
+      lock_id: z.string().uuid(),
+      reason: z.string().min(4).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const role = (ctx.user.role ?? '').toLowerCase();
+      if (role !== 'super_admin' && role !== 'admin') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Admin override requires super_admin or admin role.',
+        });
+      }
+      const sql = getSql();
+
+      const locked = await sql`
+        SELECT * FROM chart_edit_locks WHERE id = ${input.lock_id} LIMIT 1
+      ` as unknown as LockRow[];
+      if (locked.length === 0) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Lock not found.' });
+      }
+      const lock = locked[0];
+
+      await sql`
+        DELETE FROM chart_edit_locks WHERE id = ${input.lock_id}
+      `;
+
+      void emitChartNotificationEvent({
+        hospital_id: lock.hospital_id,
+        patient_id: lock.patient_id,
+        encounter_id: lock.encounter_id,
+        event_type: 'edit_lock_override',
+        severity: 'high',
+        source_kind: 'chart_edit_locks',
+        source_id: lock.id,
+        dedup_key: `edit_lock_override:${lock.id}`,
+        fired_by_user_id: ctx.user.sub,
+        payload: {
+          surface: lock.surface,
+          overridden_user_id: lock.locked_by_user_id,
+          overridden_user_name: lock.locked_by_user_name,
+          overridden_user_role: lock.locked_by_user_role,
+          original_reason: lock.reason,
+          override_reason: input.reason,
+        },
+      }).catch(() => {});
+
+      return { ok: true as const, overridden_user_id: lock.locked_by_user_id };
     }),
 });

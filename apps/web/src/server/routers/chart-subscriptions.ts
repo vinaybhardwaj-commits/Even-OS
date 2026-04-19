@@ -49,6 +49,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
+import { seedConsultantSubscription } from '@/lib/chart/notification-events';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -357,6 +358,26 @@ export const chartSubscriptionsRouter = router({
       const inserted = rows.filter((r) => r.inserted).length;
       const updated  = rows.length - inserted;
       return { inserted, updated, rows };
+    }),
+
+  // ─── seedConsultant ──────────────────────────────────────────────
+  // Consulting specialist subscribes on consult REQUEST (per V-lock PC.4.B.1).
+  // Called directly from medication-orders.createServiceRequest via fire-and-
+  // forget; this tRPC endpoint exists for admin / manual seeding and to expose
+  // a symmetric API shape alongside seedCareTeam.
+  seedConsultant: protectedProcedure
+    .input(z.object({
+      patient_id: uuidSchema,
+      consultant_user_id: uuidSchema,
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await seedConsultantSubscription({
+        hospital_id: ctx.user.hospital_id,
+        patient_id: input.patient_id,
+        consultant_user_id: input.consultant_user_id,
+        created_by_user_id: ctx.user.sub,
+      });
+      return { ok: true };
     }),
 
   // ─── listEvents ──────────────────────────────────────────────────

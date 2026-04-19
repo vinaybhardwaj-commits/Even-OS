@@ -25,6 +25,7 @@
 
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { generateInsight } from '@/lib/ai/llm-client';
+import { emitChartNotificationEvent } from '@/lib/chart/notification-events';
 import {
   extractDocumentText,
   clampForPrompt,
@@ -345,14 +346,15 @@ async function writeProposal(
   const status = safeForAutoApply ? 'accepted' : 'pending';
   const reviewedBy = safeForAutoApply ? uploadedBy : null;
 
-  await sql(
+  const propRows = await sql(
     `INSERT INTO chart_update_proposals (
        hospital_id, patient_id, encounter_id, source_document,
        proposal_type, payload, confidence, extraction_notes,
        status, reviewed_by, reviewed_at, applied_row_id
      )
      VALUES ($1, $2, $3, $4, $5::chart_proposal_type, $6::jsonb, $7, $8,
-             $9::chart_proposal_status, $10, $11, $12)`,
+             $9::chart_proposal_status, $10, $11, $12)
+     RETURNING id`,
     [
       hospitalTextId,
       patientId,
@@ -368,6 +370,29 @@ async function writeProposal(
       appliedRowId,
     ],
   );
+  const proposalId = propRows[0]?.id as string | undefined;
+
+  // PC.4.B.2 — fire llm_proposal_new event only when NOT auto-applied (the
+  // auto-accept path writes directly to the canonical table and has no user-
+  // facing proposal to review). Fire-and-forget.
+  if (!safeForAutoApply && proposalId) {
+    void emitChartNotificationEvent({
+      hospital_id: hospitalTextId,
+      patient_id: patientId,
+      encounter_id: encounterId,
+      event_type: 'llm_proposal_new',
+      severity: 'normal',
+      source_kind: 'chart_update_proposals',
+      source_id: proposalId,
+      dedup_key: `proposal:${proposalId}`,
+      fired_by_user_id: uploadedBy,
+      payload: {
+        proposal_type: proposal.proposal_type,
+        confidence: proposal.confidence,
+        source_document_id: sourceDocumentId,
+      },
+    }).catch(() => {});
+  }
 
   return { created: true, autoAccepted: safeForAutoApply };
 }

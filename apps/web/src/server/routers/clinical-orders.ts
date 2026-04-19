@@ -8,6 +8,7 @@ import {
   encounters, patients,
 } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
+import { emitChartNotificationEvent, isCriticalVital } from '@/lib/chart/notification-events';
 import { eq, and, sql, desc, asc, count } from 'drizzle-orm';
 
 const orderTypeValues = ['lab', 'radiology', 'pharmacy', 'procedure', 'diet', 'nursing'] as const;
@@ -372,6 +373,37 @@ export const clinicalOrdersRouter = router({
           bp: input.bp_systolic && input.bp_diastolic ? `${input.bp_systolic}/${input.bp_diastolic}` : null,
         },
       });
+
+      // PC.4.B.2 — fire critical_vital event if thresholds tripped. Fire-and-
+      // forget so a notification failure never blocks the vital write.
+      if (isCriticalVital({
+        spo2_percent: input.spo2_percent,
+        pulse_bpm: input.pulse_bpm,
+        bp_systolic: input.bp_systolic,
+        resp_rate: input.resp_rate,
+        temperature_c: input.temperature_c,
+        gcs_score: input.gcs_score,
+      })) {
+        void emitChartNotificationEvent({
+          hospital_id: hospitalId,
+          patient_id: encounter.patient_id,
+          encounter_id: input.encounter_id,
+          event_type: 'critical_vital',
+          severity: 'critical',
+          source_kind: 'vital_signs',
+          source_id: vital.id,
+          dedup_key: `vital:${vital.id}`,
+          fired_by_user_id: ctx.user.sub,
+          payload: {
+            spo2_percent: input.spo2_percent ?? null,
+            pulse_bpm: input.pulse_bpm ?? null,
+            bp_systolic: input.bp_systolic ?? null,
+            resp_rate: input.resp_rate ?? null,
+            temperature_c: input.temperature_c ?? null,
+            gcs_score: input.gcs_score ?? null,
+          },
+        }).catch(() => {});
+      }
 
       return {
         vital_id: vital.id,

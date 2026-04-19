@@ -14,6 +14,11 @@ import { neon } from '@neondatabase/serverless';
 import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
 import { resolveChartConfigForUser } from '@/lib/chart/selectors';
 import { projectRowsForRole, projectRowForRole } from '@/lib/chart/redact';
+import {
+  emitChartNotificationEvent,
+  encounterTransitionSeverity,
+  dischargeSweepSubscriptions,
+} from '@/lib/chart/notification-events';
 
 
 const encounterClassValues = ['IMP', 'AMB', 'ED', 'HH', 'OBSENC'] as const;
@@ -240,6 +245,24 @@ export const encounterRouter = router({
         patientId: input.patient_id,
         trigger: 'admission',
       });
+
+      // PC.4.B.2 — encounter_transition: admission
+      void emitChartNotificationEvent({
+        hospital_id: hospitalId,
+        patient_id: input.patient_id,
+        encounter_id: encounter.id,
+        event_type: 'encounter_transition',
+        severity: encounterTransitionSeverity('admission'),
+        source_kind: 'encounters',
+        source_id: encounter.id,
+        dedup_key: `encounter:${encounter.id}:admission`,
+        fired_by_user_id: ctx.user.sub,
+        payload: {
+          kind: 'admission',
+          admission_type: input.admission_type,
+          bed_code: bed.code,
+        },
+      }).catch(() => {});
 
       return {
         encounter_id: encounter.id,
@@ -563,6 +586,28 @@ export const encounterRouter = router({
         to_bed_label: toBed.code,
       }).catch(() => {});
 
+      // PC.4.B.2 — encounter_transition: transfer. Use transfer row id (if
+      // returned by the transfer_history insert) to make the dedup stable
+      // across rapid retries; fall back to encounter+timestamp otherwise.
+      void emitChartNotificationEvent({
+        hospital_id: hospitalId,
+        patient_id: encounter.patient_id,
+        encounter_id: encounter.id,
+        event_type: 'encounter_transition',
+        severity: encounterTransitionSeverity('transfer'),
+        source_kind: 'transfer_history',
+        source_id: null,
+        dedup_key: `encounter:${encounter.id}:transfer:${Date.now()}`,
+        fired_by_user_id: ctx.user.sub,
+        payload: {
+          kind: 'transfer',
+          transfer_type: input.transfer_type,
+          from_bed: fromLocationId,
+          to_bed: toBed.code,
+          reason: input.reason ?? null,
+        },
+      }).catch(() => {});
+
       return { encounter_id: encounter.id, from_bed: fromLocationId, to_bed_code: toBed.code };
     }),
 
@@ -827,6 +872,28 @@ export const encounterRouter = router({
         patientId: encounter.patient_id,
         trigger: 'discharge',
       });
+
+      // PC.4.B.2 — encounter_transition: discharge
+      void emitChartNotificationEvent({
+        hospital_id: hospitalId,
+        patient_id: encounter.patient_id,
+        encounter_id: encounter.id,
+        event_type: 'encounter_transition',
+        severity: encounterTransitionSeverity('discharge'),
+        source_kind: 'encounters',
+        source_id: encounter.id,
+        dedup_key: `encounter:${encounter.id}:discharge`,
+        fired_by_user_id: ctx.user.sub,
+        payload: {
+          kind: 'discharge',
+          forced: input.force,
+        },
+      }).catch(() => {});
+
+      // PC.4.B.2 — discharge sweep: silence auto_care_team subscriptions for
+      // this patient. Watch-sourced rows are preserved (sticky). Re-admission
+      // flows (seedCareTeam) will reverse any sweep-silenced row.
+      void dischargeSweepSubscriptions(encounter.patient_id).catch(() => {});
 
       return { encounter_id: encounter.id, status: 'finished', discharge_at: now };
     }),
