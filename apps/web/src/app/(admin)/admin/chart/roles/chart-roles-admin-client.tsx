@@ -18,7 +18,7 @@
  * is out of scope for a CRUD editor.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 // ─── Types (mirror chartMatrix router) ─────────────────────────
 type MatrixRow = {
@@ -100,6 +100,21 @@ function fmtDate(s: string) {
   } catch { return s; }
 }
 
+// ─── PC.3.4.E types ───────────────────────────────────────────
+type VersionRow = {
+  id: string;
+  matrix_id: string;
+  hospital_id: string;
+  version_number: number;
+  snapshot: Record<string, unknown>;
+  changed_keys: string[];
+  change_note: string | null;
+  changed_by: string | null;
+  changed_by_name: string | null;
+  changed_by_role: string | null;
+  created_at: string;
+};
+
 // ─── Component ─────────────────────────────────────────────────
 export function ChartRolesAdminClient() {
   const [rows, setRows] = useState<MatrixRow[]>([]);
@@ -125,6 +140,16 @@ export function ChartRolesAdminClient() {
   // Activity panel
   const [activity, setActivity] = useState<{ views: ViewRow[]; edits: EditRow[]; adminEdits: AdminEditRow[] } | null>(null);
   const [activityLoading, setActivityLoading] = useState(false);
+
+  // PC.3.4 Track E — versions panel + diff viewer
+  const [versions, setVersions] = useState<VersionRow[] | null>(null);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [diffA, setDiffA] = useState<number | null>(null);
+  const [diffB, setDiffB] = useState<number | 'current' | null>(null);
+  const [diffPayload, setDiffPayload] = useState<{ a: any; b: any } | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [changeNote, setChangeNote] = useState('');
 
   const fetchList = useCallback(async () => {
     setLoading(true);
@@ -167,13 +192,20 @@ export function ChartRolesAdminClient() {
 
   // Fetch activity when role changes
   useEffect(() => {
-    if (!selected) { setActivity(null); return; }
+    if (!selected) { setActivity(null); setVersions(null); return; }
     let cancelled = false;
     setActivityLoading(true);
     trpcQuery('chartMatrix.recentActivity', { role: selected.role, matrixId: selected.id, limit: 25 })
       .then((res) => { if (!cancelled) setActivity(res as { views: ViewRow[]; edits: EditRow[]; adminEdits: AdminEditRow[] }); })
       .catch(() => { if (!cancelled) setActivity({ views: [], edits: [], adminEdits: [] }); })
       .finally(() => { if (!cancelled) setActivityLoading(false); });
+
+    // PC.3.4.E — fetch version timeline for this matrix row
+    setVersionsLoading(true);
+    trpcQuery('chartMatrix.listVersions', { matrixId: selected.id, limit: 50 })
+      .then((res) => { if (!cancelled) setVersions(((res as any)?.versions ?? []) as VersionRow[]); })
+      .catch(() => { if (!cancelled) setVersions([]); })
+      .finally(() => { if (!cancelled) setVersionsLoading(false); });
     return () => { cancelled = true; };
   }, [selected]);
 
@@ -228,15 +260,48 @@ export function ChartRolesAdminClient() {
         sensitive_fields: fromCsv(sensitiveText),
         allowed_write_actions: fromLines(writeActionsText),
         description: description.trim() === '' ? null : description,
+        change_note: changeNote.trim() === '' ? null : changeNote.trim(),
       };
       await trpcMutate('chartMatrix.update', body);
       await fetchList();
+      setChangeNote('');
+      // Re-fetch version timeline (Track E)
+      try {
+        const vres = await trpcQuery('chartMatrix.listVersions', { matrixId: selected.id, limit: 50 });
+        setVersions(((vres as any)?.versions ?? []) as VersionRow[]);
+      } catch {
+        /* non-fatal */
+      }
       setSaveMsg('Saved.');
       setTimeout(() => setSaveMsg(null), 2000);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
+    }
+  };
+
+  // PC.3.4.E — openDiff drawer
+  const openDiff = async (a: number, b: number | 'current') => {
+    if (!selected) return;
+    setDiffA(a);
+    setDiffB(b);
+    setDiffOpen(true);
+    setDiffLoading(true);
+    setDiffPayload(null);
+    try {
+      const res = await trpcQuery('chartMatrix.getVersionDiff', {
+        matrixId: selected.id,
+        versionA: a,
+        versionB: b,
+      });
+      setDiffPayload(res as { a: any; b: any });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('version diff failed', e);
+      setDiffPayload(null);
+    } finally {
+      setDiffLoading(false);
     }
   };
 
@@ -535,9 +600,102 @@ export function ChartRolesAdminClient() {
                 </div>
               )}
             </div>
+
+            {/* ─── PC.3.4.E VERSIONS TIMELINE ─── */}
+            <div style={{ borderTop: '1px solid #e4e7eb', paddingTop: 16, marginTop: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#002054', marginBottom: 10 }}>
+                Version history for <code>{selected.role}</code>
+              </div>
+              {versionsLoading && <div style={{ fontSize: 12, color: '#6b7280' }}>Loading versions…</div>}
+              {versions && !versionsLoading && versions.length === 0 && (
+                <Empty label="No version snapshots yet — next save creates v1." />
+              )}
+              {versions && versions.length > 0 && (
+                <div style={{ border: '1px solid #e4e7eb', borderRadius: 6, background: '#fff' }}>
+                  <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                    {versions.map((v, i) => {
+                      const isLatest = i === 0;
+                      const prev = versions[i + 1];
+                      return (
+                        <div key={v.id} style={{ padding: '10px 12px', borderBottom: '1px solid #f7f7f7' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, color: '#111827' }}>
+                            <span style={{ fontWeight: 600 }}>
+                              v{v.version_number}
+                              {isLatest ? ' · latest' : ''}
+                              {' · '}
+                              {v.changed_keys.length === 0
+                                ? <em style={{ color: '#9ca3af' }}>no keys changed</em>
+                                : v.changed_keys.join(', ')}
+                            </span>
+                            <span style={{ color: '#6b7280', flexShrink: 0 }}>{fmtDate(v.created_at)}</span>
+                          </div>
+                          <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>
+                            by {v.changed_by_name ?? v.changed_by_role ?? 'unknown'}
+                            {v.change_note ? ` — "${v.change_note}"` : ''}
+                          </div>
+                          <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
+                            <button
+                              type="button"
+                              onClick={() => openDiff(v.version_number, 'current')}
+                              style={{ fontSize: 11, padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 4, background: '#fff', cursor: 'pointer', color: '#374151' }}
+                            >
+                              Diff vs current
+                            </button>
+                            {prev && (
+                              <button
+                                type="button"
+                                onClick={() => openDiff(prev.version_number, v.version_number)}
+                                style={{ fontSize: 11, padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 4, background: '#fff', cursor: 'pointer', color: '#374151' }}
+                              >
+                                Diff vs v{prev.version_number}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>
+
+      {/* ─── PC.3.4.E DIFF DRAWER ─── */}
+      {diffOpen && (
+        <div
+          onClick={() => setDiffOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 100, display: 'flex', justifyContent: 'flex-end' }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 720, maxWidth: '92vw', height: '100%', background: '#fff', boxShadow: '-6px 0 24px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column' }}
+          >
+            <div style={{ padding: '14px 16px', borderBottom: '1px solid #e4e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#002054' }}>
+                  Diff — v{diffA} vs {diffB === 'current' ? 'current' : `v${diffB}`}
+                </div>
+                <div style={{ fontSize: 11, color: '#6b7280' }}>{selected?.role} · {selected?.hospital_id}</div>
+              </div>
+              <button
+                onClick={() => setDiffOpen(false)}
+                style={{ fontSize: 12, padding: '6px 10px', background: '#fff', border: '1px solid #d1d5db', borderRadius: 4, cursor: 'pointer' }}
+              >Close</button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+              {diffLoading && <div style={{ fontSize: 12, color: '#6b7280' }}>Loading diff…</div>}
+              {!diffLoading && diffPayload && (
+                <DiffView a={diffPayload.a} b={diffPayload.b} />
+              )}
+              {!diffLoading && !diffPayload && (
+                <div style={{ fontSize: 12, color: '#9ca3af' }}>Diff could not be loaded.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -570,4 +728,46 @@ function ActivityRow({ left, right, sub }: { left: string; right: string; sub?: 
 }
 function Empty({ label }: { label: string }) {
   return <div style={{ padding: 16, fontSize: 12, color: '#9ca3af' }}>{label}</div>;
+}
+
+// ─── PC.3.4.E DiffView ──────────────────────────────────────────
+function DiffView({ a, b }: { a: any; b: any }) {
+  const aSnap = (a?.snapshot ?? {}) as Record<string, unknown>;
+  const bSnap = (b?.snapshot ?? {}) as Record<string, unknown>;
+  const keys = Array.from(new Set([...Object.keys(aSnap), ...Object.keys(bSnap)])).sort();
+  const eq = (x: unknown, y: unknown) => JSON.stringify(x ?? null) === JSON.stringify(y ?? null);
+
+  const fmt = (v: unknown): string => {
+    if (v === null || v === undefined) return '(empty)';
+    if (Array.isArray(v)) return v.length === 0 ? '(empty)' : v.join('\n');
+    if (typeof v === 'object') return JSON.stringify(v, null, 2);
+    return String(v);
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 12 }}>
+        <strong>A</strong> v{a?.version_number} · {a?.changed_by_name ?? a?.changed_by_role ?? 'unknown'}
+        {a?.change_note ? ` — "${a.change_note}"` : ''}
+        {'  →  '}
+        <strong>B</strong> {b?.version_number === 'current' ? 'current' : `v${b?.version_number}`}
+        {b?.changed_by_name ? ` · ${b.changed_by_name}` : ''}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 1fr', gap: 8, fontSize: 11 }}>
+        <div style={{ fontWeight: 700, color: '#111827' }}>Field</div>
+        <div style={{ fontWeight: 700, color: '#111827' }}>A</div>
+        <div style={{ fontWeight: 700, color: '#111827' }}>B</div>
+        {keys.map((k) => {
+          const same = eq(aSnap[k], bSnap[k]);
+          return (
+            <React.Fragment key={k}>
+              <div style={{ fontFamily: 'ui-monospace, SF Mono, monospace', color: same ? '#9ca3af' : '#002054', paddingTop: 6 }}>{k}</div>
+              <pre style={{ background: same ? '#fafbfc' : '#fff7ed', padding: 6, borderRadius: 4, fontSize: 11, whiteSpace: 'pre-wrap', margin: 0 }}>{fmt(aSnap[k])}</pre>
+              <pre style={{ background: same ? '#fafbfc' : '#ecfdf5', padding: 6, borderRadius: 4, fontSize: 11, whiteSpace: 'pre-wrap', margin: 0 }}>{fmt(bSnap[k])}</pre>
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
 }

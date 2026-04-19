@@ -120,6 +120,7 @@ export const chartMatrixRouter = router({
       sensitive_fields: z.array(z.string().min(1).max(80)).max(40).optional(),
       allowed_write_actions: z.array(z.string().min(1).max(80)).max(60).optional(),
       description: z.string().max(2000).nullable().optional(),
+      change_note: z.string().max(500).nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       requireSuperAdmin(ctx.user);
@@ -195,7 +196,174 @@ export const chartMatrixRouter = router({
         )
       `;
 
+      // ─── PC.3.4 Track E — version write-through ──────────────
+      // Compute changed_keys (vs pre-update row), pick next version_number,
+      // insert immutable snapshot row. Failure is non-fatal: the matrix
+      // update already committed; log and fall through.
+      try {
+        const changedKeys: string[] = [];
+        const u = updated[0]!;
+        const jsonEq = (a: unknown, b: unknown) =>
+          JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+        if (!jsonEq(prev.tabs, u.tabs)) changedKeys.push('tabs');
+        if (!jsonEq(prev.overview_layout, u.overview_layout)) changedKeys.push('overview_layout');
+        if (!jsonEq(prev.action_bar_preset, u.action_bar_preset)) changedKeys.push('action_bar_preset');
+        if (!jsonEq(prev.sensitive_fields, u.sensitive_fields)) changedKeys.push('sensitive_fields');
+        if (!jsonEq(prev.allowed_write_actions, u.allowed_write_actions)) changedKeys.push('allowed_write_actions');
+        if (!jsonEq(prev.description ?? null, u.description ?? null)) changedKeys.push('description');
+
+        const nextVersionRows = (await sql`
+          SELECT COALESCE(MAX(version_number), 0) + 1 AS next_version
+          FROM chart_permission_matrix_versions
+          WHERE matrix_id = ${u.id}::uuid
+        `) as Array<{ next_version: number }>;
+        const nextVersion = nextVersionRows[0]?.next_version ?? 1;
+
+        const snapshot = {
+          tabs: u.tabs,
+          overview_layout: u.overview_layout,
+          action_bar_preset: u.action_bar_preset,
+          sensitive_fields: u.sensitive_fields,
+          allowed_write_actions: u.allowed_write_actions,
+          description: u.description,
+          updated_at: u.updated_at,
+        };
+
+        await sql`
+          INSERT INTO chart_permission_matrix_versions
+            (matrix_id, hospital_id, version_number, snapshot,
+             changed_keys, change_note,
+             changed_by, changed_by_name, changed_by_role)
+          VALUES (
+            ${u.id}::uuid,
+            ${u.hospital_id},
+            ${nextVersion},
+            ${JSON.stringify(snapshot)}::jsonb,
+            ${changedKeys}::text[],
+            ${input.change_note ?? null},
+            ${ctx.user.sub ?? null}::uuid,
+            ${ctx.user.name ?? ctx.user.email ?? null},
+            ${ctx.user.role ?? 'unknown'}
+          )
+        `;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[chart-matrix.update] version write-through failed:', err);
+      }
+
       return updated[0]!;
+    }),
+
+  // ─── LIST VERSIONS FOR ONE MATRIX ROW ──────────────────────
+  // Timeline of snapshots in version-number order (newest first) plus
+  // the pre-update state for v1 (derived from v1 snapshot itself).
+  listVersions: protectedProcedure
+    .input(z.object({
+      matrixId: z.string().uuid(),
+      limit: z.number().int().min(1).max(200).default(50),
+    }))
+    .query(async ({ ctx, input }) => {
+      requireSuperAdmin(ctx.user);
+      const sql = getSql();
+      const rows = (await sql`
+        SELECT id, matrix_id, hospital_id, version_number, snapshot,
+               changed_keys, change_note,
+               changed_by, changed_by_name, changed_by_role, created_at
+        FROM chart_permission_matrix_versions
+        WHERE matrix_id = ${input.matrixId}::uuid
+        ORDER BY version_number DESC
+        LIMIT ${input.limit}
+      `) as Array<{
+        id: string; matrix_id: string; hospital_id: string;
+        version_number: number; snapshot: unknown;
+        changed_keys: string[]; change_note: string | null;
+        changed_by: string | null; changed_by_name: string | null;
+        changed_by_role: string | null; created_at: string;
+      }>;
+      return { versions: rows };
+    }),
+
+  // ─── GET TWO VERSIONS (or version + current) FOR DIFF ──────
+  // Returns the raw snapshots — the client computes a human-readable diff.
+  // Passing versionB='current' diffs against the live matrix row.
+  getVersionDiff: protectedProcedure
+    .input(z.object({
+      matrixId: z.string().uuid(),
+      versionA: z.number().int().min(1),
+      versionB: z.union([z.number().int().min(1), z.literal('current')]),
+    }))
+    .query(async ({ ctx, input }) => {
+      requireSuperAdmin(ctx.user);
+      const sql = getSql();
+
+      const [aRows] = await Promise.all([
+        sql`
+          SELECT version_number, snapshot, changed_keys, change_note,
+                 changed_by_name, changed_by_role, created_at
+          FROM chart_permission_matrix_versions
+          WHERE matrix_id = ${input.matrixId}::uuid
+            AND version_number = ${input.versionA}
+          LIMIT 1
+        `,
+      ]);
+      const a = (aRows as Array<{
+        version_number: number; snapshot: unknown;
+        changed_keys: string[]; change_note: string | null;
+        changed_by_name: string | null; changed_by_role: string | null;
+        created_at: string;
+      }>)[0];
+      if (!a) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `Version ${input.versionA} not found.` });
+      }
+
+      let b:
+        | { version_number: number | 'current'; snapshot: unknown; changed_keys: string[] | null;
+            change_note: string | null; changed_by_name: string | null;
+            changed_by_role: string | null; created_at: string }
+        | undefined;
+
+      if (input.versionB === 'current') {
+        const cur = (await sql`
+          SELECT tabs, overview_layout, action_bar_preset, sensitive_fields,
+                 allowed_write_actions, description, updated_at
+          FROM chart_permission_matrix
+          WHERE id = ${input.matrixId}::uuid
+          LIMIT 1
+        `) as Array<Record<string, unknown>>;
+        const c = cur[0];
+        if (!c) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Matrix row not found (current).' });
+        }
+        b = {
+          version_number: 'current',
+          snapshot: c,
+          changed_keys: null,
+          change_note: null,
+          changed_by_name: null,
+          changed_by_role: null,
+          created_at: String(c.updated_at ?? ''),
+        };
+      } else {
+        const bRows = (await sql`
+          SELECT version_number, snapshot, changed_keys, change_note,
+                 changed_by_name, changed_by_role, created_at
+          FROM chart_permission_matrix_versions
+          WHERE matrix_id = ${input.matrixId}::uuid
+            AND version_number = ${input.versionB}
+          LIMIT 1
+        `) as Array<{
+          version_number: number; snapshot: unknown;
+          changed_keys: string[]; change_note: string | null;
+          changed_by_name: string | null; changed_by_role: string | null;
+          created_at: string;
+        }>;
+        if (!bRows[0]) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: `Version ${input.versionB} not found.` });
+        }
+        b = bRows[0];
+      }
+
+      return { a, b };
     }),
 
   // ─── AUDIT REPLAY ───────────────────────────────────────────

@@ -59,3 +59,5 @@ export * from './54-calculators';
 export * from './55-chart-role';
 
 export * from './56-admin-audit-log';
+
+export * from './57-chart-matrix-versions';
