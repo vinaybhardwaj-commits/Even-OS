@@ -39,6 +39,7 @@ import { LabsTemplate, type LabsProps } from './templates/labs';
 import { OrdersTemplate, type OrdersProps } from './templates/orders';
 import { CalculatorsTemplate, type CalculatorsProps } from './templates/calculators';
 import { DocumentsTemplate, type DocumentsProps } from './templates/documents';
+import { JourneyTemplate, type JourneyProps } from './templates/journey';
 import type { ChartPrintPageProps } from './pdf-components';
 
 export type ScopeId =
@@ -49,7 +50,8 @@ export type ScopeId =
   | 'labs'
   | 'orders'
   | 'calculators'
-  | 'documents';
+  | 'documents'
+  | 'journey';
 
 export function normaliseScope(raw: string): ScopeId | null {
   const s = raw.toLowerCase().replace(/^tab[_:.-]/, '');
@@ -61,6 +63,7 @@ export function normaliseScope(raw: string): ScopeId | null {
   if (s === 'orders') return 'orders';
   if (s === 'calculators' || s === 'calculator') return 'calculators';
   if (s === 'documents' || s === 'document') return 'documents';
+  if (s === 'journey' || s === 'patient_journey') return 'journey';
   return null;
 }
 
@@ -202,6 +205,21 @@ export type DocumentManifestRow = {
   status: string;
 };
 
+export type JourneyStepRow = {
+  id: string;
+  phase: string;              // journey_phase enum value (PHASE_1_PRE_ADMISSION ..)
+  step_number: string;        // e.g., '1.1', '2.5'
+  step_name: string;
+  status: string;             // journey_step_status enum (pending, in_progress, completed, blocked, skipped, not_applicable)
+  owner_role: string;
+  tat_target_mins: number | null;
+  tat_actual_mins: number | null;
+  started_at: string | null;
+  completed_at: string | null;
+  blocked_reason: string | null;
+  skipped_reason: string | null;
+};
+
 export type ChartBundle = {
   hospital: { id: string; name: string };
   patient: {
@@ -264,6 +282,8 @@ export type ChartBundle = {
   orders: OrderRow[];
   calcResults: CalcResultRow[];
   documents: DocumentManifestRow[];
+  // D.3.2
+  journeySteps: JourneyStepRow[];
 };
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
@@ -752,6 +772,45 @@ export async function loadChartBundle(
     status: r.status ?? 'current',
   }));
 
+  // ---- Journey steps (patient_journey_steps) — D.3.2 ----
+  // Scope to hospital + patient. Don't filter by encounter — pre-admission
+  // steps legitimately have encounter_id = NULL, and we want the whole
+  // journey on the PDF. Orders by phase + step_number.
+  const journeyRows = (await sql`
+    SELECT id,
+           phase::text AS phase,
+           step_number,
+           step_name,
+           status::text AS status,
+           owner_role,
+           tat_target_mins,
+           tat_actual_mins,
+           started_at,
+           completed_at,
+           blocked_reason,
+           skipped_reason
+      FROM patient_journey_steps
+     WHERE hospital_id = ${hospitalId}
+       AND patient_id = ${patientId}::uuid
+     ORDER BY phase ASC, step_number ASC
+     LIMIT 500
+  `) as Array<any>;
+
+  const journeySteps: JourneyStepRow[] = journeyRows.map((r) => ({
+    id: r.id,
+    phase: r.phase,
+    step_number: r.step_number,
+    step_name: r.step_name,
+    status: r.status,
+    owner_role: r.owner_role,
+    tat_target_mins: r.tat_target_mins != null ? Number(r.tat_target_mins) : null,
+    tat_actual_mins: r.tat_actual_mins != null ? Number(r.tat_actual_mins) : null,
+    started_at: r.started_at ?? null,
+    completed_at: r.completed_at ?? null,
+    blocked_reason: r.blocked_reason ?? null,
+    skipped_reason: r.skipped_reason ?? null,
+  }));
+
   return {
     hospital,
     patient,
@@ -768,6 +827,7 @@ export async function loadChartBundle(
     orders,
     calcResults,
     documents,
+    journeySteps,
   };
 }
 
@@ -835,6 +895,11 @@ export async function renderChartPrint(
     case 'documents': {
       const props: DocumentsProps = { bundle, chrome: common };
       doc = React.createElement(DocumentsTemplate, props);
+      break;
+    }
+    case 'journey': {
+      const props: JourneyProps = { bundle, chrome: common };
+      doc = React.createElement(JourneyTemplate, props);
       break;
     }
   }

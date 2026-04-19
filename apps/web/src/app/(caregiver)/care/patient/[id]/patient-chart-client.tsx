@@ -1624,7 +1624,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
            chartPrint.generateTab and opens the returned PDF fileUrl in a new
            tab. Non-printable tabs render nothing (no visual shift). emar → meds
            is aliased for print scope; orders/calculators/documents map directly. */}
-      {(['overview', 'brief', 'notes', 'meds', 'labs', 'orders', 'calculators', 'documents'] as PrintScope[]).includes(
+      {(['overview', 'brief', 'notes', 'meds', 'labs', 'orders', 'calculators', 'documents', 'journey'] as PrintScope[]).includes(
         (activeTab === 'emar' ? 'meds' : activeTab) as PrintScope
       ) && (
         <div
@@ -1658,7 +1658,9 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                             ? 'Calculators'
                             : activeTab === 'documents'
                               ? 'Documents'
-                              : 'Chart'
+                              : activeTab === 'journey'
+                                ? 'Journey'
+                                : 'Chart'
             }
           />
         </div>
