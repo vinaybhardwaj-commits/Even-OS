@@ -28,6 +28,11 @@ import { QueuedDraftsBadge } from '@/components/chart/QueuedDraftsBadge';
 import { useOfflineQueue } from '@/components/chart/use-offline-queue';
 import { useChartHealth } from '@/components/chart/use-chart-health';
 import { shouldQueueVitals, vitalsReplayHandler, type VitalsPayload } from '@/lib/chart/save-vitals-offline';
+// PC.4.B.4: chart-scoped notification bell + drawer
+import { NotificationBell } from '@/components/chart/NotificationBell';
+import { NotificationDrawer } from '@/components/chart/NotificationDrawer';
+import { useChartNotifications } from '@/components/chart/use-chart-notifications';
+import type { ChartNotificationTarget } from '@/lib/chart/notification-source-mapping';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -768,6 +773,14 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
     },
   });
 
+  // PC.4.B.4: chart-scoped notification bell + drawer
+  const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
+  const chartNotifications = useChartNotifications({
+    patientId,
+    dbStatus: dbStatus as any,
+  });
+
+
   // PC.3.1: projection result is threaded but not yet used for rendering.
   // Log once (dev-only) to confirm the matrix lookup reached the client.
   useEffect(() => {
@@ -1325,6 +1338,12 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
           <QueuedDraftsBadge patientId={patientId} inverted />
           {/* PC.4.C.2: System health dots */}
           <HealthDots inverted />
+          {/* PC.4.B.4: Chart notification bell */}
+          <NotificationBell
+            counts={chartNotifications.counts}
+            maxSeverity={chartNotifications.maxSeverity}
+            onClick={() => setNotificationDrawerOpen(true)}
+          />
           {/* PC.4.A.4: Open complaints SLA badge (hidden when no open complaints) */}
           {complaintCounts && complaintCounts.open > 0 && (
             <button
@@ -6398,6 +6417,30 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
         }}
         onSubmitted={() => {
           setComplaintRefreshToken((n) => n + 1);
+        }}
+      />
+
+      {/* PC.4.B.4: Chart notification drawer */}
+      <NotificationDrawer
+        open={notificationDrawerOpen}
+        onClose={() => setNotificationDrawerOpen(false)}
+        events={chartNotifications.events}
+        status={chartNotifications.status}
+        setStatus={chartNotifications.setStatus}
+        loading={chartNotifications.loading}
+        error={chartNotifications.error}
+        refreshList={chartNotifications.refreshList}
+        markRead={chartNotifications.markRead}
+        markAllRead={chartNotifications.markAllRead}
+        dismiss={chartNotifications.dismiss}
+        onNavigate={(target: ChartNotificationTarget) => {
+          if (target.tab === null) return;
+          if (target.tab === 'calculators') {
+            setInitialCalcId(target.initialCalcId ?? null);
+            setActiveTab('calculators');
+            return;
+          }
+          setActiveTab(target.tab as PatientTab);
         }}
       />
 
