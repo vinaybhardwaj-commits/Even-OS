@@ -154,11 +154,11 @@ export function LiveOpsStrip() {
           icon="₹"
         />
 
-        {/* HEALTH */}
-        {/* NOTE: /admin/status ships in AD.4 — until then we route to the
-            closest existing surface so this cell never dead-ends. */}
+        {/* HEALTH — drills into /admin/status (AD.4) for the full deploy /
+            DB / LLM / errors / sessions deep-dive. super_admin only; other
+            admin roles will hit a redirect to /admin. */}
         <Cell
-          href="/admin/ai-observatory"
+          href="/admin/status"
           tone={
             data?.health.db.status === 'ok'
               ? 'emerald'

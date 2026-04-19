@@ -150,6 +150,7 @@ export const adminRoutes: AdminRoute[] = [
   { path: '/admin/critical-values',       title: 'Critical Values',       pillar: 'quality', icon: '🚨', blurb: 'NABH alerts, read-back, escalation',       roles: ADMIN_DEPT, shippedIn: 'S5a', status: 'live' },
 
   // ── Platform & AI ────────────────────────────────────────────────────
+  { path: '/admin/status',          title: 'System Status',     pillar: 'platform', icon: '🩺', blurb: 'Deploy, DB, LLM, errors, sessions — operator deep-dive', roles: ['super_admin'], shippedIn: 'AD.4', status: 'live', keywords: ['system','health','deploy','probe','uptime','diagnostics'] },
   { path: '/admin/ai-observatory',  title: 'AI Observatory',    pillar: 'platform', icon: '🔭', blurb: 'Background LLM jobs, latency, feedback',   roles: ADMIN, shippedIn: 'AI.1', status: 'live', keywords: ['llm','qwen','observatory'] },
   { path: '/admin/ai-settings',     title: 'AI Settings',       pillar: 'platform', icon: '🎛️', blurb: 'Thresholds, feature flags, prompts',       roles: ADMIN, shippedIn: 'AI.6', status: 'live' },
   { path: '/admin/forms',           title: 'Forms & Commands',  pillar: 'platform', icon: '📝', blurb: 'Slash commands, 26 forms, submission viewer', roles: ADMIN, shippedIn: 'SC.1', status: 'live' },
