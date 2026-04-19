@@ -31,6 +31,13 @@ export interface ChartActionDeps {
   setOrderPanel: (p: ChartOrderPanel) => void;
   /** Optional — Escalate uses this to open the Comms slider. */
   setCommsOpen?: (open: boolean) => void;
+  /**
+   * Optional — PC.4.A.4: Raise Complaint + Complaints pills open the native
+   * patient_complaints modal on the chart. When unset, the actions silently
+   * no-op rather than falling back to Comms (the two surfaces serve different
+   * purposes now: complaints = structured ops workflow, comms = free chat).
+   */
+  openComplaintModal?: () => void;
 }
 
 export interface ChartAction {
@@ -112,7 +119,7 @@ export const CHART_ACTIONS: ChartAction[] = [
   { label: 'Batch Accept',   icon: '📋', slug: 'batch_accept',   run: ({ setActiveTab }) => setActiveTab('labs') },
 
   // CCE (primary: raise_complaint, create_ticket, contact_family, log_visit)
-  { label: 'Raise Complaint', icon: '📣', slug: 'raise_complaint', run: ({ setCommsOpen }) => { if (setCommsOpen) setCommsOpen(true); } },
+  { label: 'Raise Complaint', icon: '📣', slug: 'raise_complaint', run: ({ openComplaintModal }) => { if (openComplaintModal) openComplaintModal(); } },
   { label: 'Create Ticket',   icon: '🎫', slug: 'create_ticket',   run: ({ setCommsOpen }) => { if (setCommsOpen) setCommsOpen(true); } },
   { label: 'Contact Family',  icon: '📞', slug: 'contact_family',  run: ({ setCommsOpen }) => { if (setCommsOpen) setCommsOpen(true); } },
   { label: 'Log Visit',       icon: '📝', slug: 'log_visit',       run: ({ setActiveTab }) => setActiveTab('documents') },
@@ -132,7 +139,7 @@ export const CHART_ACTIONS: ChartAction[] = [
 
   // Shared secondary — referenced by several role presets' secondary list.
   // resolveActionButtons currently only reads primary, but register for future use.
-  { label: 'Complaints', icon: '📣', slug: 'complaints', run: ({ setCommsOpen }) => { if (setCommsOpen) setCommsOpen(true); } },
+  { label: 'Complaints', icon: '📣', slug: 'complaints', run: ({ openComplaintModal }) => { if (openComplaintModal) openComplaintModal(); } },
 
   // Fallback
   { label: 'Add Note', icon: '📝', slug: 'add_note', run: ({ setActiveTab }) => setActiveTab('notes') },
@@ -180,7 +187,7 @@ export function getActionsForRole(role: string): { label: string; icon: string }
 
 /** The single entry point the UI should call when a pill is tapped. */
 export function useChartAction(deps: ChartActionDeps) {
-  const { setActiveTab, setOrderPanel, setCommsOpen } = deps;
+  const { setActiveTab, setOrderPanel, setCommsOpen, openComplaintModal } = deps;
 
   const handleAction = useCallback((label: string) => {
     const action = CHART_ACTIONS.find((a) => a.label === label);
@@ -188,8 +195,8 @@ export function useChartAction(deps: ChartActionDeps) {
       if (typeof console !== 'undefined') console.warn('[chart] unhandled action pill:', label);
       return;
     }
-    action.run({ setActiveTab, setOrderPanel, setCommsOpen });
-  }, [setActiveTab, setOrderPanel, setCommsOpen]);
+    action.run({ setActiveTab, setOrderPanel, setCommsOpen, openComplaintModal });
+  }, [setActiveTab, setOrderPanel, setCommsOpen, openComplaintModal]);
 
   const knownLabels = useMemo(() => CHART_ACTIONS.map((a) => a.label), []);
 

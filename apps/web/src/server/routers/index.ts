@@ -82,6 +82,7 @@ import { mrdDoctorRouter } from './mrd-doctor';
 import { chartProposalsRouter } from './chart-proposals';
 import { noteDraftsRouter } from './note-drafts';
 import { chartLocksRouter } from './chart-locks';
+import { complaintsRouter } from './complaints';
 import { calculatorsRouter } from './calculators';
 import { chartAuditRouter } from './chart-audit';
 import { chartMatrixRouter } from './chart-matrix';
@@ -172,6 +173,7 @@ export const appRouter = router({
   chartProposals: chartProposalsRouter,
   noteDrafts: noteDraftsRouter,
   chartLocks: chartLocksRouter,
+  complaints: complaintsRouter,
   calculators: calculatorsRouter,
   chartAudit: chartAuditRouter,
   chartMatrix: chartMatrixRouter,

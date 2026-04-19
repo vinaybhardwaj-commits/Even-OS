@@ -13,6 +13,8 @@ import BriefTab from '@/components/patient-brief/BriefTab';
 import CalculatorsTab from '@/components/patient-chart/CalculatorsTab';
 import { SensitiveText } from '@/components/patient-chart/SensitiveText';
 import OverviewCalculatorsCard from '@/components/patient-chart/OverviewCalculatorsCard';
+import OverviewComplaintsCard from '@/components/patient-chart/OverviewComplaintsCard';
+import RaiseComplaintModal from '@/components/patient-chart/RaiseComplaintModal';
 import ChatPanel, { type Channel as ChatChannel } from '@/components/chat/ChatPanel';
 import { useChartAction, getActionsForRole, resolveActionsFromSlugs } from './use-chart-action';
 import { useLock, LockBanner } from './use-lock';
@@ -769,6 +771,12 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
     encounters: any[];
     total: number;
   } | null>(null);
+  // PC.4.A.4: Native patient_complaints — Overview tile + raise-pill modal + header SLA badge.
+  const [complaintModalOpen, setComplaintModalOpen] = useState(false);
+  const [complaintModalMode, setComplaintModalMode] = useState<'raise' | 'detail'>('raise');
+  const [complaintDetailId, setComplaintDetailId] = useState<string | null>(null);
+  const [complaintRefreshToken, setComplaintRefreshToken] = useState(0);
+  const [complaintCounts, setComplaintCounts] = useState<{ open: number; breached: number; at_risk: number } | null>(null);
   const [showFormLauncher, setShowFormLauncher] = useState(false);
   const [formLauncherSlug, setFormLauncherSlug] = useState('');
 
@@ -1117,6 +1125,31 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
     };
   }, [patientId, encounter?.id]);
 
+  // ── PC.4.A.4: Load complaint open/breached/at-risk counts for header badge ─
+  useEffect(() => {
+    if (!patientId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await trpcQuery('complaints.countOpenByPatient', { patient_id: patientId });
+        if (!cancelled && result) {
+          setComplaintCounts({
+            open: typeof result.open === 'number' ? result.open : 0,
+            breached: typeof result.breached === 'number' ? result.breached : 0,
+            at_risk: typeof result.at_risk === 'number' ? result.at_risk : 0,
+          });
+        }
+      } catch (err) {
+        // Non-fatal — header just won't show the badge.
+        // eslint-disable-next-line no-console
+        console.warn('[PC.4.A.4] countOpenByPatient failed:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId, complaintRefreshToken]);
+
   // ── Escape key handler for closing order panels ───────────────────────────
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -1131,7 +1164,17 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   // ── Event handlers ───────────────────────────────────────────────────────
   // PC.1b1 (18 Apr 2026): pill routing now lives in useChartAction() — a single
   // registry shared with getActionsForRole so pills + handler can never drift.
-  const { handleAction: handleActionClick } = useChartAction({ setActiveTab, setOrderPanel, setCommsOpen });
+  const { handleAction: handleActionClick } = useChartAction({
+    setActiveTab,
+    setOrderPanel,
+    setCommsOpen,
+    // PC.4.A.4 — raise_complaint + complaints slugs open the native modal.
+    openComplaintModal: () => {
+      setComplaintModalMode('raise');
+      setComplaintDetailId(null);
+      setComplaintModalOpen(true);
+    },
+  });
 
   // ── Render: Loading state ───────────────────────────────────────────────
   if (loading) {
@@ -1245,6 +1288,42 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
           <QueuedDraftsBadge patientId={patientId} inverted />
           {/* PC.4.C.2: System health dots */}
           <HealthDots inverted />
+          {/* PC.4.A.4: Open complaints SLA badge (hidden when no open complaints) */}
+          {complaintCounts && complaintCounts.open > 0 && (
+            <button
+              onClick={() => {
+                setComplaintModalMode('raise');
+                setComplaintDetailId(null);
+                setComplaintModalOpen(true);
+              }}
+              title={
+                complaintCounts.breached > 0
+                  ? `${complaintCounts.breached} SLA breached · ${complaintCounts.open} open`
+                  : complaintCounts.at_risk > 0
+                    ? `${complaintCounts.at_risk} due soon · ${complaintCounts.open} open`
+                    : `${complaintCounts.open} open complaints`
+              }
+              style={{
+                background: complaintCounts.breached > 0
+                  ? '#DC2626'
+                  : complaintCounts.at_risk > 0
+                    ? '#D97706'
+                    : 'rgba(255,255,255,0.18)',
+                color: 'white',
+                padding: '5px 10px', borderRadius: 6,
+                fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap',
+                border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 6,
+                boxShadow: complaintCounts.breached > 0 ? '0 0 0 1px rgba(255,255,255,0.3)' : 'none',
+              }}
+            >
+              <span>📣</span>
+              <span>
+                {complaintCounts.breached > 0 && `${complaintCounts.breached} breached · `}
+                {complaintCounts.open} open
+              </span>
+            </button>
+          )}
           {/* OC.4c: Open patient chat channel */}
           {encounter && (
             <button
@@ -1819,6 +1898,22 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               onOpenCalc={(id) => {
                 setInitialCalcId(id ?? null);
                 setActiveTab('calculators');
+              }}
+            />
+
+            {/* PC.4.A.4: Patient complaints — native ops-voice substrate */}
+            <OverviewComplaintsCard
+              patientId={patientId}
+              refreshToken={complaintRefreshToken}
+              onRaise={() => {
+                setComplaintModalMode('raise');
+                setComplaintDetailId(null);
+                setComplaintModalOpen(true);
+              }}
+              onOpenDetail={(id) => {
+                setComplaintModalMode('detail');
+                setComplaintDetailId(id);
+                setComplaintModalOpen(true);
               }}
             />
 
@@ -6200,6 +6295,22 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
           })()}
         />
       )}
+
+      {/* PC.4.A.4: Raise / view patient complaint modal */}
+      <RaiseComplaintModal
+        open={complaintModalOpen}
+        mode={complaintModalMode}
+        patientId={patientId}
+        encounterId={encounter?.id ?? null}
+        complaintId={complaintDetailId}
+        onClose={() => {
+          setComplaintModalOpen(false);
+          setComplaintDetailId(null);
+        }}
+        onSubmitted={() => {
+          setComplaintRefreshToken((n) => n + 1);
+        }}
+      />
 
       {/* CSS for pulse animation + responsive overrides */}
       <style>{`
