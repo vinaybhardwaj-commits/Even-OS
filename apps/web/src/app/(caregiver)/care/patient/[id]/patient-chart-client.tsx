@@ -19,6 +19,7 @@ import { useLock, LockBanner } from './use-lock';
 import type { ChartConfig } from '@/lib/chart/selectors';
 import { HealthDots } from '@/components/chart/HealthDots';
 import { DegradedBanner } from '@/components/chart/DegradedBanner';
+import { QueuedDraftsBadge } from '@/components/chart/QueuedDraftsBadge';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -1190,6 +1191,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               <span style={{ opacity: 0.65, marginLeft: 4 }}>Attending</span>
             </div>
           )}
+          {/* PC.4.C.3: Offline-queue badge (hidden when count === 0) */}
+          <QueuedDraftsBadge patientId={patientId} inverted />
           {/* PC.4.C.2: System health dots */}
           <HealthDots inverted />
           {/* OC.4c: Open patient chat channel */}
