@@ -1,20 +1,31 @@
 /**
  * /admin — Command Center landing.
  *
- * AD.1.5: wires the new <AdminShell /> around a placeholder Command Center
- * body. The body will be fleshed out in AD.3 with the 3-rail layout
- * (Live Ops / My Work / Module Index). For now we ship a manifest-backed
- * module index so every admin page is reachable from this page on day one.
+ * AD.3: the full 3-rail Command Center body. From top to bottom:
  *
- * Other /admin/* routes continue to own their own chrome — they are NOT
- * wrapped by <AdminShell /> yet. That cut-over happens in a later phase
- * to avoid double-header/double-sidebar regressions.
+ *   1. <LiveOpsStrip />   — 4-cell live aggregated probe (ops/alerts/
+ *                           revenue/system). Polls /api/admin/live-ops
+ *                           every 30s. Every cell deep-links.
+ *   2. <MyWorkRail />     — 6–8 role-scoped action tiles for the user's
+ *                           daily workflow. Pure server-render, no data.
+ *   3. <ModuleIndex />    — dense, searchable superset of EVERY admin
+ *                           surface (incl. hideFromNav routes). Replaces
+ *                           the AD.1 pillar-grid cards.
+ *
+ * The page itself only wires composition + auth gating. All three rails
+ * are self-contained so regressions in one don't break the others.
+ *
+ * Other /admin/* routes still own their own chrome — we haven't done the
+ * AdminShell cut-over for them yet (that's a later polish pass). The
+ * landing page is the single AdminShell-wrapped surface for now.
  */
 import { redirect } from 'next/navigation';
-import Link from 'next/link';
 import { getCurrentUser } from '@/lib/auth';
 import { AdminShell } from '@/components/admin/AdminShell';
-import { routesForRole, routesByPillar } from '@/lib/admin-manifest';
+import { LiveOpsStrip } from '@/components/admin/LiveOpsStrip';
+import { MyWorkRail } from '@/components/admin/MyWorkRail';
+import { ModuleIndex } from '@/components/admin/ModuleIndex';
+import { searchableRoutesForRole } from '@/lib/admin-manifest';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,9 +42,11 @@ export default async function AdminIndexPage() {
     redirect('/');
   }
 
-  // routesForRole already filters out hideFromNav — ideal for a browse grid.
-  const visibleRoutes = routesForRole(user.role);
-  const grouped = routesByPillar(visibleRoutes);
+  // ModuleIndex gets the SUPERSET — includes hideFromNav routes so V can
+  // still reach back-office surfaces from the search box. The sidebar/⌘K
+  // already filter hideFromNav out, so this is the only place those
+  // routes are discoverable.
+  const indexRoutes = searchableRoutesForRole(user.role);
 
   return (
     <AdminShell user={user}>
@@ -43,66 +56,19 @@ export default async function AdminIndexPage() {
           Command Center
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          {grouped.length} pillars · {visibleRoutes.length} modules available ·
+          Live operations, your work, and every module — one screen.
           <span className="ml-1 font-mono text-xs">⌘K</span> to jump to any page.
         </p>
       </div>
 
-      {/* Module index — pillar grid */}
-      <section aria-label="Module index" className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {grouped.map(({ pillar, meta, routes: pillarRoutes }) => (
-          <div
-            key={pillar}
-            className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-lg" aria-hidden="true">
-                  {meta.icon}
-                </span>
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-700">
-                  {meta.label}
-                </h2>
-              </div>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                {pillarRoutes.length}
-              </span>
-            </div>
-            <p className="mb-3 text-xs text-slate-500">{meta.blurb}</p>
-            <ul className="space-y-0.5">
-              {pillarRoutes.map(r => (
-                <li key={r.path}>
-                  <Link
-                    href={r.path}
-                    className="flex items-start gap-2 rounded-md px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50 hover:text-slate-900"
-                  >
-                    <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center text-[13px]" aria-hidden="true">
-                      {r.icon || '•'}
-                    </span>
-                    <span className="flex-1">
-                      <span className="block font-medium leading-tight">{r.title}</span>
-                      {r.blurb && (
-                        <span className="mt-0.5 block text-[11px] leading-tight text-slate-500">
-                          {r.blurb}
-                        </span>
-                      )}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </section>
+      {/* Rail 1 — Live Ops strip (client, polls every 30s) */}
+      <LiveOpsStrip />
 
-      {/* Footer note */}
-      <div className="mt-8 rounded-lg border border-dashed border-slate-200 bg-white/60 p-4 text-[12px] text-slate-500">
-        <strong className="text-slate-700">AD.1 preview.</strong>{' '}
-        Full Live-Ops strip, My-Work rail, and deep health/status dashboard
-        land in AD.3–AD.4. The <code>admin-manifest.ts</code> index ships with
-        the most important ~60 routes; AD.2 brings the full ~88 enumeration
-        plus a CI gate that fails the build on drift.
-      </div>
+      {/* Rail 2 — My Work (role-adaptive, server-rendered) */}
+      <MyWorkRail role={user.role} />
+
+      {/* Rail 3 — Module Index (client, searchable superset) */}
+      <ModuleIndex routes={indexRoutes} />
     </AdminShell>
   );
 }
