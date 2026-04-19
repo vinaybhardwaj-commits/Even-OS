@@ -1619,11 +1619,12 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
         )}
       </div>
 
-      {/* ── Print Tab Sub-Header (PC.4.D.2.4) ─────────────────────────────────
-           Shows a "Print <tab>" button for the 5 printable scopes. Click fires
+      {/* ── Print Tab Sub-Header (PC.4.D.2.4 + D.3.1) ─────────────────────────
+           Shows a "Print <tab>" button for the 8 printable scopes. Click fires
            chartPrint.generateTab and opens the returned PDF fileUrl in a new
-           tab. Non-printable tabs render nothing (no visual shift). */}
-      {(['overview', 'brief', 'notes', 'meds', 'labs'] as PrintScope[]).includes(
+           tab. Non-printable tabs render nothing (no visual shift). emar → meds
+           is aliased for print scope; orders/calculators/documents map directly. */}
+      {(['overview', 'brief', 'notes', 'meds', 'labs', 'orders', 'calculators', 'documents'] as PrintScope[]).includes(
         (activeTab === 'emar' ? 'meds' : activeTab) as PrintScope
       ) && (
         <div
@@ -1651,7 +1652,13 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                       ? 'Medications'
                       : activeTab === 'labs'
                         ? 'Labs'
-                        : 'Chart'
+                        : activeTab === 'orders'
+                          ? 'Orders'
+                          : activeTab === 'calculators'
+                            ? 'Calculators'
+                            : activeTab === 'documents'
+                              ? 'Documents'
+                              : 'Chart'
             }
           />
         </div>

@@ -12,12 +12,15 @@
  *     data fetch — templates are presentational only.
  *   - renderChartPrint(scope, bundle, meta): picks a template and renders.
  *
- * Scope routing (D.2.3):
- *   tab_overview | tab:overview | overview → OverviewTemplate
- *   tab_brief    | tab:brief    | brief    → BriefTemplate
- *   tab_notes    | tab:notes    | notes    → NotesTemplate
- *   tab_meds     | tab:meds     | meds     → MedsTemplate
- *   tab_labs     | tab:labs     | labs     → LabsTemplate
+ * Scope routing (D.2.3 + D.3.1):
+ *   tab_overview     | overview    → OverviewTemplate
+ *   tab_brief        | brief       → BriefTemplate
+ *   tab_notes        | notes       → NotesTemplate
+ *   tab_meds         | meds        → MedsTemplate
+ *   tab_labs         | labs        → LabsTemplate
+ *   tab_orders       | orders      → OrdersTemplate      (D.3.1)
+ *   tab_calculators  | calculators → CalculatorsTemplate (D.3.1)
+ *   tab_documents    | documents   → DocumentsTemplate   (D.3.1, manifest only)
  *   other → returns null from normaliseScope (caller maps to status='failed').
  *
  * Scope aliases exist because the storage schema comment says "tab_overview"
@@ -33,9 +36,20 @@ import { BriefTemplate, type BriefProps } from './templates/brief';
 import { NotesTemplate, type NotesProps } from './templates/notes';
 import { MedsTemplate, type MedsProps } from './templates/meds';
 import { LabsTemplate, type LabsProps } from './templates/labs';
+import { OrdersTemplate, type OrdersProps } from './templates/orders';
+import { CalculatorsTemplate, type CalculatorsProps } from './templates/calculators';
+import { DocumentsTemplate, type DocumentsProps } from './templates/documents';
 import type { ChartPrintPageProps } from './pdf-components';
 
-export type ScopeId = 'overview' | 'brief' | 'notes' | 'meds' | 'labs';
+export type ScopeId =
+  | 'overview'
+  | 'brief'
+  | 'notes'
+  | 'meds'
+  | 'labs'
+  | 'orders'
+  | 'calculators'
+  | 'documents';
 
 export function normaliseScope(raw: string): ScopeId | null {
   const s = raw.toLowerCase().replace(/^tab[_:.-]/, '');
@@ -44,6 +58,9 @@ export function normaliseScope(raw: string): ScopeId | null {
   if (s === 'notes') return 'notes';
   if (s === 'meds' || s === 'medications') return 'meds';
   if (s === 'labs' || s === 'laboratory') return 'labs';
+  if (s === 'orders') return 'orders';
+  if (s === 'calculators' || s === 'calculator') return 'calculators';
+  if (s === 'documents' || s === 'document') return 'documents';
   return null;
 }
 
@@ -120,6 +137,71 @@ export type LabResultRow = {
   resulted_at: string;
 };
 
+// D.3.1 — Non-medication orders (union of clinical_orders + service_requests).
+export type OrderRow = {
+  id: string;
+  source: 'clinical_order' | 'service_request';
+  order_type: string;              // lab | radiology | imaging | pharmacy | procedure | diet | nursing | referral
+  order_status: string;            // draft | ordered | requested | in_progress | completed | cancelled | ...
+  priority: string | null;         // routine | urgent | stat
+  order_code: string | null;
+  order_name: string;
+  description: string | null;
+  quantity: number | null;
+  frequency: string | null;
+  duration_days: number | null;
+  instructions: string | null;
+  route: string | null;
+  dosage: string | null;
+  test_code: string | null;
+  modality: string | null;
+  body_part: string | null;
+  clinical_indication: string | null;
+  is_critical: boolean;            // only true for service_requests with critical results
+  ordered_by_name: string | null;
+  ordered_at: string;              // iso
+  completed_at: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+};
+
+// D.3.1 — Calculator result rows (latest per calc).
+export type CalcResultRow = {
+  id: string;
+  calc_id: string;
+  calc_slug: string;
+  calc_name: string | null;
+  calc_version: string;
+  score: string;                   // stringified numeric
+  band_key: string;
+  band_label: string | null;
+  band_color: string | null;
+  band_interpretation_default: string | null;
+  prose_text: string | null;
+  prose_status: string;            // pending | ready | reviewed | declined | added
+  inputs: Record<string, unknown>;
+  run_by_user_name: string;
+  run_by_user_role: string;
+  ran_at: string;                  // iso
+};
+
+// D.3.1 — Document manifest rows (mrd_document_references, non-deleted).
+export type DocumentManifestRow = {
+  id: string;
+  document_type: string;
+  document_class_confidence: string | null;
+  blob_url: string | null;
+  blob_hash: string | null;
+  content_type: string | null;
+  file_size_bytes: string | null;
+  scanned_at: string | null;
+  created_at: string;
+  uploaded_by: string | null;
+  contains_phi: boolean;
+  contains_pii: boolean;
+  status: string;
+};
+
 export type ChartBundle = {
   hospital: { id: string; name: string };
   patient: {
@@ -178,6 +260,10 @@ export type ChartBundle = {
   mar: MarRow[];
   labOrders: LabOrderRow[];
   labResults: LabResultRow[];
+  // D.3.1
+  orders: OrderRow[];
+  calcResults: CalcResultRow[];
+  documents: DocumentManifestRow[];
 };
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
@@ -468,6 +554,204 @@ export async function loadChartBundle(
     }));
   }
 
+  // --- D.3.1: Orders (clinical_orders UNION service_requests, last 30d) ---
+  const clinOrderRows = (await sql`
+    SELECT co.id,
+           'clinical_order'::text      AS source,
+           co.order_type::text         AS order_type,
+           co.order_status::text       AS order_status,
+           co.priority::text           AS priority,
+           co.order_code,
+           co.order_name,
+           co.description,
+           co.quantity,
+           co.frequency,
+           co.duration_days,
+           co.instructions,
+           co.route,
+           co.dosage,
+           NULL::text                  AS test_code,
+           NULL::text                  AS modality,
+           NULL::text                  AS body_part,
+           NULL::text                  AS clinical_indication,
+           false                       AS is_critical,
+           u.full_name                 AS ordered_by_name,
+           co.ordered_at,
+           co.completed_at,
+           co.cancelled_at,
+           co.cancel_reason
+      FROM clinical_orders co
+      LEFT JOIN users u ON u.id = co.ordered_by_user_id
+     WHERE co.patient_id = ${patientId}::uuid
+       AND co.hospital_id = ${hospitalId}
+       AND co.ordered_at >= NOW() - INTERVAL '30 days'
+     ORDER BY co.ordered_at DESC
+     LIMIT 100
+  `) as Array<any>;
+
+  const svcReqRows = (await sql`
+    SELECT sr.id,
+           'service_request'::text     AS source,
+           sr.request_type::text       AS order_type,
+           sr.status::text             AS order_status,
+           sr.sr_priority              AS priority,
+           sr.sr_order_code            AS order_code,
+           sr.sr_order_name            AS order_name,
+           NULL::text                  AS description,
+           NULL::integer               AS quantity,
+           NULL::text                  AS frequency,
+           NULL::integer               AS duration_days,
+           sr.sr_instructions          AS instructions,
+           NULL::text                  AS route,
+           NULL::text                  AS dosage,
+           sr.test_code,
+           sr.modality,
+           sr.body_part,
+           sr.clinical_indication,
+           COALESCE(sr.is_critical, false) AS is_critical,
+           u.full_name                 AS ordered_by_name,
+           sr.sr_ordered_at            AS ordered_at,
+           sr.sr_completed_at          AS completed_at,
+           sr.sr_cancelled_at          AS cancelled_at,
+           sr.sr_cancel_reason         AS cancel_reason
+      FROM service_requests sr
+      LEFT JOIN users u ON u.id = sr.requester_id
+     WHERE sr.patient_id = ${patientId}::uuid
+       AND sr.hospital_id = ${hospitalId}
+       AND sr.sr_ordered_at >= NOW() - INTERVAL '30 days'
+     ORDER BY sr.sr_ordered_at DESC
+     LIMIT 100
+  `) as Array<any>;
+
+  const mergedOrders: OrderRow[] = [...clinOrderRows, ...svcReqRows].map((r) => ({
+    id: r.id,
+    source: r.source,
+    order_type: r.order_type ?? 'other',
+    order_status: r.order_status ?? 'ordered',
+    priority: r.priority ?? null,
+    order_code: r.order_code ?? null,
+    order_name: r.order_name ?? '',
+    description: r.description ?? null,
+    quantity: r.quantity ?? null,
+    frequency: r.frequency ?? null,
+    duration_days: r.duration_days ?? null,
+    instructions: r.instructions ?? null,
+    route: r.route ?? null,
+    dosage: r.dosage ?? null,
+    test_code: r.test_code ?? null,
+    modality: r.modality ?? null,
+    body_part: r.body_part ?? null,
+    clinical_indication: r.clinical_indication ?? null,
+    is_critical: Boolean(r.is_critical),
+    ordered_by_name: r.ordered_by_name ?? null,
+    ordered_at: r.ordered_at,
+    completed_at: r.completed_at ?? null,
+    cancelled_at: r.cancelled_at ?? null,
+    cancel_reason: r.cancel_reason ?? null,
+  }));
+  mergedOrders.sort((a, b) => (b.ordered_at ?? '').localeCompare(a.ordered_at ?? ''));
+  const orders = mergedOrders.slice(0, 100);
+
+  // --- D.3.1: Calculators — latest run per calc_id ---
+  const calcRows = (await sql`
+    SELECT cr.id,
+           cr.calc_id,
+           cr.calc_slug,
+           cr.calc_version,
+           cr.score::text         AS score,
+           cr.band_key,
+           cr.prose_text,
+           cr.prose_status,
+           cr.inputs,
+           cr.run_by_user_name,
+           cr.run_by_user_role,
+           cr.ran_at,
+           c.name                 AS calc_name,
+           cb.label               AS band_label,
+           cb.color               AS band_color,
+           cb.interpretation_default AS band_interpretation_default
+      FROM calculator_results cr
+      LEFT JOIN calculators c ON c.id = cr.calc_id
+      LEFT JOIN calculator_bands cb ON cb.calc_id = cr.calc_id AND cb.band_key = cr.band_key
+     WHERE cr.patient_id = ${patientId}::uuid
+       AND cr.hospital_id = ${hospitalId}
+       AND cr.ran_at = (
+         SELECT MAX(cr2.ran_at)
+           FROM calculator_results cr2
+          WHERE cr2.patient_id = cr.patient_id
+            AND cr2.hospital_id = cr.hospital_id
+            AND cr2.calc_id = cr.calc_id
+       )
+     ORDER BY cr.ran_at DESC
+     LIMIT 50
+  `) as Array<any>;
+
+  const calcResults: CalcResultRow[] = calcRows.map((r) => {
+    let inputs: Record<string, unknown> = {};
+    try {
+      inputs = typeof r.inputs === 'string' ? JSON.parse(r.inputs) : (r.inputs ?? {});
+    } catch {
+      inputs = {};
+    }
+    return {
+      id: r.id,
+      calc_id: r.calc_id,
+      calc_slug: r.calc_slug,
+      calc_name: r.calc_name ?? null,
+      calc_version: r.calc_version,
+      score: r.score,
+      band_key: r.band_key,
+      band_label: r.band_label ?? null,
+      band_color: r.band_color ?? null,
+      band_interpretation_default: r.band_interpretation_default ?? null,
+      prose_text: r.prose_text ?? null,
+      prose_status: r.prose_status ?? 'pending',
+      inputs,
+      run_by_user_name: r.run_by_user_name,
+      run_by_user_role: r.run_by_user_role,
+      ran_at: r.ran_at,
+    };
+  });
+
+  // --- D.3.1: Documents manifest (mrd_document_references, non-deleted) ---
+  const docRows = (await sql`
+    SELECT id,
+           document_type,
+           document_class_confidence,
+           blob_url,
+           blob_hash,
+           content_type,
+           file_size_bytes,
+           scanned_at,
+           created_at,
+           uploaded_by,
+           COALESCE(contains_phi, false) AS contains_phi,
+           COALESCE(contains_pii, false) AS contains_pii,
+           status
+      FROM mrd_document_references
+     WHERE patient_id = ${patientId}::uuid
+       AND COALESCE(status, 'current') <> 'deleted'
+       AND deleted_at IS NULL
+     ORDER BY COALESCE(scanned_at, created_at) DESC
+     LIMIT 200
+  `) as Array<any>;
+
+  const documents: DocumentManifestRow[] = docRows.map((r) => ({
+    id: r.id,
+    document_type: r.document_type ?? 'other',
+    document_class_confidence: r.document_class_confidence ?? null,
+    blob_url: r.blob_url ?? null,
+    blob_hash: r.blob_hash ?? null,
+    content_type: r.content_type ?? null,
+    file_size_bytes: r.file_size_bytes ?? null,
+    scanned_at: r.scanned_at ?? null,
+    created_at: r.created_at,
+    uploaded_by: r.uploaded_by ?? null,
+    contains_phi: Boolean(r.contains_phi),
+    contains_pii: Boolean(r.contains_pii),
+    status: r.status ?? 'current',
+  }));
+
   return {
     hospital,
     patient,
@@ -481,6 +765,9 @@ export async function loadChartBundle(
     mar,
     labOrders,
     labResults,
+    orders,
+    calcResults,
+    documents,
   };
 }
 
@@ -533,6 +820,21 @@ export async function renderChartPrint(
     case 'labs': {
       const props: LabsProps = { bundle, chrome: common };
       doc = React.createElement(LabsTemplate, props);
+      break;
+    }
+    case 'orders': {
+      const props: OrdersProps = { bundle, chrome: common };
+      doc = React.createElement(OrdersTemplate, props);
+      break;
+    }
+    case 'calculators': {
+      const props: CalculatorsProps = { bundle, chrome: common };
+      doc = React.createElement(CalculatorsTemplate, props);
+      break;
+    }
+    case 'documents': {
+      const props: DocumentsProps = { bundle, chrome: common };
+      doc = React.createElement(DocumentsTemplate, props);
       break;
     }
   }

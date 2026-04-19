@@ -111,12 +111,15 @@ async function uploadPdfToBlob(params: {
   return res.url;
 }
 
-const TAB_LABELS: Record<'overview' | 'brief' | 'notes' | 'meds' | 'labs', string> = {
+const TAB_LABELS: Record<'overview' | 'brief' | 'notes' | 'meds' | 'labs' | 'orders' | 'calculators' | 'documents', string> = {
   overview: 'Overview',
   brief: 'Patient Brief',
   notes: 'Clinical Notes',
   meds: 'Medications',
   labs: 'Laboratory',
+  orders: 'Orders',
+  calculators: 'Calculators',
+  documents: 'Documents',
 };
 
 export const chartPrintRouter = router({
