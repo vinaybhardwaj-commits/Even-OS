@@ -31,6 +31,7 @@ import { shouldQueueVitals, vitalsReplayHandler, type VitalsPayload } from '@/li
 // PC.4.B.4: chart-scoped notification bell + drawer
 import { NotificationBell } from '@/components/chart/NotificationBell';
 import { NotificationDrawer } from '@/components/chart/NotificationDrawer';
+import PrintTabButton, { type PrintScope } from '@/components/chart/PrintTabButton';
 import { WatchButton } from '@/components/chart/WatchButton';
 import { useChartNotifications } from '@/components/chart/use-chart-notifications';
 import { useChartSubscription } from '@/components/chart/use-chart-subscription';
@@ -1617,6 +1618,44 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
           </button>
         )}
       </div>
+
+      {/* ── Print Tab Sub-Header (PC.4.D.2.4) ─────────────────────────────────
+           Shows a "Print <tab>" button for the 5 printable scopes. Click fires
+           chartPrint.generateTab and opens the returned PDF fileUrl in a new
+           tab. Non-printable tabs render nothing (no visual shift). */}
+      {(['overview', 'brief', 'notes', 'meds', 'labs'] as PrintScope[]).includes(
+        (activeTab === 'emar' ? 'meds' : activeTab) as PrintScope
+      ) && (
+        <div
+          style={{
+            background: 'white',
+            borderBottom: '1px solid #f0f0f0',
+            padding: '8px 20px',
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <PrintTabButton
+            patientId={patientId}
+            scope={(activeTab === 'emar' ? 'meds' : activeTab) as PrintScope}
+            tabLabel={
+              activeTab === 'overview'
+                ? 'Overview'
+                : activeTab === 'brief'
+                  ? 'Patient Brief'
+                  : activeTab === 'notes'
+                    ? 'Notes'
+                    : activeTab === 'emar'
+                      ? 'Medications'
+                      : activeTab === 'labs'
+                        ? 'Labs'
+                        : 'Chart'
+            }
+          />
+        </div>
+      )}
 
       {/* ── Overview Tab Content ──────────────────────────────────────────────── */}
       {activeTab === 'overview' && (
