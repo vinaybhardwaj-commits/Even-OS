@@ -28,6 +28,10 @@ interface NotificationDrawerProps {
   markAllRead: () => Promise<void>;
   dismiss: (ids: string[], ackReason?: string) => Promise<void>;
   onNavigate: (target: ChartNotificationTarget, eventId: string) => void;
+  hasSubscription?: boolean;
+  silenced?: boolean;
+  onSilence?: (reason: string | null) => Promise<void> | void;
+  onUnsilence?: () => Promise<void> | void;
 }
 
 const SEVERITY_ORDER: Array<'critical' | 'high' | 'normal' | 'info'> = [
@@ -87,10 +91,12 @@ export function NotificationDrawer(props: NotificationDrawerProps) {
   const {
     open, onClose, events, status, setStatus, loading, error,
     refreshList, markRead, markAllRead, dismiss, onNavigate,
+    hasSubscription = false, silenced = false, onSilence, onUnsilence,
   } = props;
 
   const [ackModal, setAckModal] = useState<{ eventIds: string[]; criticalCount: number } | null>(null);
   const [openKebab, setOpenKebab] = useState<string | null>(null);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState<boolean>(false);
 
   useEffect(() => {
     if (open) refreshList();
@@ -104,6 +110,10 @@ export function NotificationDrawer(props: NotificationDrawerProps) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open) setHeaderMenuOpen(false);
+  }, [open]);
 
   const grouped = useMemo(() => {
     const by: Record<string, ChartNotificationEventRow[]> = {};
@@ -190,22 +200,111 @@ export function NotificationDrawer(props: NotificationDrawerProps) {
                 Chart notifications
               </h3>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close notifications"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#64748b',
-                fontSize: 18,
-                cursor: 'pointer',
-                padding: 4,
-                lineHeight: 1,
-              }}
-            >
-              ✕
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative' }}>
+              {hasSubscription && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setHeaderMenuOpen((v) => !v)}
+                    aria-label="Subscription options"
+                    title={silenced ? 'Subscription silenced' : 'Subscription options'}
+                    style={{
+                      background: headerMenuOpen ? '#f1f5f9' : 'transparent',
+                      border: 'none',
+                      color: silenced ? '#94a3b8' : '#64748b',
+                      fontSize: 16,
+                      cursor: 'pointer',
+                      padding: '4px 6px',
+                      lineHeight: 1,
+                      borderRadius: 6,
+                    }}
+                  >
+                    ⋮
+                  </button>
+                  {headerMenuOpen && (
+                    <div
+                      role="menu"
+                      style={{
+                        position: 'absolute',
+                        top: 'calc(100% + 4px)',
+                        right: 24,
+                        minWidth: 220,
+                        background: '#ffffff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 8,
+                        boxShadow: '0 12px 28px rgba(15, 23, 42, 0.12)',
+                        padding: 6,
+                        zIndex: 10,
+                      }}
+                    >
+                      {silenced ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={async () => {
+                            setHeaderMenuOpen(false);
+                            if (onUnsilence) await onUnsilence();
+                          }}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            width: '100%', textAlign: 'left',
+                            padding: '8px 10px',
+                            background: 'transparent', border: 'none',
+                            borderRadius: 6,
+                            fontSize: 13, color: '#0f172a', cursor: 'pointer',
+                          }}
+                        >
+                          <span>🔔</span>
+                          <span>Unsilence notifications</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={async () => {
+                            setHeaderMenuOpen(false);
+                            const reason = typeof window !== 'undefined'
+                              ? window.prompt('Silence notifications for this patient?\n(Optional reason — leave blank for none)') ?? null
+                              : null;
+                            if (reason === null && typeof window !== 'undefined') {
+                              return;
+                            }
+                            if (onSilence) await onSilence(reason && reason.trim() ? reason.trim() : null);
+                          }}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            width: '100%', textAlign: 'left',
+                            padding: '8px 10px',
+                            background: 'transparent', border: 'none',
+                            borderRadius: 6,
+                            fontSize: 13, color: '#0f172a', cursor: 'pointer',
+                          }}
+                        >
+                          <span>🔕</span>
+                          <span>Silence notifications</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close notifications"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#64748b',
+                  fontSize: 18,
+                  cursor: 'pointer',
+                  padding: 4,
+                  lineHeight: 1,
+                }}
+              >
+                ✕
+              </button>
+            </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div style={{ display: 'flex', gap: 4 }}>

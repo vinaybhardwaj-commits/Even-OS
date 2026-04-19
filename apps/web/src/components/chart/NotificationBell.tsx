@@ -18,6 +18,8 @@ import type { UnreadCounts } from './use-chart-notifications';
 interface NotificationBellProps {
   counts: UnreadCounts;
   maxSeverity: 'critical' | 'high' | 'normal' | 'info' | null;
+  /** PC.4.D.1: when true, bell is muted — counts hidden, shows z-z marker. */
+  silenced?: boolean;
   onClick: () => void;
 }
 
@@ -28,13 +30,43 @@ const SEVERITY_FILL: Record<string, { bg: string; border: string; text: string; 
   info:     { bg: 'rgba(96, 165, 250, 0.22)', border: 'rgba(96, 165, 250, 0.55)', text: '#BFDBFE', label: 'Info' },
 };
 
-export function NotificationBell({ counts, maxSeverity, onClick }: NotificationBellProps) {
+export function NotificationBell({ counts, maxSeverity, silenced = false, onClick }: NotificationBellProps) {
   const total = counts.total;
 
   const style = useMemo(() => {
     if (!maxSeverity) return null;
     return SEVERITY_FILL[maxSeverity];
   }, [maxSeverity]);
+
+  // PC.4.D.1: silenced variant — quiet muted-bell with z-z marker.
+  if (silenced) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label="Chart notifications silenced for this patient"
+        title="Silenced — click to open drawer"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '4px 10px',
+          borderRadius: 999,
+          background: 'rgba(71, 85, 105, 0.22)',
+          border: '1px dashed rgba(148, 163, 184, 0.45)',
+          color: 'rgba(203, 213, 225, 0.75)',
+          fontSize: 11,
+          fontWeight: 600,
+          cursor: 'pointer',
+          lineHeight: 1,
+          opacity: 0.82,
+        }}
+      >
+        <span style={{ fontSize: 12, lineHeight: 1 }}>🔕</span>
+        <span style={{ fontSize: 9, letterSpacing: 0.4, opacity: 0.85 }}>zZ</span>
+      </button>
+    );
+  }
 
   if (!total || !style) {
     // Still render a quiet bell so users can open the drawer for read/dismissed tabs.

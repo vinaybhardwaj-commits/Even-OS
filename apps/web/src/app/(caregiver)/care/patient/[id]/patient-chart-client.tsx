@@ -31,7 +31,9 @@ import { shouldQueueVitals, vitalsReplayHandler, type VitalsPayload } from '@/li
 // PC.4.B.4: chart-scoped notification bell + drawer
 import { NotificationBell } from '@/components/chart/NotificationBell';
 import { NotificationDrawer } from '@/components/chart/NotificationDrawer';
+import { WatchButton } from '@/components/chart/WatchButton';
 import { useChartNotifications } from '@/components/chart/use-chart-notifications';
+import { useChartSubscription } from '@/components/chart/use-chart-subscription';
 import type { ChartNotificationTarget } from '@/lib/chart/notification-source-mapping';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
@@ -780,6 +782,9 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
     dbStatus: dbStatus as any,
   });
 
+  // PC.4.D.1: Watch button + silence toggle
+  const chartSubscription = useChartSubscription(patientId);
+
 
   // PC.3.1: projection result is threaded but not yet used for rendering.
   // Log once (dev-only) to confirm the matrix lookup reached the client.
@@ -1342,7 +1347,16 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
           <NotificationBell
             counts={chartNotifications.counts}
             maxSeverity={chartNotifications.maxSeverity}
+            silenced={chartSubscription.isSilenced}
             onClick={() => setNotificationDrawerOpen(true)}
+          />
+          {/* PC.4.D.1: Watch button */}
+          <WatchButton
+            isWatching={chartSubscription.isWatching}
+            isSilenced={chartSubscription.isSilenced}
+            source={chartSubscription.source}
+            loading={chartSubscription.loading}
+            onToggle={async () => { await chartSubscription.toggleWatch(); }}
           />
           {/* PC.4.A.4: Open complaints SLA badge (hidden when no open complaints) */}
           {complaintCounts && complaintCounts.open > 0 && (
@@ -6433,6 +6447,10 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
         markRead={chartNotifications.markRead}
         markAllRead={chartNotifications.markAllRead}
         dismiss={chartNotifications.dismiss}
+        hasSubscription={!!chartSubscription.subscription}
+        silenced={chartSubscription.isSilenced}
+        onSilence={chartSubscription.silence}
+        onUnsilence={chartSubscription.unsilence}
         onNavigate={(target: ChartNotificationTarget) => {
           if (target.tab === null) return;
           if (target.tab === 'calculators') {
