@@ -52,10 +52,8 @@ export async function GET() {
     // channel per patient that doesn't have one yet.
 
     const hospitals = (await sql`
-      SELECT DISTINCT p.hospital_id, h.hospital_name
-      FROM patients p
-      JOIN hospitals h ON h.hospital_id = p.hospital_id
-    `) as Array<{ hospital_id: string; hospital_name: string }>;
+      SELECT DISTINCT hospital_id FROM patients
+    `) as Array<{ hospital_id: string }>;
 
     let totalInserted = 0;
     const perHospital: Array<{ hospital_id: string; inserted: number; fallback_user: string | null }> = [];
