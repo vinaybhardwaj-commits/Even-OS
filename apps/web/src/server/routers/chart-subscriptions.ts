@@ -72,6 +72,9 @@ const eventTypeEnum = z.enum([
 
 const sourceEnum = z.enum(['auto_care_team', 'watch']);
 
+const severityEnum = z.enum(['critical', 'high', 'normal', 'info']);
+const readStateEnum = z.enum(['unread', 'read', 'dismissed']);
+
 // ── Row shapes (DB snake_case preserved for the client) ──────────────
 export interface ChartSubscriptionRow {
   id: string;
@@ -106,6 +109,11 @@ export interface ChartNotificationEventRow {
   payload: Record<string, unknown> | null;
   fired_at: string;
   fired_by_user_id: string | null;
+  // Joined from chart_notification_event_reads (LEFT JOIN). Nullable = unread.
+  read_state?: 'unread' | 'read' | 'dismissed' | null;
+  seen_at?: string | null;
+  dismissed_at?: string | null;
+  ack_reason?: string | null;
 }
 
 export const chartSubscriptionsRouter = router({
@@ -380,33 +388,207 @@ export const chartSubscriptionsRouter = router({
       return { ok: true };
     }),
 
-  // ─── listEvents ──────────────────────────────────────────────────
+  // ─── listEvents (user-scoped, PC.4.B.3) ──────────────────────────
+  // Returns events on patients the current user is subscribed to (non-silenced).
+  // Optional patient_id restricts to one chart; status/severity filter results.
+  // LEFT JOIN chart_notification_event_reads to surface per-user state; missing
+  // row = unread. Pagination via `before` (ISO timestamp cursor).
   listEvents: protectedProcedure
     .input(z.object({
-      patient_id: uuidSchema,
+      patient_id: uuidSchema.optional(),
+      status: z.enum(['unread', 'read', 'dismissed', 'all']).optional().default('all'),
+      severity: severityEnum.optional(),
       limit: z.number().int().positive().max(100).optional().default(30),
-      before: z.string().datetime().optional(),  // ISO cursor
+      before: z.string().datetime().optional(),
     }))
     .query(async ({ ctx, input }) => {
       const sql = getSql();
       const hospitalId = ctx.effectiveUser?.hospital_id ?? ctx.user.hospital_id;
-      const rows = input.before
-        ? (await sql`
-            SELECT * FROM chart_notification_events
-             WHERE hospital_id = ${hospitalId}
-               AND patient_id  = ${input.patient_id}
-               AND fired_at    < ${input.before}
-             ORDER BY fired_at DESC
-             LIMIT ${input.limit}
-          `) as ChartNotificationEventRow[]
-        : (await sql`
-            SELECT * FROM chart_notification_events
-             WHERE hospital_id = ${hospitalId}
-               AND patient_id  = ${input.patient_id}
-             ORDER BY fired_at DESC
-             LIMIT ${input.limit}
-          `) as ChartNotificationEventRow[];
+      const userId = ctx.user.sub;
+
+      // Single SQL with conditional filters via COALESCE/CASE. We keep the
+      // query branches explicit so parameterization stays tight with neon().
+      const rows = (await sql`
+        SELECT cne.*,
+               cer.state         AS read_state,
+               cer.seen_at       AS seen_at,
+               cer.dismissed_at  AS dismissed_at,
+               cer.ack_reason    AS ack_reason
+          FROM chart_notification_events cne
+          JOIN chart_subscriptions cs
+            ON cs.patient_id = cne.patient_id
+           AND cs.user_id    = ${userId}
+           AND cs.silenced   = false
+          LEFT JOIN chart_notification_event_reads cer
+            ON cer.event_id = cne.id
+           AND cer.user_id  = ${userId}
+         WHERE cne.hospital_id = ${hospitalId}
+           AND (${input.patient_id ?? null}::uuid IS NULL OR cne.patient_id = ${input.patient_id ?? null}::uuid)
+           AND (${input.severity ?? null}::cne_severity IS NULL OR cne.severity = ${input.severity ?? null}::cne_severity)
+           AND (
+             ${input.status}::text = 'all'
+             OR (${input.status}::text = 'unread'    AND cer.state IS NULL)
+             OR (${input.status}::text = 'read'      AND cer.state = 'read')
+             OR (${input.status}::text = 'dismissed' AND cer.state = 'dismissed')
+           )
+           AND (${input.before ?? null}::timestamptz IS NULL OR cne.fired_at < ${input.before ?? null}::timestamptz)
+         ORDER BY cne.fired_at DESC
+         LIMIT ${input.limit}
+      `) as ChartNotificationEventRow[];
       return rows;
+    }),
+
+  // ─── countUnread (PC.4.B.3) ──────────────────────────────────────
+  // Bell-badge count. Returns total + per-severity breakdown. Events with no
+  // reads row count as unread. Silenced subscriptions excluded.
+  countUnread: protectedProcedure
+    .query(async ({ ctx }) => {
+      const sql = getSql();
+      const hospitalId = ctx.effectiveUser?.hospital_id ?? ctx.user.hospital_id;
+      const userId = ctx.user.sub;
+      const rows = (await sql`
+        SELECT cne.severity::text AS severity, COUNT(*)::int AS n
+          FROM chart_notification_events cne
+          JOIN chart_subscriptions cs
+            ON cs.patient_id = cne.patient_id
+           AND cs.user_id    = ${userId}
+           AND cs.silenced   = false
+          LEFT JOIN chart_notification_event_reads cer
+            ON cer.event_id = cne.id
+           AND cer.user_id  = ${userId}
+         WHERE cne.hospital_id = ${hospitalId}
+           AND cer.state IS NULL
+         GROUP BY cne.severity
+      `) as Array<{ severity: 'critical' | 'high' | 'normal' | 'info'; n: number }>;
+      const counts = { critical: 0, high: 0, normal: 0, info: 0 };
+      for (const r of rows) counts[r.severity] = Number(r.n);
+      const total = counts.critical + counts.high + counts.normal + counts.info;
+      return { total, ...counts };
+    }),
+
+  // ─── markRead (PC.4.B.3) ─────────────────────────────────────────
+  // Bulk upsert: event_ids[] -> (state='read', seen_at=now). Subscription-scope
+  // guard ensures you can't mark events on patients you don't follow.
+  markRead: protectedProcedure
+    .input(z.object({
+      event_ids: z.array(uuidSchema).min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const hospitalId = ctx.effectiveUser?.hospital_id ?? ctx.user.hospital_id;
+      const userId = ctx.user.sub;
+      // Only touch events on patients the user is actively subscribed to.
+      const allowed = (await sql`
+        SELECT cne.id
+          FROM chart_notification_events cne
+          JOIN chart_subscriptions cs
+            ON cs.patient_id = cne.patient_id
+           AND cs.user_id    = ${userId}
+           AND cs.silenced   = false
+         WHERE cne.hospital_id = ${hospitalId}
+           AND cne.id = ANY(${input.event_ids}::uuid[])
+      `) as Array<{ id: string }>;
+      if (allowed.length === 0) return { ok: true, updated: 0 };
+      const allowedIds = allowed.map(r => r.id);
+      await sql`
+        INSERT INTO chart_notification_event_reads (event_id, user_id, state, seen_at, updated_at)
+        SELECT unnest(${allowedIds}::uuid[]), ${userId}::uuid, 'read', now(), now()
+        ON CONFLICT (event_id, user_id) DO UPDATE
+          SET state      = CASE WHEN chart_notification_event_reads.state = 'dismissed'
+                                THEN chart_notification_event_reads.state
+                                ELSE 'read' END,
+              seen_at    = COALESCE(chart_notification_event_reads.seen_at, now()),
+              updated_at = now()
+      `;
+      return { ok: true, updated: allowed.length };
+    }),
+
+  // ─── markAllRead (PC.4.B.3) ──────────────────────────────────────
+  // Clear my bell: mark every currently-unread event as read. Optional
+  // patient_id restricts to one chart.
+  markAllRead: protectedProcedure
+    .input(z.object({
+      patient_id: uuidSchema.optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const hospitalId = ctx.effectiveUser?.hospital_id ?? ctx.user.hospital_id;
+      const userId = ctx.user.sub;
+      const targets = (await sql`
+        SELECT cne.id
+          FROM chart_notification_events cne
+          JOIN chart_subscriptions cs
+            ON cs.patient_id = cne.patient_id
+           AND cs.user_id    = ${userId}
+           AND cs.silenced   = false
+          LEFT JOIN chart_notification_event_reads cer
+            ON cer.event_id = cne.id
+           AND cer.user_id  = ${userId}
+         WHERE cne.hospital_id = ${hospitalId}
+           AND cer.state IS NULL
+           AND (${input.patient_id ?? null}::uuid IS NULL OR cne.patient_id = ${input.patient_id ?? null}::uuid)
+      `) as Array<{ id: string }>;
+      if (targets.length === 0) return { ok: true, updated: 0 };
+      const targetIds = targets.map(r => r.id);
+      await sql`
+        INSERT INTO chart_notification_event_reads (event_id, user_id, state, seen_at, updated_at)
+        SELECT unnest(${targetIds}::uuid[]), ${userId}::uuid, 'read', now(), now()
+        ON CONFLICT (event_id, user_id) DO NOTHING
+      `;
+      return { ok: true, updated: targets.length };
+    }),
+
+  // ─── dismiss (PC.4.B.3) ──────────────────────────────────────────
+  // Bulk dismiss events. For severity='critical' events, ack_reason (4-500
+  // chars) is mandatory — enforced here, not at the schema layer, so callers
+  // get a clear 400 instead of a DB constraint error.
+  dismiss: protectedProcedure
+    .input(z.object({
+      event_ids: z.array(uuidSchema).min(1).max(200),
+      ack_reason: z.string().trim().min(4).max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sql = getSql();
+      const hospitalId = ctx.effectiveUser?.hospital_id ?? ctx.user.hospital_id;
+      const userId = ctx.user.sub;
+
+      // Fetch target events (scoped to user's active subs); keep severity for
+      // the critical-ack enforcement.
+      const targets = (await sql`
+        SELECT cne.id, cne.severity::text AS severity
+          FROM chart_notification_events cne
+          JOIN chart_subscriptions cs
+            ON cs.patient_id = cne.patient_id
+           AND cs.user_id    = ${userId}
+           AND cs.silenced   = false
+         WHERE cne.hospital_id = ${hospitalId}
+           AND cne.id = ANY(${input.event_ids}::uuid[])
+      `) as Array<{ id: string; severity: string }>;
+
+      if (targets.length === 0) return { ok: true, updated: 0 };
+
+      const hasCritical = targets.some(t => t.severity === 'critical');
+      if (hasCritical && !input.ack_reason) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'ack_reason (4-500 chars) required to dismiss critical-severity events',
+        });
+      }
+
+      const targetIds = targets.map(r => r.id);
+      await sql`
+        INSERT INTO chart_notification_event_reads
+          (event_id, user_id, state, seen_at, dismissed_at, ack_reason, updated_at)
+        SELECT unnest(${targetIds}::uuid[]), ${userId}::uuid,
+               'dismissed', now(), now(), ${input.ack_reason ?? null}, now()
+        ON CONFLICT (event_id, user_id) DO UPDATE
+          SET state        = 'dismissed',
+              seen_at      = COALESCE(chart_notification_event_reads.seen_at, now()),
+              dismissed_at = now(),
+              ack_reason   = COALESCE(EXCLUDED.ack_reason, chart_notification_event_reads.ack_reason),
+              updated_at   = now()
+      `;
+      return { ok: true, updated: targets.length };
     }),
 
   // ─── adminListForUser ────────────────────────────────────────────

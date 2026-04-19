@@ -194,3 +194,47 @@ export const chartNotificationEvents = pgTable(
     byHospitalFired: index('idx_chart_evt_hospital_fired').on(t.hospitalId, t.firedAt),
   }),
 );
+
+// ── cnr_state enum ────────────────────────────────────────────────────
+// PC.4.B.3: per-user read state for chart_notification_events.
+//   unread    — default; event has never been acted on by this user.
+//   read      — user has seen it but hasn't resolved it.
+//   dismissed — user has explicitly cleared it; requires ack_reason when
+//               event severity = 'critical'.
+export const chartNotificationReadStateEnum = pgEnum(
+  'cnr_state',
+  ['unread', 'read', 'dismissed'],
+);
+
+// ── chart_notification_event_reads ────────────────────────────────────
+// Per-user read state keyed by (event_id, user_id).
+//   - Events remain immutable in chart_notification_events; this table
+//     captures per-user action state.
+//   - Rows are upserted on first action (markRead/dismiss). Absence = unread.
+//   - ack_reason is nullable but enforced (4-500 chars) by the tRPC layer
+//     for events where severity='critical' and state='dismissed'. Schema
+//     allows NULL so non-critical dismisses don't need it.
+//   - UNIQUE (event_id, user_id) guarantees one row per edge.
+export const chartNotificationEventReads = pgTable(
+  'chart_notification_event_reads',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => chartNotificationEvents.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    state: chartNotificationReadStateEnum('state').notNull().default('unread'),
+    seenAt: timestamp('seen_at', { withTimezone: true }),
+    dismissedAt: timestamp('dismissed_at', { withTimezone: true }),
+    ackReason: text('ack_reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uniqEdge: uniqueIndex('uniq_chart_evt_read').on(t.eventId, t.userId),
+    byUser: index('idx_chart_evt_read_user').on(t.userId, t.state),
+    byEvent: index('idx_chart_evt_read_event').on(t.eventId),
+  }),
+);
