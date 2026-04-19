@@ -102,6 +102,53 @@ export const lsqRouter = router({
       return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
     }),
 
+  // ─── BY-PATIENT (PC.4.A.5) ───────────────────────────────────────
+  // Used by the chart header chip + CCE Overview LSQ tile. Resolves
+  // whether a patient originated from LSQ, and if so returns the
+  // mapping row for display. Hospital-scoped, preview-role-compat.
+  getByPatient: protectedProcedure
+    .input(z.object({ patient_id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const hospitalId = ctx.effectiveUser?.hospital_id ?? ctx.user.hospital_id;
+
+      const result = await db.execute(sql`
+        SELECT
+          p.source_type,
+          p.lsq_lead_id               as patient_lsq_lead_id,
+          ls.id                       as sync_state_id,
+          ls.lsq_lead_id              as sync_lsq_lead_id,
+          ls.status                   as sync_status,
+          ls.synced_at                as sync_synced_at
+        FROM patients p
+        LEFT JOIN lsq_sync_state ls
+          ON ls.patient_id = p.id
+          AND ls.hospital_id = p.hospital_id
+        WHERE p.id = ${input.patient_id}
+          AND p.hospital_id = ${hospitalId}
+        LIMIT 1
+      `);
+
+      const rows = (result as any).rows || result;
+      const row = rows?.[0];
+      if (!row) return null;
+
+      const leadId: string | null =
+        row.sync_lsq_lead_id ?? row.patient_lsq_lead_id ?? null;
+
+      // If neither source nor sync state says LSQ, this patient isn't
+      // from LSQ — return null so the chip/card stays hidden.
+      const isLsq = row.source_type === 'lsq_lead' || !!leadId;
+      if (!isLsq) return null;
+
+      return {
+        lsq_lead_id: leadId,
+        status: (row.sync_status as 'synced' | 'processed' | 'merged' | null) ?? 'synced',
+        synced_at: row.sync_synced_at ?? null,
+        source_type: row.source_type ?? null,
+        has_sync_state: !!row.sync_state_id,
+      };
+    }),
+
   // ─── LIST LEAD MAPPINGS (LSQ lead → patient) ──────────────
   listLeadMappings: protectedProcedure
     .input(z.object({

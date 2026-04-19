@@ -14,6 +14,7 @@ import CalculatorsTab from '@/components/patient-chart/CalculatorsTab';
 import { SensitiveText } from '@/components/patient-chart/SensitiveText';
 import OverviewCalculatorsCard from '@/components/patient-chart/OverviewCalculatorsCard';
 import OverviewComplaintsCard from '@/components/patient-chart/OverviewComplaintsCard';
+import OverviewLsqCard from '@/components/patient-chart/OverviewLsqCard';
 import RaiseComplaintModal from '@/components/patient-chart/RaiseComplaintModal';
 import ChatPanel, { type Channel as ChatChannel } from '@/components/chat/ChatPanel';
 import { useChartAction, getActionsForRole, resolveActionsFromSlugs } from './use-chart-action';
@@ -777,6 +778,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   const [complaintDetailId, setComplaintDetailId] = useState<string | null>(null);
   const [complaintRefreshToken, setComplaintRefreshToken] = useState(0);
   const [complaintCounts, setComplaintCounts] = useState<{ open: number; breached: number; at_risk: number } | null>(null);
+  // PC.4.A.5: LSQ by-patient — header chip + CCE Overview card.
+  const [lsqLead, setLsqLead] = useState<{ lsq_lead_id: string | null; status: string | null; synced_at: string | null } | null>(null);
   const [showFormLauncher, setShowFormLauncher] = useState(false);
   const [formLauncherSlug, setFormLauncherSlug] = useState('');
 
@@ -1150,6 +1153,23 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
     };
   }, [patientId, complaintRefreshToken]);
 
+  // ── PC.4.A.5: Load LSQ mapping for this patient ─────────────────────
+  useEffect(() => {
+    if (!patientId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await trpcQuery('lsq.getByPatient', { patient_id: patientId });
+        if (!cancelled) setLsqLead((result as any) ?? null);
+      } catch (err) {
+        // Non-fatal — LSQ is a courtesy surface; failures hide the chip/card.
+        // eslint-disable-next-line no-console
+        console.warn('[PC.4.A.5] lsq.getByPatient failed:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [patientId]);
+
   // ── Escape key handler for closing order panels ───────────────────────────
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -1323,6 +1343,35 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                 {complaintCounts.open} open
               </span>
             </button>
+          )}
+          {/* PC.4.A.5: LSQ lead chip (visible only if patient originated from LSQ) */}
+          {lsqLead && (
+            <div
+              title={[
+                lsqLead.lsq_lead_id ? `Lead ${lsqLead.lsq_lead_id}` : 'LSQ lead',
+                lsqLead.status ? `· ${lsqLead.status}` : '',
+                lsqLead.synced_at ? `· synced ${new Date(lsqLead.synced_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : '',
+              ].filter(Boolean).join(' ')}
+              style={{
+                background: 'rgba(79,70,229,0.22)',
+                color: 'white',
+                padding: '5px 10px', borderRadius: 6,
+                fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap',
+                display: 'flex', alignItems: 'center', gap: 6,
+                border: '1px solid rgba(255,255,255,0.18)',
+              }}
+            >
+              <span style={{
+                fontSize: 10, fontWeight: 800,
+                background: 'rgba(255,255,255,0.9)', color: '#4F46E5',
+                padding: '1px 5px', borderRadius: 3, letterSpacing: 0.4,
+              }}>LSQ</span>
+              <span style={{ opacity: 0.95 }}>
+                {lsqLead.lsq_lead_id
+                  ? (lsqLead.lsq_lead_id.length > 10 ? `…${lsqLead.lsq_lead_id.slice(-6)}` : lsqLead.lsq_lead_id)
+                  : 'lead'}
+              </span>
+            </div>
           )}
           {/* OC.4c: Open patient chat channel */}
           {encounter && (
@@ -1916,6 +1965,9 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
                 setComplaintModalOpen(true);
               }}
             />
+
+            {/* PC.4.A.5: LSQ lead card (hidden for non-LSQ patients) */}
+            <OverviewLsqCard patientId={patientId} />
 
             {/* Journey Status */}
             {journey && (
