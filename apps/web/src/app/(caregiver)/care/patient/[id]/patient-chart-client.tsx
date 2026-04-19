@@ -17,6 +17,8 @@ import ChatPanel, { type Channel as ChatChannel } from '@/components/chat/ChatPa
 import { useChartAction, getActionsForRole, resolveActionsFromSlugs } from './use-chart-action';
 import { useLock, LockBanner } from './use-lock';
 import type { ChartConfig } from '@/lib/chart/selectors';
+import { HealthDots } from '@/components/chart/HealthDots';
+import { DegradedBanner } from '@/components/chart/DegradedBanner';
 
 // ── tRPC helpers ────────────────────────────────────────────────────────────
 async function trpcQuery(path: string, input?: any) {
@@ -1188,6 +1190,8 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
               <span style={{ opacity: 0.65, marginLeft: 4 }}>Attending</span>
             </div>
           )}
+          {/* PC.4.C.2: System health dots */}
+          <HealthDots inverted />
           {/* OC.4c: Open patient chat channel */}
           {encounter && (
             <button
@@ -1211,6 +1215,9 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
           )}
         </div>
       </header>
+
+      {/* PC.4.C.2: Degraded-mode banner (red-only) */}
+      <DegradedBanner />
 
       {/* ── Header: Row 2 - Acuity + Journey ────────────────────────────────── */}
       <div style={{
