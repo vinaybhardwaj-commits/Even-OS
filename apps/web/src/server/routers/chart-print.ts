@@ -1,20 +1,16 @@
 /**
- * Patient Chart Overhaul — PC.4.D.2.2 — chartPrint tRPC router (live).
+ * Patient Chart Overhaul — PC.4.D.2.3 — chartPrint tRPC router (live).
  *
  * Audit + file log for per-tab PDF exports. See 60-chart-print-exports.ts
  * for the table shape and the 10 D.2-locked defaults (19 Apr 2026).
  *
- * D.2.2 delta vs D.2.1:
- *   - generateTab now runs the real render-then-upload pipeline:
- *       1. Validate scope + patient tenancy
- *       2. Insert audit row status='generating'
- *       3. loadChartBundle + renderChartPrint → PDF Buffer
- *       4. put() buffer to Vercel Blob (public, UUID path)
- *       5. Update audit row status='ready' + file_url + bytes + ready_at
- *      On any error: update row status='failed' + error text.
- *   - Scopes implemented: `tab_overview`, `tab_brief` (aliases accepted).
- *     Other scopes return a 'failed' row with error='D.2.3 template pending'
- *     so the UI surface is stable before D.2.3/D.3 templates land.
+ * D.2.3 delta vs D.2.2:
+ *   - Scopes extended to five tab templates: `tab_overview`, `tab_brief`,
+ *     `tab_notes`, `tab_meds`, `tab_labs` (all with tab: / bare aliases).
+ *   - Pagination polish: `pdf-parse` post-render to patch `page_count` on
+ *     the audit row. Parse failure is tolerated — page_count stays NULL.
+ *   - Other scopes still return a 'failed' row with error='D.3 template
+ *     pending' so the UI flow stays stable before D.3 / PC.5 scopes land.
  *   - listForPatient / listForUser now OMIT file_url from their response —
  *     callers must hit getById for a concrete URL. This matches the D.3
  *     upgrade path where getById will mint per-request signed URLs.
@@ -115,18 +111,21 @@ async function uploadPdfToBlob(params: {
   return res.url;
 }
 
-const TAB_LABELS: Record<'overview' | 'brief', string> = {
+const TAB_LABELS: Record<'overview' | 'brief' | 'notes' | 'meds' | 'labs', string> = {
   overview: 'Overview',
   brief: 'Patient Brief',
+  notes: 'Clinical Notes',
+  meds: 'Medications',
+  labs: 'Laboratory',
 };
 
 export const chartPrintRouter = router({
   // ───────────────────────────────────────────────────────────────────
   // generateTab — real render-then-upload pipeline (D.2.2).
   //
-  // Scopes supported: tab_overview, tab_brief (aliases: overview, brief,
-  // tab:overview, tab:brief). Everything else logs a 'failed' row with a
-  // machine-readable error so the UI flow stays stable pre-D.2.3.
+  // Scopes supported: tab_overview, tab_brief, tab_notes, tab_meds,
+  // tab_labs (aliases: overview/brief/notes/meds/labs + tab: prefix). Everything else logs a 'failed' row with a
+  // machine-readable error so the UI flow stays stable pre-D.3.
   // ───────────────────────────────────────────────────────────────────
   generateTab: protectedProcedure
     .input(
@@ -194,13 +193,13 @@ export const chartPrintRouter = router({
         await sql`
           UPDATE chart_print_exports
              SET status = 'failed',
-                 error = ${'D.2.3 template pending — scope: ' + input.scope}
+                 error = ${'D.3 template pending — scope: ' + input.scope}
            WHERE id = ${printId}::uuid
         `;
         return {
           id: printId,
           status: 'failed' as const,
-          error: 'D.2.3 template pending — scope: ' + input.scope,
+          error: 'D.3 template pending — scope: ' + input.scope,
           createdAt: insertedRows[0].created_at,
           readyAt: null as string | null,
           fileUrl: null as string | null,
@@ -230,6 +229,21 @@ export const chartPrintRouter = router({
           },
         );
 
+        // D.2.3 pagination polish — parse the rendered PDF to patch the
+        // page_count column on the audit row. pdf-parse is a thin wrapper
+        // around pdfjs and runs in Node; we tolerate parse failure so a
+        // broken parser doesn't mask an otherwise-successful export.
+        let pageCount: number | null = null;
+        try {
+          const pdfParse = (await import('pdf-parse')).default;
+          const parsed = await pdfParse(buffer);
+          pageCount = typeof parsed.numpages === 'number' && parsed.numpages > 0
+            ? parsed.numpages
+            : null;
+        } catch {
+          pageCount = null;
+        }
+
         const fileUrl = await uploadPdfToBlob({
           buffer,
           hospitalId,
@@ -243,7 +257,7 @@ export const chartPrintRouter = router({
              SET status = 'ready',
                  file_url = ${fileUrl},
                  file_size_bytes = ${bytes},
-                 page_count = NULL,
+                 page_count = ${pageCount},
                  ready_at = NOW()
            WHERE id = ${printId}::uuid
            RETURNING id, status, ready_at, file_size_bytes, page_count
