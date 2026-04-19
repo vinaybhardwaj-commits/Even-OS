@@ -116,8 +116,9 @@ export const adminRoutes: AdminRoute[] = [
   { path: '/admin/culture-histopath', title: 'Culture & Histopath', pillar: 'diagnostics', icon: '🔬', blurb: 'Culture sensitivity, histopathology', roles: ADMIN_DEPT, shippedIn: 'S7b', status: 'live' },
   { path: '/admin/hl7-analyzer',      title: 'HL7 Analyzers',     pillar: 'diagnostics', icon: '🔌', blurb: 'Adapters, messages, dead letters',    roles: ADMIN,      shippedIn: 'L.8', status: 'live' },
   { path: '/admin/test-cockpit',      title: 'Test Cockpit',      pillar: 'diagnostics', icon: '🛠️', blurb: 'Lab engineering console (internal)',   roles: ADMIN,      status: 'beta' },
-  { path: '/admin/test-catalog',      title: 'Test Catalog (legacy)', pillar: 'diagnostics', icon: '🗃️', blurb: 'Superseded by Test Catalog v2',    roles: ADMIN,      status: 'legacy', keywords: ['old','deprecated'] },
-  { path: '/admin/qc-levey-jennings', title: 'Levey-Jennings (legacy)', pillar: 'diagnostics', icon: '📉', blurb: 'Superseded by QC & Westgard',    roles: ADMIN,      status: 'legacy' },
+  { path: '/admin/test-catalog',      title: 'Test Catalog (legacy)', pillar: 'diagnostics', icon: '🗃️', blurb: 'Redirects to Test Catalog v2',     roles: ADMIN,      status: 'legacy', hideFromNav: true, keywords: ['old','deprecated','redirect'] },
+  { path: '/admin/qc-levey-jennings', title: 'Levey-Jennings (legacy)', pillar: 'diagnostics', icon: '📉', blurb: 'Redirects to QC & Westgard',       roles: ADMIN,      status: 'legacy', hideFromNav: true, keywords: ['old','deprecated','redirect'] },
+  { path: '/admin/lab-worklist',      title: 'Lab Worklist (redirect)', pillar: 'diagnostics', icon: '🧪', blurb: 'Redirects to /admin/lab/worklist', roles: ADMIN,      status: 'legacy', hideFromNav: true, keywords: ['worklist','redirect','misroute'] },
 
   // ── Revenue ──────────────────────────────────────────────────────────
   { path: '/admin/billing-v2',            title: 'Billing v2',       pillar: 'revenue', icon: '💰', blurb: 'Accounts, deposits, packages, room charges', roles: ADMIN_DEPT, shippedIn: 'A.1', status: 'live' },
@@ -128,7 +129,7 @@ export const adminRoutes: AdminRoute[] = [
   { path: '/admin/insurance-claims',      title: 'Insurance Claims', pillar: 'revenue', icon: '📋', blurb: 'Pre-auth, enhancement, TPA settlement', roles: ADMIN_DEPT, shippedIn: 'S6b', status: 'live' },
   { path: '/admin/revenue-dashboard',     title: 'Revenue Dashboard',pillar: 'revenue', icon: '📈', blurb: 'Refunds, invoices, analytics, trends', roles: ADMIN,      shippedIn: 'S6c', status: 'live' },
   { path: '/admin/charge-master',         title: 'Charge Master',    pillar: 'revenue', icon: '₹',  blurb: 'Prices, procedures, labs',             roles: ADMIN,      shippedIn: 'S2a', status: 'live' },
-  { path: '/admin/billing',               title: 'Billing (legacy)', pillar: 'revenue', icon: '🗄️', blurb: 'Superseded by Billing v2',             roles: ADMIN,      status: 'legacy' },
+  { path: '/admin/billing',               title: 'Billing (legacy)', pillar: 'revenue', icon: '🗄️', blurb: 'Redirects to Billing v2',              roles: ADMIN,      status: 'legacy', hideFromNav: true, keywords: ['old','deprecated','redirect'] },
 
   // ── Finance ──────────────────────────────────────────────────────────
   { path: '/admin/finance/dashboard',         title: 'Finance Dashboard',   pillar: 'finance', icon: '📊', blurb: 'Revenue, cash, AR aging, close status', roles: ADMIN, shippedIn: 'C.7', status: 'live' },

@@ -1,11 +1,12 @@
-import { getCurrentUser } from '@/lib/auth';
+/**
+ * /admin/test-catalog — RETIRED. Replaced by /admin/lab/test-catalog-v2
+ * (ships B.2 as part of LIS v2).
+ *
+ * AD.5: pure server-side redirect. Manifest entry kept (hideFromNav +
+ * status: 'legacy') so the CI gate still accounts for this page.
+ */
 import { redirect } from 'next/navigation';
-import TestCatalogClient from './test-catalog-client';
 
-export default async function TestCatalogPage() {
-  const user = await getCurrentUser();
-  if (!user) redirect('/login');
-  if (!['super_admin', 'hospital_admin'].includes(user.role)) redirect('/dashboard');
-
-  return <TestCatalogClient user={user} />;
+export default function TestCatalogPage() {
+  redirect('/admin/lab/test-catalog-v2');
 }
