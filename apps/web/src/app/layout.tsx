@@ -4,6 +4,7 @@ import './globals.css';
 import { CockpitFab } from './(admin)/admin/test-cockpit/cockpit-fab';
 import { ChatProvider } from '@/providers/ChatProvider';
 import { ChatShell } from '@/components/chat/ChatShell';
+import PreviewRoleBanner from '@/components/chart/preview/PreviewRoleBanner';
 
 export const metadata: Metadata = {
   title: 'Even OS',
@@ -18,6 +19,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="font-sans antialiased bg-gray-50 text-gray-900">
+        <Suspense fallback={null}>
+          <PreviewRoleBanner />
+        </Suspense>
         <ChatProvider>
           <ChatShell>
             {children}

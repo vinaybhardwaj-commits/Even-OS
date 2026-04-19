@@ -85,6 +85,7 @@ import { chartLocksRouter } from './chart-locks';
 import { calculatorsRouter } from './calculators';
 import { chartAuditRouter } from './chart-audit';
 import { chartMatrixRouter } from './chart-matrix';
+import { previewRoleRouter } from './preview-role';
 
 export const appRouter = router({
   auth: authRouter,
@@ -173,6 +174,7 @@ export const appRouter = router({
   calculators: calculatorsRouter,
   chartAudit: chartAuditRouter,
   chartMatrix: chartMatrixRouter,
+  previewRole: previewRoleRouter,
 });
 
 export type AppRouter = typeof appRouter;

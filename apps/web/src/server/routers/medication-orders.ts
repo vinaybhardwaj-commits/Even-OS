@@ -501,7 +501,7 @@ export const medicationOrdersRouter = router({
 
         const rawRows = (result as any).rows ?? result;
         // PC.3.3.D — server-side projection.
-        const chartConfig = await resolveChartConfigForUser(ctx.user);
+        const chartConfig = await resolveChartConfigForUser(ctx.effectiveUser);
         const projected = projectRowsForRole(
           (rawRows as Record<string, unknown>[]) ?? [],
           {
@@ -1152,7 +1152,7 @@ export const medicationOrdersRouter = router({
         // PC.3.3.D — service_requests has no drug fields; redact
         // clinical_indication / instructions when procedures or
         // notes_snippet is sensitive for this role.
-        const chartConfig = await resolveChartConfigForUser(ctx.user);
+        const chartConfig = await resolveChartConfigForUser(ctx.effectiveUser);
         const projected = projectRowsForRole(
           (rawRows as Record<string, unknown>[]) ?? [],
           {

@@ -109,6 +109,8 @@ export function ChartRolesAdminClient() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewMsg, setPreviewMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   // Editor local state (buffered until Save is pressed)
@@ -188,6 +190,26 @@ export function ChartRolesAdminClient() {
 
   const toggleTab = (tab: string) => {
     setTabs((prev) => (prev.includes(tab) ? prev.filter((t) => t !== tab) : [...prev, tab]));
+  };
+
+  const onPreviewAsRole = async () => {
+    if (!selected) return;
+    setPreviewing(true);
+    setPreviewMsg(null);
+    try {
+      await trpcMutate('previewRole.set', {
+        role: selected.role,
+        role_tag: selected.role_tag ?? null,
+        hospital_id: selected.hospital_id,
+      });
+      setPreviewMsg('Preview active — reloading…');
+      setTimeout(() => {
+        window.location.href = '/dashboard';
+      }, 500);
+    } catch (e: any) {
+      setPreviewMsg(e?.message ?? 'Preview failed.');
+      setPreviewing(false);
+    }
   };
 
   const onSave = async () => {
@@ -298,6 +320,25 @@ export function ChartRolesAdminClient() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 {saveMsg && <div style={{ fontSize: 12, color: '#059669' }}>{saveMsg}</div>}
+                {previewMsg && <div style={{ fontSize: 12, color: '#b45309' }}>{previewMsg}</div>}
+                <button
+                  onClick={onPreviewAsRole}
+                  disabled={previewing || saving}
+                  title="Log in as super_admin, then view the chart as this role. Cookie-based, 1hr."
+                  style={{
+                    padding: '8px 14px',
+                    background: '#fffbeb',
+                    color: '#92400e',
+                    border: '1px solid #fbbf24',
+                    borderRadius: 6,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: previewing ? 'default' : 'pointer',
+                    opacity: previewing ? 0.5 : 1,
+                  }}
+                >
+                  {previewing ? 'Starting…' : 'Preview as this role'}
+                </button>
                 <button
                   onClick={onSave}
                   disabled={saving}

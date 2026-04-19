@@ -811,7 +811,7 @@ export const clinicalNotesRouter = router({
 
         // PC.3.3.D — server-side projection. Redact note body + procedure
         // fields when the caller's chartConfig marks them sensitive.
-        const chartConfig = await resolveChartConfigForUser(ctx.user);
+        const chartConfig = await resolveChartConfigForUser(ctx.effectiveUser);
         const projected = projectRowsForRole(
           (rawRows as Record<string, unknown>[]) ?? [],
           {

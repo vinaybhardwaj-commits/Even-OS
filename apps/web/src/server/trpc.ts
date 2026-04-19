@@ -1,14 +1,35 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import superjson from 'superjson';
 import { getCurrentUser, type JWTPayload } from '@/lib/auth';
+import { getPreviewRole } from '@/lib/chart/preview-role';
 
 export interface Context {
+  /** Real authenticated user — use this for mutations and audit attribution. */
   user: JWTPayload | null;
+  /**
+   * Effective user for read-path projection. Equals `user` unless the real
+   * user is super_admin AND has set the preview-role cookie, in which case
+   * it carries the impersonated role/role_tag/hospital_id while preserving
+   * the real user's sub/email/name. PC.3.4 Track B.
+   */
+  effectiveUser: JWTPayload | null;
 }
 
 export async function createContext(): Promise<Context> {
   const user = await getCurrentUser();
-  return { user };
+  let effectiveUser = user;
+  if (user && user.role === 'super_admin') {
+    const preview = await getPreviewRole();
+    if (preview) {
+      effectiveUser = {
+        ...user,
+        role: preview.role,
+        role_tag: preview.role_tag ?? (user as any).role_tag ?? null,
+        hospital_id: preview.hospital_id ?? user.hospital_id,
+      } as JWTPayload;
+    }
+  }
+  return { user, effectiveUser };
 }
 
 const t = initTRPC.context<Context>().create({
