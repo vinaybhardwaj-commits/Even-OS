@@ -63,3 +63,5 @@ export * from './56-admin-audit-log';
 export * from './57-chart-matrix-versions';
 
 export * from './58-patient-complaints';
+
+export * from './59-chart-subscriptions';
