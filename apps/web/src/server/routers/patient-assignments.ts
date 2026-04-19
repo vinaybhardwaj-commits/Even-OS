@@ -8,7 +8,7 @@ import {
   patients, encounters, locations, users, shiftInstances, shiftRoster,
 } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
-import { addCareTeamMember, removeCareTeamMember } from '@/lib/chat/channel-manager';
+import { addCareTeamMember, removeCareTeamMember, addPersistentCareTeamMember } from '@/lib/chat/channel-manager';
 import { eq, and, sql, desc, asc, inArray, count } from 'drizzle-orm';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
@@ -117,6 +117,16 @@ export const patientAssignmentsRouter = router({
         }).catch(() => {});
       }
 
+      // PC.4.A.2: also add nurse to PERSISTENT patient channel (fire-and-forget).
+      // Persistent membership is longitudinal — a nurse who cared for the patient
+      // stays in the persistent room for context on future admissions.
+      addPersistentCareTeamMember({
+        patient_id: input.patient_id,
+        user_id: input.nurse_id,
+        role: 'member',
+        reason: 'Nurse assignment',
+      }).catch(() => {});
+
       return assignment;
     }),
 
@@ -204,6 +214,18 @@ export const patientAssignmentsRouter = router({
         addCareTeamMember({
           encounter_id: existing.encounter_id,
           user_id: input.new_nurse_id,
+          reason: `Nurse reassignment: ${input.reason}`,
+        }).catch(() => {});
+      }
+
+      // PC.4.A.2: add NEW nurse to persistent room. The OLD nurse is NOT removed
+      // from the persistent room — persistent membership is longitudinal history,
+      // not shift-based. Fire-and-forget.
+      if (existing.patient_id) {
+        addPersistentCareTeamMember({
+          patient_id: existing.patient_id,
+          user_id: input.new_nurse_id,
+          role: 'member',
           reason: `Nurse reassignment: ${input.reason}`,
         }).catch(() => {});
       }

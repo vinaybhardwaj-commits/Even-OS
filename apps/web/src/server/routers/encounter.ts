@@ -8,7 +8,7 @@ import {
   transferHistory, dischargeOrders,
 } from '@db/schema';
 import { writeAuditLog } from '@/lib/audit/logger';
-import { createPatientChannel, archivePatientChannel, onBedTransfer } from '@/lib/chat/channel-manager';
+import { createPatientChannel, archivePatientChannel, onBedTransfer, addPersistentCareTeamMember } from '@/lib/chat/channel-manager';
 import { eq, and, sql, desc, isNull } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
@@ -222,6 +222,16 @@ export const encounterRouter = router({
         hospital_id: ctx.user.hospital_id,
         attending_doctor_id: ctx.user.sub,
         bed_label: bed.code,
+      }).catch(() => {});
+
+      // PC.4.A.2: also add the admitting clinician to the PERSISTENT patient
+      // channel (longitudinal, spans admissions). Fire-and-forget; idempotent.
+      addPersistentCareTeamMember({
+        patient_id: input.patient_id,
+        user_id: ctx.user.sub,
+        role: 'member',
+        user_name: ctx.user.name,
+        reason: `Admitted patient${input.admission_type ? ` (${input.admission_type})` : ''}`,
       }).catch(() => {});
 
       // N.5: Patient brief regen — fresh admission

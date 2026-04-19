@@ -91,7 +91,7 @@ export const chatRouter = router({
       const channels = await sql`
         SELECT
           cc.id, cc.channel_id, cc.channel_type, cc.name, cc.description,
-          cc.is_archived, cc.last_message_at, cc.encounter_id, cc.metadata,
+          cc.is_archived, cc.last_message_at, cc.encounter_id, cc.patient_id, cc.metadata,
           COALESCE(ccm.is_pinned, false) as is_pinned,
           COALESCE(ccm.is_muted, false) as is_muted,
           ccm.last_read_at,
@@ -111,9 +111,16 @@ export const chatRouter = router({
         ORDER BY cc.is_archived ASC, COALESCE(ccm.is_pinned, false) DESC, cc.last_message_at DESC NULLS LAST
       `;
 
-      // Group by type
+      // Group by type — persistent patient rooms surface above encounter-scoped rooms
+      // so the chart UI can default to persistent + offer a switcher to active encounters.
+      const patientChannels = channels.filter((c: any) => c.channel_type === 'patient' && !c.is_archived);
       const grouped = {
-        my_patients: channels.filter((c: any) => c.channel_type === 'patient' && !c.is_archived),
+        // PC.4.A.2: persistent = channel scopes ALL admissions for a patient (patient_id set, encounter_id null)
+        patient_persistent: patientChannels.filter((c: any) => c.patient_id && !c.encounter_id),
+        // patient_encounter = channel scoped to ONE admission (encounter_id set)
+        patient_encounter: patientChannels.filter((c: any) => c.encounter_id),
+        // Legacy alias for callers pre-PC.4.A.2 — kept for a deprecation window
+        my_patients: patientChannels,
         departments: channels.filter((c: any) => c.channel_type === 'department'),
         direct_messages: channels.filter((c: any) => c.channel_type === 'direct'),
         broadcast: channels.filter((c: any) => c.channel_type === 'broadcast'),
@@ -123,6 +130,64 @@ export const chatRouter = router({
       const unreadTotal = channels.reduce((sum: number, c: any) => sum + (c.unread_count || 0), 0);
 
       return { channels: grouped, unreadTotal };
+    }),
+
+  /**
+   * PC.4.A.2: List all chat channels for a single patient — persistent + every
+   * encounter-scoped room, ordered persistent-first then most-recent encounter.
+   * Used by the patient chart Comms tab for dual-room default + switcher.
+   */
+  listPatientChannels: protectedProcedure
+    .input(z.object({ patient_id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const sql = getSql();
+      const userId = ctx.user.sub;
+      const hospitalId = ctx.user.hospital_id;
+
+      const rows = await sql`
+        SELECT
+          cc.id, cc.channel_id, cc.channel_type, cc.name, cc.description,
+          cc.is_archived, cc.last_message_at, cc.encounter_id, cc.patient_id,
+          cc.metadata, cc.created_at,
+          COALESCE(ccm.is_pinned, false) as is_pinned,
+          COALESCE(ccm.is_muted, false) as is_muted,
+          ccm.last_read_at,
+          (
+            SELECT count(*)::int FROM chat_messages cm
+            WHERE cm.channel_id = cc.id
+              AND cm.created_at > COALESCE(ccm.last_read_at, '1970-01-01'::timestamptz)
+              AND cm.sender_id != ${userId}
+          ) as unread_count,
+          (
+            SELECT count(*)::int FROM chat_channel_members
+            WHERE channel_id = cc.id AND left_at IS NULL
+          ) as member_count,
+          CASE
+            WHEN cc.patient_id = ${input.patient_id}::uuid AND cc.encounter_id IS NULL THEN 0
+            ELSE 1
+          END as sort_bucket
+        FROM chat_channels cc
+        LEFT JOIN chat_channel_members ccm
+          ON ccm.channel_id = cc.id AND ccm.user_id = ${userId} AND ccm.left_at IS NULL
+        WHERE cc.hospital_id = ${hospitalId}
+          AND cc.channel_type = 'patient'
+          AND (
+            cc.patient_id = ${input.patient_id}::uuid
+            OR cc.encounter_id IN (
+              SELECT id FROM encounters WHERE patient_id = ${input.patient_id}::uuid
+            )
+          )
+        ORDER BY sort_bucket ASC, cc.last_message_at DESC NULLS LAST, cc.created_at DESC
+      `;
+
+      const persistent = rows.find((r: any) => r.patient_id && !r.encounter_id) || null;
+      const encounters = rows.filter((r: any) => r.encounter_id);
+      return {
+        patient_id: input.patient_id,
+        persistent,
+        encounters,
+        total: rows.length,
+      };
     }),
 
   /**
@@ -136,10 +201,17 @@ export const chatRouter = router({
       const sql = getSql();
       const userId = ctx.user.sub;
 
+      const hospitalId = ctx.user.hospital_id;
+
+      // PC.4.A.2: hospital-scope validation — a channel from a different hospital
+      // must not be reachable via channelId alone. Persistent patient rooms surface
+      // this cross-tenancy risk because they span encounters.
       const [channel] = await sql`
         SELECT id, channel_id, channel_type, name, description, is_archived,
-               last_message_at, encounter_id, metadata, created_at
-        FROM chat_channels WHERE channel_id = ${input.channelId}
+               last_message_at, encounter_id, patient_id, metadata, created_at
+        FROM chat_channels
+        WHERE channel_id = ${input.channelId}
+          AND hospital_id = ${hospitalId}
       `;
       if (!channel) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Channel not found' });

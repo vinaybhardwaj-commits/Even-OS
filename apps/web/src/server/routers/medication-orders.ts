@@ -6,7 +6,7 @@ import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { writeEvent } from '@/lib/event-log';
-import { addCareTeamMember } from '@/lib/chat/channel-manager';
+import { addCareTeamMember, addPersistentCareTeamMember } from '@/lib/chat/channel-manager';
 import { onMedicationOrdered, onMedicationAdministered, onDietOrdered, onNursingOrderCreated } from '@/lib/chat/auto-events';
 import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
 // PC.3.3.D — server-side projection.
@@ -1090,6 +1090,17 @@ export const medicationOrdersRouter = router({
           addCareTeamMember({
             encounter_id: input.encounter_id,
             user_id: input.referral_to_provider_id,
+            reason: `Consult: ${input.order_name}`,
+          }).catch(() => {});
+        }
+
+        // PC.4.A.2: add consulting specialist to the PERSISTENT patient room too.
+        // A specialist who sees this patient once is likely relevant on readmission.
+        if (input.request_type === 'consult' && input.referral_to_provider_id) {
+          addPersistentCareTeamMember({
+            patient_id: input.patient_id,
+            user_id: input.referral_to_provider_id,
+            role: 'member',
             reason: `Consult: ${input.order_name}`,
           }).catch(() => {});
         }
