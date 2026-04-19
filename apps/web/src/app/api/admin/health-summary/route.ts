@@ -55,8 +55,11 @@ export async function GET() {
     try {
       const result = await checkLlmHealth();
       llmLatency = Date.now() - llmStart;
-      if (result?.status === 'healthy') {
+      // checkLlmHealth returns { status: 'online' | 'degraded' | 'offline' } | null
+      if (result?.status === 'online') {
         llmStatus = llmLatency < 3000 ? 'ok' : 'degraded';
+      } else if (result?.status === 'degraded') {
+        llmStatus = 'degraded';
       } else {
         llmStatus = 'down';
       }
