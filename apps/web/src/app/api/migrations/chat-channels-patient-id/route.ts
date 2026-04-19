@@ -117,9 +117,9 @@ export async function GET() {
     // ── 4. Sanity check: count persistent rooms ──────────────────────
     const [totals] = (await sql`
       SELECT
-        COUNT(*)::int FILTER (WHERE patient_id IS NOT NULL AND encounter_id IS NULL) AS persistent,
-        COUNT(*)::int FILTER (WHERE encounter_id IS NOT NULL) AS encounter_scoped,
-        COUNT(*)::int FILTER (WHERE channel_type = 'department') AS departments
+        (COUNT(*) FILTER (WHERE patient_id IS NOT NULL AND encounter_id IS NULL))::int AS persistent,
+        (COUNT(*) FILTER (WHERE encounter_id IS NOT NULL))::int AS encounter_scoped,
+        (COUNT(*) FILTER (WHERE channel_type = 'department'))::int AS departments
       FROM chat_channels
     `) as Array<{ persistent: number; encounter_scoped: number; departments: number }>;
 
