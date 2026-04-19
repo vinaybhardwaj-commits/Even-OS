@@ -173,34 +173,27 @@ export const chartMatrixRouter = router({
                   created_at, updated_at
       `) as MatrixRow[];
 
-      // Write a single admin-audit row so the surface is self-documenting.
-      try {
-        await sql`
-          INSERT INTO chart_audit_log
-            (patient_id, encounter_id, hospital_id, user_id, user_role,
-             action, resource_type, resource_id, payload_summary)
-          SELECT
-            '00000000-0000-0000-0000-000000000000'::uuid,
-            NULL,
-            ${prev.hospital_id},
-            ${ctx.user.sub ?? null}::uuid,
-            ${ctx.user.role ?? 'unknown'},
-            'chart_matrix.update',
-            'chart_permission_matrix',
-            ${prev.id}::uuid,
-            ${JSON.stringify({
-              role: prev.role,
-              role_tag: prev.role_tag,
-              hospital_id: prev.hospital_id,
-              changed_keys: Object.keys(input).filter((k) => k !== 'id'),
-            })}::jsonb
-          WHERE EXISTS (SELECT 1 FROM patients WHERE id = '00000000-0000-0000-0000-000000000000'::uuid)
-        `;
-      } catch {
-        // chart_audit_log has a patient_id FK; if the placeholder patient row
-        // doesn't exist we silently skip the audit row rather than fail the
-        // update itself. The update is the authoritative write.
-      }
+      // Write a single admin-audit row (PC.3.4 Track A — admin_audit_log split).
+      // No FK to patients, so this is a first-class durable write (no silent-fail).
+      await sql`
+        INSERT INTO admin_audit_log
+          (hospital_id, user_id, user_role,
+           action, resource_type, resource_id, payload_summary)
+        VALUES (
+          ${prev.hospital_id},
+          ${ctx.user.sub ?? null}::uuid,
+          ${ctx.user.role ?? 'unknown'},
+          'chart_matrix.update',
+          'chart_permission_matrix',
+          ${prev.id}::uuid,
+          ${JSON.stringify({
+            role: prev.role,
+            role_tag: prev.role_tag,
+            hospital_id: prev.hospital_id,
+            changed_keys: Object.keys(input).filter((k) => k !== 'id'),
+          })}::jsonb
+        )
+      `;
 
       return updated[0]!;
     }),
@@ -212,6 +205,7 @@ export const chartMatrixRouter = router({
   recentActivity: protectedProcedure
     .input(z.object({
       role: z.string().min(1).max(40),
+      matrixId: z.string().uuid().optional(),
       limit: z.number().int().min(1).max(100).default(25),
     }))
     .query(async ({ ctx, input }) => {
@@ -246,6 +240,34 @@ export const chartMatrixRouter = router({
         payload_summary: unknown; created_at: string;
       }>;
 
-      return { views, edits };
+      // PC.3.4 Track A — admin-surface writes (matrix edits, preview toggles, etc.)
+      // Filtered by matrixId when the UI has one selected, else by payload_summary.role.
+      const adminEdits = input.matrixId
+        ? ((await sql`
+            SELECT id, hospital_id, user_id, user_role,
+                   action, resource_type, resource_id, payload_summary, created_at
+            FROM admin_audit_log
+            WHERE resource_id = ${input.matrixId}::uuid
+            ORDER BY created_at DESC
+            LIMIT ${input.limit}
+          `) as Array<{
+            id: string; hospital_id: string; user_id: string | null;
+            user_role: string; action: string; resource_type: string;
+            resource_id: string | null; payload_summary: unknown; created_at: string;
+          }>)
+        : ((await sql`
+            SELECT id, hospital_id, user_id, user_role,
+                   action, resource_type, resource_id, payload_summary, created_at
+            FROM admin_audit_log
+            WHERE payload_summary->>'role' = ${input.role}
+            ORDER BY created_at DESC
+            LIMIT ${input.limit}
+          `) as Array<{
+            id: string; hospital_id: string; user_id: string | null;
+            user_role: string; action: string; resource_type: string;
+            resource_id: string | null; payload_summary: unknown; created_at: string;
+          }>);
+
+      return { views, edits, adminEdits };
     }),
 });

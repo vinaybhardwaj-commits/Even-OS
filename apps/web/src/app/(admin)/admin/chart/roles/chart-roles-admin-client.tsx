@@ -44,6 +44,12 @@ type EditRow = {
   id: string; patient_id: string; action: string; resource_type: string; resource_id: string | null;
   user_id: string | null; user_role: string; payload_summary: unknown; created_at: string;
 };
+type AdminEditRow = {
+  id: string; action: string; resource_type: string; resource_id: string | null;
+  user_id: string | null; user_role: string;
+  payload_summary: { role?: string; changed_keys?: string[] } & Record<string, unknown>;
+  created_at: string;
+};
 
 // ─── tRPC fetch helpers (match /admin/calculators pattern) ─────
 async function trpcQuery(path: string, input?: unknown) {
@@ -115,7 +121,7 @@ export function ChartRolesAdminClient() {
   const [description, setDescription] = useState('');
 
   // Activity panel
-  const [activity, setActivity] = useState<{ views: ViewRow[]; edits: EditRow[] } | null>(null);
+  const [activity, setActivity] = useState<{ views: ViewRow[]; edits: EditRow[]; adminEdits: AdminEditRow[] } | null>(null);
   const [activityLoading, setActivityLoading] = useState(false);
 
   const fetchList = useCallback(async () => {
@@ -162,9 +168,9 @@ export function ChartRolesAdminClient() {
     if (!selected) { setActivity(null); return; }
     let cancelled = false;
     setActivityLoading(true);
-    trpcQuery('chartMatrix.recentActivity', { role: selected.role, limit: 25 })
-      .then((res) => { if (!cancelled) setActivity(res as { views: ViewRow[]; edits: EditRow[] }); })
-      .catch(() => { if (!cancelled) setActivity({ views: [], edits: [] }); })
+    trpcQuery('chartMatrix.recentActivity', { role: selected.role, matrixId: selected.id, limit: 25 })
+      .then((res) => { if (!cancelled) setActivity(res as { views: ViewRow[]; edits: EditRow[]; adminEdits: AdminEditRow[] }); })
+      .catch(() => { if (!cancelled) setActivity({ views: [], edits: [], adminEdits: [] }); })
       .finally(() => { if (!cancelled) setActivityLoading(false); });
     return () => { cancelled = true; };
   }, [selected]);
@@ -464,6 +470,26 @@ export function ChartRolesAdminClient() {
                         sub={e.patient_id}
                       />
                     ))}
+                  </ActivityPanel>
+                </div>
+              )}
+              {activity && !activityLoading && (
+                <div style={{ marginTop: 14 }}>
+                  <ActivityPanel title={`Admin edits to this preset (${activity.adminEdits.length})`}>
+                    {activity.adminEdits.length === 0 && <Empty label="No admin edits to this preset yet." />}
+                    {activity.adminEdits.map((a) => {
+                      const keys = Array.isArray(a.payload_summary?.changed_keys)
+                        ? (a.payload_summary.changed_keys as string[]).join(', ')
+                        : '';
+                      return (
+                        <ActivityRow
+                          key={a.id}
+                          left={`${a.action}${keys ? ` · ${keys}` : ''}`}
+                          right={fmtDate(a.created_at)}
+                          sub={`by ${a.user_role}${a.user_id ? ` (${a.user_id.slice(0, 8)}…)` : ''}`}
+                        />
+                      );
+                    })}
                   </ActivityPanel>
                 </div>
               )}
