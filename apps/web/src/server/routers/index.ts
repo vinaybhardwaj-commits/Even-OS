@@ -89,6 +89,7 @@ import { chartMatrixRouter } from './chart-matrix';
 import { previewRoleRouter } from './preview-role';
 import { chartHealthRouter } from './chart-health';
 import { chartSubscriptionsRouter } from './chart-subscriptions';
+import { chartPrintRouter } from './chart-print';
 
 export const appRouter = router({
   auth: authRouter,
@@ -181,6 +182,7 @@ export const appRouter = router({
   previewRole: previewRoleRouter,
   chartHealth: chartHealthRouter,
   chartSubscriptions: chartSubscriptionsRouter,
+  chartPrint: chartPrintRouter,
 });
 
 export type AppRouter = typeof appRouter;

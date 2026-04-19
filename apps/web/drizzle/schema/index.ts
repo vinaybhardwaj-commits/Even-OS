@@ -65,3 +65,5 @@ export * from './57-chart-matrix-versions';
 export * from './58-patient-complaints';
 
 export * from './59-chart-subscriptions';
+
+export * from './60-chart-print-exports';
