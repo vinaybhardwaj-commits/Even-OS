@@ -13,7 +13,7 @@
  * Renders a client-side <AdminShellClient /> with the data it needs.
  */
 import type { JWTPayload } from '@/lib/auth';
-import { routesForRole } from '@/lib/admin-manifest';
+import { searchableRoutesForRole } from '@/lib/admin-manifest';
 import { AdminShellClient } from './AdminShellClient';
 
 interface AdminShellProps {
@@ -22,7 +22,9 @@ interface AdminShellProps {
 }
 
 export function AdminShell({ user, children }: AdminShellProps) {
-  const routes = routesForRole(user.role);
+  // Pass the superset (including hideFromNav) — the sidebar filters it
+  // down at render time; the command palette uses the full set.
+  const routes = searchableRoutesForRole(user.role);
   return (
     <AdminShellClient
       user={{

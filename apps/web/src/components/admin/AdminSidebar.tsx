@@ -18,7 +18,9 @@ interface AdminSidebarProps {
 
 export function AdminSidebar({ routes, collapsed }: AdminSidebarProps) {
   const pathname = usePathname() || '';
-  const grouped = useMemo(() => routesByPillar(routes), [routes]);
+  // Hide routes flagged with hideFromNav (e.g. sub-wizards).
+  const visibleRoutes = useMemo(() => routes.filter(r => !r.hideFromNav), [routes]);
+  const grouped = useMemo(() => routesByPillar(visibleRoutes), [visibleRoutes]);
 
   // Remember which pillars are open (default: all open)
   const [openPillars, setOpenPillars] = useState<Record<AdminPillar, boolean>>(() => {

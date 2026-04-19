@@ -4,10 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev --port 3000",
+    "prebuild": "tsx scripts/verify-admin-manifest.ts",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "verify:admin-manifest": "tsx scripts/verify-admin-manifest.ts",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx drizzle/seed.ts",
     "db:seed:calculators": "tsx drizzle/seed-calculators.ts",

@@ -31,8 +31,9 @@ export default async function AdminIndexPage() {
     redirect('/');
   }
 
-  const routes = routesForRole(user.role);
-  const grouped = routesByPillar(routes);
+  // routesForRole already filters out hideFromNav — ideal for a browse grid.
+  const visibleRoutes = routesForRole(user.role);
+  const grouped = routesByPillar(visibleRoutes);
 
   return (
     <AdminShell user={user}>
@@ -42,7 +43,7 @@ export default async function AdminIndexPage() {
           Command Center
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          {grouped.length} pillars · {routes.length} modules available ·
+          {grouped.length} pillars · {visibleRoutes.length} modules available ·
           <span className="ml-1 font-mono text-xs">⌘K</span> to jump to any page.
         </p>
       </div>
