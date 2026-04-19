@@ -12,6 +12,9 @@ import { createPatientChannel, archivePatientChannel, onBedTransfer } from '@/li
 import { eq, and, sql, desc, isNull } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { enqueueBriefRegenByText } from '@/lib/patient-brief/enqueue';
+import { resolveChartConfigForUser } from '@/lib/chart/selectors';
+import { projectRowsForRole, projectRowForRole } from '@/lib/chart/redact';
+
 
 const encounterClassValues = ['IMP', 'AMB', 'ED', 'HH', 'OBSENC'] as const;
 const admissionTypeValues = ['elective', 'emergency', 'day_care'] as const;
@@ -274,7 +277,13 @@ export const encounterRouter = router({
         .where(eq(dischargeMilestones.encounter_id, rows[0].id))
         .orderBy(dischargeMilestones.sequence);
 
-      return { ...rows[0], checklist, milestones };
+      const ga_config = await resolveChartConfigForUser(ctx.effectiveUser);
+      const ga_row = projectRowForRole(
+        rows[0],
+        { chief_complaint: 'diagnosis', preliminary_diagnosis_icd10: 'diagnosis' },
+        ga_config,
+      );
+      return { ...ga_row, checklist, milestones };
     }),
 
   // ─── GET HISTORY (past admissions for a patient) ───────────
@@ -284,7 +293,8 @@ export const encounterRouter = router({
       limit: z.number().min(1).max(50).default(10),
     }))
     .query(async ({ ctx, input }) => {
-      return db.execute(sql`
+      const gh_config = await resolveChartConfigForUser(ctx.effectiveUser);
+      const gh_result = await db.execute(sql`
         SELECT
           e.id, e.encounter_class, e.status, e.admission_type,
           e.chief_complaint, e.preliminary_diagnosis_icd10,
@@ -297,7 +307,13 @@ export const encounterRouter = router({
           AND e.hospital_id = ${ctx.user.hospital_id}
         ORDER BY e.admission_at DESC NULLS LAST
         LIMIT ${input.limit}
-      `).then(r => ((r as any).rows || r));
+      `);
+      const gh_rows = (gh_result as any).rows || gh_result;
+      return projectRowsForRole(
+        gh_rows,
+        { chief_complaint: 'diagnosis', preliminary_diagnosis_icd10: 'diagnosis' },
+        gh_config,
+      );
     }),
 
   // ─── LIST ACTIVE (all current admissions) ──────────────────
@@ -344,7 +360,13 @@ export const encounterRouter = router({
           ${wardFilter}
       `);
 
-      const items = (result as any).rows || result;
+      const items_raw = (result as any).rows || result;
+      const la_config = await resolveChartConfigForUser(ctx.effectiveUser);
+      const items = projectRowsForRole(
+        items_raw,
+        { chief_complaint: 'diagnosis' },
+        la_config,
+      );
       const countRows = (countResult as any).rows || countResult;
       const total = Number(countRows[0]?.count ?? 0);
 

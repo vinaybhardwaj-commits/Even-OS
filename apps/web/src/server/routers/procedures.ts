@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
+import { resolveChartConfigForUser } from '@/lib/chart/selectors';
+import { projectRowsForRole, projectRowForRole } from '@/lib/chart/redact';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { writeAuditLog } from '@/lib/audit/logger';
 import { writeEvent } from '@/lib/event-log';
@@ -296,7 +298,7 @@ export const proceduresRouter = router({
         const result = await getSql()(query, params);
         const procedures = (result as any) || [];
 
-        return procedures.map((p: any) => ({
+        const lp_rows = procedures.map((p: any) => ({
           id: p.id,
           patient_id: p.patient_id,
           encounter_id: p.encounter_id,
@@ -310,6 +312,8 @@ export const proceduresRouter = router({
           created_at: p.created_at,
           updated_at: p.updated_at,
         }));
+        const lp_config = await resolveChartConfigForUser(ctx.effectiveUser);
+        return projectRowsForRole(lp_rows, { procedure_name: 'procedures' }, lp_config);
       } catch (error) {
         console.error('listProcedures error:', error);
         throw new TRPCError({
@@ -353,32 +357,47 @@ export const proceduresRouter = router({
 
         const proc = rows[0];
 
-        return {
-          id: proc.id,
-          patient_id: proc.patient_id,
-          encounter_id: proc.encounter_id,
-          procedure_code: proc.procedure_code,
-          procedure_name: proc.procedure_name,
-          status: proc.status,
-          performed_datetime: proc.performed_datetime,
-          performer_id: proc.performer_id,
-          performer_role: proc.performer_role,
-          version: proc.version,
-          created_by: proc.created_by,
-          created_at: proc.created_at,
-          updated_at: proc.updated_at,
-          operativeNote: proc.note_id ? {
-            id: proc.note_id,
-            note_type: proc.note_type,
-            status: proc.note_status,
-            operative_findings: proc.operative_findings,
-            blood_loss_ml: proc.blood_loss_ml,
-            complications: proc.complications,
-            operation_start_datetime: proc.operation_start_datetime,
-            operation_end_datetime: proc.operation_end_datetime,
-            operation_duration_minutes: proc.operation_duration_minutes,
-          } : null,
-        };
+        const gd_config = await resolveChartConfigForUser(ctx.effectiveUser);
+        const gd_base = projectRowForRole(
+          {
+            id: proc.id,
+            patient_id: proc.patient_id,
+            encounter_id: proc.encounter_id,
+            procedure_code: proc.procedure_code,
+            procedure_name: proc.procedure_name,
+            status: proc.status,
+            performed_datetime: proc.performed_datetime,
+            performer_id: proc.performer_id,
+            performer_role: proc.performer_role,
+            version: proc.version,
+            created_by: proc.created_by,
+            created_at: proc.created_at,
+            updated_at: proc.updated_at,
+          },
+          { procedure_name: 'procedures' },
+          gd_config,
+        );
+        const gd_note = proc.note_id
+          ? projectRowForRole(
+              {
+                id: proc.note_id,
+                note_type: proc.note_type,
+                status: proc.note_status,
+                operative_findings: proc.operative_findings,
+                blood_loss_ml: proc.blood_loss_ml,
+                complications: proc.complications,
+                operation_start_datetime: proc.operation_start_datetime,
+                operation_end_datetime: proc.operation_end_datetime,
+                operation_duration_minutes: proc.operation_duration_minutes,
+              },
+              {
+                operative_findings: 'notes_snippet',
+                complications: 'notes_snippet',
+              },
+              gd_config,
+            )
+          : null;
+        return { ...gd_base, operativeNote: gd_note };
       } catch (error) {
         if (error instanceof TRPCError) throw error;
         console.error('getDetail error:', error);
@@ -831,7 +850,7 @@ export const proceduresRouter = router({
         const result = await getSql()(query, params);
         const forms = (result as any) || [];
 
-        return forms.map((f: any) => ({
+        const lm_rows = forms.map((f: any) => ({
           id: f.id,
           patient_id: f.patient_id,
           encounter_id: f.encounter_id,
@@ -850,6 +869,18 @@ export const proceduresRouter = router({
           created_at: f.created_at,
           updated_at: f.updated_at,
         }));
+        const lm_config = await resolveChartConfigForUser(ctx.effectiveUser);
+        return projectRowsForRole(
+          lm_rows,
+          {
+            injury_description: 'mlc_reason',
+            injury_type: 'mlc_reason',
+            injury_location_on_body: 'mlc_reason',
+            police_officer_name: 'mlc_reason',
+            case_number: 'mlc_reason',
+          },
+          lm_config,
+        );
       } catch (error) {
         console.error('listMlc error:', error);
         throw new TRPCError({
