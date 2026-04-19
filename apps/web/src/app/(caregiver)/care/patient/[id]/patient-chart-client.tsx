@@ -762,6 +762,13 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   // PC.1a: right-side Comms slider (480px), reuses ChatPanel. Opens to encounter-scoped channel by default.
   const [commsOpen, setCommsOpen] = useState(false);
   const [commsInitialChannelId, setCommsInitialChannelId] = useState<string | null>(null);
+  // PC.4.A.3: chat.listPatientChannels result — used to build dual-room switcher
+  // (persistent + encounter rooms). Falls back to hardcoded entries until loaded.
+  const [patientChannels, setPatientChannels] = useState<{
+    persistent: any | null;
+    encounters: any[];
+    total: number;
+  } | null>(null);
   const [showFormLauncher, setShowFormLauncher] = useState(false);
   const [formLauncherSlug, setFormLauncherSlug] = useState('');
 
@@ -1085,6 +1092,31 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   }, [activeTab, ordersLoaded, loadOrdersData]);
 
 
+  // ── PC.4.A.3: Load chat.listPatientChannels for dual-room switcher ────────
+  useEffect(() => {
+    if (!patientId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await trpcQuery('chat.listPatientChannels', { patient_id: patientId });
+        if (!cancelled && result) {
+          setPatientChannels({
+            persistent: result.persistent ?? null,
+            encounters: Array.isArray(result.encounters) ? result.encounters : [],
+            total: typeof result.total === 'number' ? result.total : 0,
+          });
+        }
+      } catch (err) {
+        // Non-fatal — ChatPanel will fall back to hardcoded extraChannels.
+        // eslint-disable-next-line no-console
+        console.warn('[PC.4.A.3] listPatientChannels failed:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId, encounter?.id]);
+
   // ── Escape key handler for closing order panels ───────────────────────────
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -1371,7 +1403,9 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
             type="button"
             className="patient-chart-tab-btn"
             onClick={() => {
-              setCommsInitialChannelId(`patient-enc-${encounter.id}`);
+              // PC.4.A.3: dual-room default — longitudinal persistent room first,
+              // encounter room available as switcher chip inside ChatPanel.
+              setCommsInitialChannelId(`patient-persistent-${patientId}`);
               setCommsOpen(true);
             }}
             style={{
@@ -6100,22 +6134,70 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
           userRole={userRole}
           userName={userName}
           initialChannelId={commsInitialChannelId || undefined}
-          extraChannels={[
-            {
-              group: 'THIS PATIENT',
-              type: 'patient-thread',
-              id: `patient-enc-${encounter.id}`,
-              name: `Current admission · ${patient?.name_full || patient?.full_name || `${patient?.name_given ?? ''} ${patient?.name_family ?? ''}`.trim() || 'Patient'}`,
-              unread: 0,
-            },
-            {
-              group: 'THIS PATIENT',
-              type: 'patient-thread',
-              id: `patient-persistent-${patientId}`,
-              name: `Patient (all time) · UHID ${patient?.uhid ?? patientId}`,
-              unread: 0,
-            },
-          ] as ChatChannel[]}
+          extraChannels={(() => {
+            // PC.4.A.3: build extraChannels from listPatientChannels query when available.
+            // Persistent room first (longitudinal), then encounter-scoped rooms sorted
+            // by recency (already done server-side via sort_bucket + last_message_at).
+            // Falls back to hardcoded entries if query hasn't resolved yet, so the
+            // panel opens instantly on first click without waiting on a round-trip.
+            const patientName =
+              patient?.name_full ||
+              patient?.full_name ||
+              `${patient?.name_given ?? ''} ${patient?.name_family ?? ''}`.trim() ||
+              'Patient';
+            if (patientChannels) {
+              const built: ChatChannel[] = [];
+              if (patientChannels.persistent) {
+                built.push({
+                  group: 'THIS PATIENT',
+                  type: 'patient-thread',
+                  id: patientChannels.persistent.channel_id,
+                  name: `Patient (all time) · UHID ${patient?.uhid ?? patientId}`,
+                  unread: Number(patientChannels.persistent.unread_count) || 0,
+                });
+              } else {
+                // Persistent room may not have been materialized yet for legacy patients.
+                // Surface the stable id so ChatPanel can create-on-open.
+                built.push({
+                  group: 'THIS PATIENT',
+                  type: 'patient-thread',
+                  id: `patient-persistent-${patientId}`,
+                  name: `Patient (all time) · UHID ${patient?.uhid ?? patientId}`,
+                  unread: 0,
+                });
+              }
+              for (const enc of patientChannels.encounters) {
+                const isCurrent = encounter && enc.encounter_id === encounter.id;
+                built.push({
+                  group: 'THIS PATIENT',
+                  type: 'patient-thread',
+                  id: enc.channel_id,
+                  name: isCurrent
+                    ? `Current admission · ${patientName}`
+                    : `Past admission · ${new Date(enc.created_at).toLocaleDateString()}`,
+                  unread: Number(enc.unread_count) || 0,
+                });
+              }
+              return built;
+            }
+            // Fallback — hardcoded entries (persistent first, then current encounter)
+            return [
+              {
+                group: 'THIS PATIENT',
+                type: 'patient-thread',
+                id: `patient-persistent-${patientId}`,
+                name: `Patient (all time) · UHID ${patient?.uhid ?? patientId}`,
+                unread: 0,
+              },
+              {
+                group: 'THIS PATIENT',
+                type: 'patient-thread',
+                id: `patient-${encounter.id}`,
+                name: `Current admission · ${patientName}`,
+                unread: 0,
+              },
+            ] as ChatChannel[];
+          })()}
         />
       )}
 
