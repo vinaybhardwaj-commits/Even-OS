@@ -20,6 +20,17 @@ export const authRouter = router({
     }))
     .mutation(async ({ input }) => {
 
+      // DEMO.1 gate — demo account is only loginable when DEMO_ACCOUNT_ENABLED=true.
+      // The demo user exists in the DB regardless (see migration
+      // /api/migrations/demo-account-seed); this gate is what keeps it inert
+      // in prod when we don't want it. Also gated at /api/demo/switch for
+      // defense-in-depth. Rejects with "Invalid credentials" on purpose —
+      // avoids leaking whether the demo account exists to strangers.
+      if (input.email.toLowerCase() === 'demo@even.in' &&
+          process.env.DEMO_ACCOUNT_ENABLED !== 'true') {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid credentials' });
+      }
+
       // Rate limiting check: 5 attempts per 10 minutes
       const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
       const recentAttempts = await db.select({ count: sql<number>`count(*)` })
