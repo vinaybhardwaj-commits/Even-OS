@@ -864,7 +864,15 @@ export const encounterRouter = router({
       });
 
       // OC.4a: Archive patient chat channel (fire-and-forget)
-      archivePatientChannel(encounter.id).catch(() => {});
+      // CHAT.X.3 — log failures instead of swallowing them; archive failure
+      // shouldn't block the discharge response, but we need visibility when
+      // the patient channel ends up orphaned in the wild.
+      archivePatientChannel(encounter.id).catch((err) => {
+        console.error('[discharge] archivePatientChannel failed:', {
+          encounter_id: encounter.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
 
       // N.5: Patient brief regen — discharge summary recap
       void enqueueBriefRegenByText(getBriefSql(), {
