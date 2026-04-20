@@ -17,7 +17,9 @@ import OverviewComplaintsCard from '@/components/patient-chart/OverviewComplaint
 import OverviewLsqCard from '@/components/patient-chart/OverviewLsqCard';
 import ComplaintsTab from '@/components/patient-chart/ComplaintsTab';
 import RaiseComplaintModal from '@/components/patient-chart/RaiseComplaintModal';
-import ChatPanel, { type Channel as ChatChannel } from '@/components/chat/ChatPanel';
+// CHAT.X.5 (20 Apr 2026): ChatPanel deleted. Comms slider now lives in
+// ChatShell (mounted globally by ChatProvider). To open it, dispatch the
+// `open-patient-chat` CustomEvent — see openPatientChat() below.
 import { useChartAction, getActionsForRole, resolveActionsFromSlugs } from './use-chart-action';
 import { useLock, LockBanner } from './use-lock';
 import type { ChartConfig } from '@/lib/chart/selectors';
@@ -798,16 +800,11 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   const [initialCalcId, setInitialCalcId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [orderPanel, setOrderPanel] = useState<'none' | 'medication' | 'labs' | 'imaging' | 'consult'>('none');
-  // PC.1a: right-side Comms slider (480px), reuses ChatPanel. Opens to encounter-scoped channel by default.
-  const [commsOpen, setCommsOpen] = useState(false);
-  const [commsInitialChannelId, setCommsInitialChannelId] = useState<string | null>(null);
-  // PC.4.A.3: chat.listPatientChannels result — used to build dual-room switcher
-  // (persistent + encounter rooms). Falls back to hardcoded entries until loaded.
-  const [patientChannels, setPatientChannels] = useState<{
-    persistent: any | null;
-    encounters: any[];
-    total: number;
-  } | null>(null);
+  // CHAT.X.5 (20 Apr 2026): Comms slider is owned by ChatProvider/ChatShell.
+  // Formerly we held local `commsOpen` + `commsInitialChannelId` + cached the
+  // `listPatientChannels` result here to feed ChatPanel's extraChannels prop.
+  // ChatShell now builds the dual-room switcher itself on `openChannel()`, so
+  // we no longer need any of that state here — one CustomEvent is enough.
   // PC.4.A.4: Native patient_complaints — Overview tile + raise-pill modal + header SLA badge.
   const [complaintModalOpen, setComplaintModalOpen] = useState(false);
   const [complaintModalMode, setComplaintModalMode] = useState<'raise' | 'detail'>('raise');
@@ -1139,30 +1136,9 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   }, [activeTab, ordersLoaded, loadOrdersData]);
 
 
-  // ── PC.4.A.3: Load chat.listPatientChannels for dual-room switcher ────────
-  useEffect(() => {
-    if (!patientId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const result = await trpcQuery('chat.listPatientChannels', { patient_id: patientId });
-        if (!cancelled && result) {
-          setPatientChannels({
-            persistent: result.persistent ?? null,
-            encounters: Array.isArray(result.encounters) ? result.encounters : [],
-            total: typeof result.total === 'number' ? result.total : 0,
-          });
-        }
-      } catch (err) {
-        // Non-fatal — ChatPanel will fall back to hardcoded extraChannels.
-        // eslint-disable-next-line no-console
-        console.warn('[PC.4.A.3] listPatientChannels failed:', err);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [patientId, encounter?.id]);
+  // CHAT.X.5 (20 Apr 2026): PC.4.A.3 listPatientChannels prefetch removed.
+  // ChatShell queries channels itself when `openPatientChat()` fires the
+  // CustomEvent below — no need to cache them on the chart anymore.
 
   // ── PC.4.A.4: Load complaint open/breached/at-risk counts for header badge ─
   useEffect(() => {
@@ -1218,12 +1194,30 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
   }, []);
 
   // ── Event handlers ───────────────────────────────────────────────────────
+  // CHAT.X.5 (20 Apr 2026): single helper for opening the patient comms slider.
+  // Defaults to the longitudinal `patient-persistent-${patientId}` room so the
+  // user lands on the all-time thread first (the dual-room switcher inside
+  // ChatShell lets them flip to current/past encounter rooms). ChatProvider's
+  // listener handles open + channel selection — no local state needed here.
+  const openPatientChat = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(
+      new CustomEvent('open-patient-chat', {
+        detail: { channelId: `patient-persistent-${patientId}` },
+      }),
+    );
+  }, [patientId]);
+
   // PC.1b1 (18 Apr 2026): pill routing now lives in useChartAction() — a single
   // registry shared with getActionsForRole so pills + handler can never drift.
+  // CHAT.X.5: setCommsOpen shim keeps useChartAction's interface stable while
+  // routing the open-action through the global ChatShell.
   const { handleAction: handleActionClick } = useChartAction({
     setActiveTab,
     setOrderPanel,
-    setCommsOpen,
+    setCommsOpen: (open: boolean) => {
+      if (open) openPatientChat();
+    },
     // PC.4.A.4 — raise_complaint + complaints slugs open the native modal.
     openComplaintModal: () => {
       setComplaintModalMode('raise');
@@ -1555,9 +1549,9 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
             className="patient-chart-tab-btn"
             onClick={() => {
               // PC.4.A.6: comms tab opens the dual-room slider instead of activating.
+              // CHAT.X.5: routed through ChatShell via openPatientChat().
               if (tab.id === 'comms') {
-                setCommsInitialChannelId(`patient-persistent-${patientId}`);
-                setCommsOpen(true);
+                openPatientChat();
                 return;
               }
               setActiveTab(tab.id);
@@ -1591,9 +1585,9 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
             className="patient-chart-tab-btn"
             onClick={() => {
               // PC.4.A.3: dual-room default — longitudinal persistent room first,
-              // encounter room available as switcher chip inside ChatPanel.
-              setCommsInitialChannelId(`patient-persistent-${patientId}`);
-              setCommsOpen(true);
+              // encounter room available as switcher chip inside ChatShell.
+              // CHAT.X.5: routed through ChatShell via openPatientChat().
+              openPatientChat();
             }}
             style={{
               padding: '12px 10px',
@@ -4757,10 +4751,7 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
         <ComplaintsTab
           patientId={patientId}
           encounterId={encounter?.id ?? null}
-          onOpenChat={() => {
-            setCommsInitialChannelId(`patient-persistent-${patientId}`);
-            setCommsOpen(true);
-          }}
+          onOpenChat={openPatientChat}
         />
       )}
 
@@ -6394,81 +6385,9 @@ export default function PatientChartClient({ patientId, userId, userRole, userNa
         </div>
       )}
 
-      {/* PC.1a: Omnipresent Chat slider — dual rooms for this patient (encounter + persistent) */}
-      {encounter && (
-        <ChatPanel
-          isOpen={commsOpen}
-          onClose={() => setCommsOpen(false)}
-          userId={userId}
-          userRole={userRole}
-          userName={userName}
-          initialChannelId={commsInitialChannelId || undefined}
-          extraChannels={(() => {
-            // PC.4.A.3: build extraChannels from listPatientChannels query when available.
-            // Persistent room first (longitudinal), then encounter-scoped rooms sorted
-            // by recency (already done server-side via sort_bucket + last_message_at).
-            // Falls back to hardcoded entries if query hasn't resolved yet, so the
-            // panel opens instantly on first click without waiting on a round-trip.
-            const patientName =
-              patient?.name_full ||
-              patient?.full_name ||
-              `${patient?.name_given ?? ''} ${patient?.name_family ?? ''}`.trim() ||
-              'Patient';
-            if (patientChannels) {
-              const built: ChatChannel[] = [];
-              if (patientChannels.persistent) {
-                built.push({
-                  group: 'THIS PATIENT',
-                  type: 'patient-thread',
-                  id: patientChannels.persistent.channel_id,
-                  name: `Patient (all time) · UHID ${patient?.uhid ?? patientId}`,
-                  unread: Number(patientChannels.persistent.unread_count) || 0,
-                });
-              } else {
-                // Persistent room may not have been materialized yet for legacy patients.
-                // Surface the stable id so ChatPanel can create-on-open.
-                built.push({
-                  group: 'THIS PATIENT',
-                  type: 'patient-thread',
-                  id: `patient-persistent-${patientId}`,
-                  name: `Patient (all time) · UHID ${patient?.uhid ?? patientId}`,
-                  unread: 0,
-                });
-              }
-              for (const enc of patientChannels.encounters) {
-                const isCurrent = encounter && enc.encounter_id === encounter.id;
-                built.push({
-                  group: 'THIS PATIENT',
-                  type: 'patient-thread',
-                  id: enc.channel_id,
-                  name: isCurrent
-                    ? `Current admission · ${patientName}`
-                    : `Past admission · ${new Date(enc.created_at).toLocaleDateString()}`,
-                  unread: Number(enc.unread_count) || 0,
-                });
-              }
-              return built;
-            }
-            // Fallback — hardcoded entries (persistent first, then current encounter)
-            return [
-              {
-                group: 'THIS PATIENT',
-                type: 'patient-thread',
-                id: `patient-persistent-${patientId}`,
-                name: `Patient (all time) · UHID ${patient?.uhid ?? patientId}`,
-                unread: 0,
-              },
-              {
-                group: 'THIS PATIENT',
-                type: 'patient-thread',
-                id: `patient-${encounter.id}`,
-                name: `Current admission · ${patientName}`,
-                unread: 0,
-              },
-            ] as ChatChannel[];
-          })()}
-        />
-      )}
+      {/* CHAT.X.5 (20 Apr 2026): PC.1a ChatPanel slider render removed.
+          Comms now opens inside the globally-mounted ChatShell via
+          window.dispatchEvent('open-patient-chat', { channelId }). */}
 
       {/* PC.4.A.4: Raise / view patient complaint modal */}
       <RaiseComplaintModal
