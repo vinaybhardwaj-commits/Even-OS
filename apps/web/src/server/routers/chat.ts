@@ -6,6 +6,7 @@ import { routeFileToMedicalRecord } from '@/lib/chat/file-to-record';
 import { createTask, completeTask, reassignTask } from '@/lib/chat/task-bridge';
 import { parseSlashCommand, executeReadOnlyCommand, getSlashCommandsForRole, resolveCommand } from '@/lib/chat/slash-commands';
 import { getUnreadSummary } from '@/lib/chat/unread';
+import { logAudit } from '@/lib/chat/audit';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -14,35 +15,11 @@ function getSql() {
 }
 
 // ============================================================
-// AUDIT LOGGER — Every chat action gets logged
+// AUDIT LOGGER
 // ============================================================
-
-async function logAudit(params: {
-  action: string;
-  user_id: string;
-  user_name: string;
-  hospital_id: string;
-  channel_id?: string;
-  message_id?: number;
-  target_user_id?: string;
-  details?: Record<string, any>;
-}) {
-  const sql = getSql();
-  try {
-    await sql`
-      INSERT INTO chat_audit_log (
-        action, user_id, user_name, hospital_id,
-        channel_id, message_id, target_user_id, details
-      ) VALUES (
-        ${params.action}, ${params.user_id}, ${params.user_name}, ${params.hospital_id},
-        ${params.channel_id || null}, ${params.message_id || null},
-        ${params.target_user_id || null}, ${JSON.stringify(params.details || {})}
-      )
-    `;
-  } catch (err) {
-    console.warn('[ChatAudit] Failed to log:', err);
-  }
-}
+// Moved to lib/chat/audit.ts (CHAT.X.7) so channel-manager.ts and
+// auto-events.ts can log too — those are system-orchestrated
+// (no human actor) and go in tagged source='system'.
 
 // ============================================================
 // AUTO-MEMBERSHIP — Ensure user is a member of a channel

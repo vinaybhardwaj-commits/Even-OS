@@ -13,6 +13,7 @@
  */
 
 import { neon } from '@neondatabase/serverless';
+import { logAudit } from './audit';
 
 function getSql() {
   return neon(process.env.DATABASE_URL!);
@@ -66,6 +67,20 @@ export async function createPatientChannel(params: CreatePatientChannelParams) {
       `🏥 Patient admitted: ${params.patient_name} (${params.patient_uhid})${params.bed_label ? ` → Bed ${params.bed_label}` : ''}`
     );
 
+    // CHAT.X.7 — audit (system source: no human actor on this path)
+    void logAudit({
+      action: 'channel_created',
+      source: 'system',
+      hospital_id: params.hospital_id,
+      channel_id: channelId,
+      details: {
+        encounter_id: params.encounter_id,
+        patient_uhid: params.patient_uhid,
+        attending_doctor_id: params.attending_doctor_id,
+        bed_label: params.bed_label ?? null,
+      },
+    });
+
     return { channelId, id: channel.id };
   } catch (err) {
     console.error('[channel-manager] createPatientChannel failed:', err);
@@ -100,6 +115,15 @@ export async function archivePatientChannel(encounter_id: string) {
     await postSystemMessage(channel.id, channel.hospital_id,
       `✅ Patient discharged. Channel is now read-only.`
     );
+
+    // CHAT.X.7 — audit (system source: discharge flow has no user in hand)
+    void logAudit({
+      action: 'channel_archived',
+      source: 'system',
+      hospital_id: channel.hospital_id,
+      channel_id: channelId,
+      details: { encounter_id, reason: 'discharge' },
+    });
   } catch (err) {
     console.error('[channel-manager] archivePatientChannel failed:', err);
   }
@@ -144,6 +168,21 @@ export async function addCareTeamMember(params: AddCareTeamMemberParams) {
         `👤 ${params.user_name} joined the care team${reason}`
       );
     }
+
+    // CHAT.X.7 — audit (system source: assignment orchestrated by role-based rules)
+    void logAudit({
+      action: 'care_team_added',
+      source: 'system',
+      hospital_id: channel.hospital_id,
+      channel_id: channelId,
+      target_user_id: params.user_id,
+      details: {
+        encounter_id: params.encounter_id,
+        role: params.role || 'member',
+        user_name: params.user_name ?? null,
+        reason: params.reason ?? null,
+      },
+    });
   } catch (err) {
     console.error('[channel-manager] addCareTeamMember failed:', err);
   }
@@ -174,6 +213,19 @@ export async function removeCareTeamMember(encounter_id: string, user_id: string
         `👤 ${user_name} left the care team`
       );
     }
+
+    // CHAT.X.7 — audit (system source)
+    void logAudit({
+      action: 'care_team_removed',
+      source: 'system',
+      hospital_id: channel.hospital_id,
+      channel_id: channelId,
+      target_user_id: user_id,
+      details: {
+        encounter_id,
+        user_name: user_name ?? null,
+      },
+    });
   } catch (err) {
     console.error('[channel-manager] removeCareTeamMember failed:', err);
   }
@@ -204,6 +256,19 @@ export async function onBedTransfer(params: TransferHookParams) {
     await postSystemMessage(channel.id, params.hospital_id,
       `🔄 Transfer: ${from} → ${to}`
     );
+
+    // CHAT.X.7 — audit (system source)
+    void logAudit({
+      action: 'bed_transfer',
+      source: 'system',
+      hospital_id: params.hospital_id,
+      channel_id: channelId,
+      details: {
+        encounter_id: params.encounter_id,
+        from_bed_label: params.from_bed_label ?? null,
+        to_bed_label: params.to_bed_label ?? null,
+      },
+    });
   } catch (err) {
     console.error('[channel-manager] onBedTransfer failed:', err);
   }

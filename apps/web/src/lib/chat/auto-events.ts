@@ -16,6 +16,7 @@
  */
 
 import { neon } from '@neondatabase/serverless';
+import { logAudit } from './audit';
 
 function getSql() {
   return neon(process.env.DATABASE_URL!);
@@ -23,7 +24,17 @@ function getSql() {
 
 // ── HELPER: post into patient channel ──────────────────────
 
-async function postAutoEvent(encounter_id: string, hospital_id: string, content: string) {
+interface AutoEventAudit {
+  action: string;
+  details?: Record<string, any>;
+}
+
+async function postAutoEvent(
+  encounter_id: string,
+  hospital_id: string,
+  content: string,
+  audit: AutoEventAudit
+) {
   const sql = getSql();
   const channelId = `patient-${encounter_id}`;
 
@@ -34,14 +45,26 @@ async function postAutoEvent(encounter_id: string, hospital_id: string, content:
     `;
     if (!channel) return; // No active channel — skip silently
 
-    await sql`
+    const [message] = await sql`
       INSERT INTO chat_messages (channel_id, hospital_id, message_type, content)
       VALUES (${channel.id}, ${hospital_id}, 'system', ${content})
+      RETURNING id
     `;
     await sql`
       UPDATE chat_channels SET last_message_at = NOW(), updated_at = NOW()
       WHERE id = ${channel.id}
     `;
+
+    // CHAT.X.7 — audit (system source: clinical auto-events have no direct user
+    // actor; they fire from tRPC mutations after the underlying clinical write)
+    void logAudit({
+      action: audit.action,
+      source: 'system',
+      hospital_id,
+      channel_id: channelId,
+      message_id: message?.id ?? null,
+      details: { encounter_id, ...(audit.details ?? {}) },
+    });
   } catch (err) {
     console.error('[auto-events] postAutoEvent failed:', err);
   }
@@ -66,7 +89,15 @@ export function onVitalsRecorded(params: VitalsEventParams) {
   return postAutoEvent(
     params.encounter_id,
     params.hospital_id,
-    `📊 Vitals recorded: ${params.vitals_summary}${news2}${by}`
+    `📊 Vitals recorded: ${params.vitals_summary}${news2}${by}`,
+    {
+      action: 'auto_event_vitals',
+      details: {
+        news2_score: params.news2_score ?? null,
+        news2_risk: params.news2_risk ?? null,
+        recorded_by: params.recorded_by ?? null,
+      },
+    }
   );
 }
 
@@ -93,7 +124,19 @@ export function onMedicationOrdered(params: MedOrderEventParams) {
   return postAutoEvent(
     params.encounter_id,
     params.hospital_id,
-    `💊 Medication ordered: ${params.drug_name}${dose}${route}${freq}${alert}${by}`
+    `💊 Medication ordered: ${params.drug_name}${dose}${route}${freq}${alert}${by}`,
+    {
+      action: 'auto_event_med_ordered',
+      details: {
+        drug_name: params.drug_name,
+        dose_quantity: params.dose_quantity ?? null,
+        dose_unit: params.dose_unit ?? null,
+        route: params.route ?? null,
+        frequency_code: params.frequency_code ?? null,
+        is_high_alert: params.is_high_alert ?? false,
+        ordered_by: params.ordered_by ?? null,
+      },
+    }
   );
 }
 
@@ -120,7 +163,17 @@ export function onMedicationAdministered(params: MedAdminEventParams) {
   return postAutoEvent(
     params.encounter_id,
     params.hospital_id,
-    `${icon} Medication ${verb}: ${drug}${dose}${by}`
+    `${icon} Medication ${verb}: ${drug}${dose}${by}`,
+    {
+      action: 'auto_event_med_administered',
+      details: {
+        drug_name: params.drug_name ?? null,
+        dose_given: params.dose_given ?? null,
+        dose_unit: params.dose_unit ?? null,
+        status: params.status,
+        administered_by: params.administered_by ?? null,
+      },
+    }
   );
 }
 
@@ -138,7 +191,14 @@ export function onClinicalNoteSaved(params: ClinicalNoteEventParams) {
   return postAutoEvent(
     params.encounter_id,
     params.hospital_id,
-    `📝 ${params.note_type} note saved${by}`
+    `📝 ${params.note_type} note saved${by}`,
+    {
+      action: 'auto_event_note_saved',
+      details: {
+        note_type: params.note_type,
+        author_name: params.author_name ?? null,
+      },
+    }
   );
 }
 
@@ -160,7 +220,15 @@ export function onLabOrdered(params: LabOrderEventParams) {
   return postAutoEvent(
     params.encounter_id,
     params.hospital_id,
-    `🧪 Lab ordered: ${params.panel_name}${urgency}${by}`
+    `🧪 Lab ordered: ${params.panel_name}${urgency}${by}`,
+    {
+      action: 'auto_event_lab_ordered',
+      details: {
+        panel_name: params.panel_name,
+        urgency: params.urgency ?? null,
+        ordered_by: params.ordered_by ?? null,
+      },
+    }
   );
 }
 
@@ -181,7 +249,15 @@ export function onLabResultsVerified(params: LabVerifiedEventParams) {
   return postAutoEvent(
     params.encounter_id,
     params.hospital_id,
-    `✅ Results verified: ${panel}${tat}${by}`
+    `✅ Results verified: ${panel}${tat}${by}`,
+    {
+      action: 'auto_event_lab_verified',
+      details: {
+        panel_name: params.panel_name ?? null,
+        tat_minutes: params.tat_minutes ?? null,
+        verified_by: params.verified_by ?? null,
+      },
+    }
   );
 }
 
@@ -201,7 +277,15 @@ export function onDietOrdered(params: DietOrderEventParams) {
   return postAutoEvent(
     params.encounter_id,
     params.hospital_id,
-    `🍽️ Diet order: ${params.diet_type}${restrictions}${by}`
+    `🍽️ Diet order: ${params.diet_type}${restrictions}${by}`,
+    {
+      action: 'auto_event_diet_ordered',
+      details: {
+        diet_type: params.diet_type,
+        restrictions: params.restrictions ?? null,
+        ordered_by: params.ordered_by ?? null,
+      },
+    }
   );
 }
 
@@ -221,6 +305,14 @@ export function onNursingOrderCreated(params: NursingOrderEventParams) {
   return postAutoEvent(
     params.encounter_id,
     params.hospital_id,
-    `🩺 Nursing order (${params.task_type})${desc}${by}`
+    `🩺 Nursing order (${params.task_type})${desc}${by}`,
+    {
+      action: 'auto_event_nursing_order',
+      details: {
+        task_type: params.task_type,
+        description: params.description ?? null,
+        ordered_by: params.ordered_by ?? null,
+      },
+    }
   );
 }
