@@ -613,11 +613,89 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     }
   }, [refreshUnreadSummary]);
 
-  const setTypingAction = useCallback(async (channelId: string, isTyping: boolean) => {
-    try {
-      await trpcMutate('chat.setTyping', { channelId, isTyping });
-    } catch { /* silent — typing is ephemeral */ }
+  // ---------------------------------------------------------------
+  // CHAT.X.0c — Typing debounce
+  //
+  // We used to fire `chat.setTyping` on every keystroke, which on a busy
+  // channel meant dozens of DB writes per second per user. The new contract
+  // (per CHAT-X-SPRINT-PRD.md):
+  //
+  //   - Coalesce rapid keystrokes behind a 250ms debounce before the first
+  //     `isTyping=true` write actually hits the server.
+  //   - After 1.5s with no further typing calls, auto-send `isTyping=false`
+  //     so stale "still typing…" indicators don't linger.
+  //   - Hard rate-limit: max 1 server write per 2s per (channel, user).
+  //     Second and subsequent `isTyping=true` calls within that window are
+  //     silently absorbed (the idle timer keeps the indicator fresh).
+  //   - Explicit `isTyping=false` bypasses the rate-limit and always sends
+  //     immediately (user clicked away / switched channels).
+  //
+  // All state is per-channel so switching channels doesn't leak timers.
+  // Presence heartbeat is NOT touched here — it's already driven by the
+  // SSE connect/disconnect lifecycle in /api/chat/stream/route.ts.
+  // ---------------------------------------------------------------
+  const typingStateRef = useRef<Map<string, {
+    debounceTimer: ReturnType<typeof setTimeout> | null;
+    idleTimer: ReturnType<typeof setTimeout> | null;
+    lastSentValue: boolean | null;
+    lastWriteTs: number;
+  }>>(new Map());
+
+  const sendTypingWrite = useCallback((channelId: string, isTyping: boolean) => {
+    const st = typingStateRef.current.get(channelId);
+    if (st) {
+      st.lastSentValue = isTyping;
+      st.lastWriteTs = Date.now();
+    }
+    // Fire-and-forget — typing is ephemeral, we don't care about the result.
+    void trpcMutate('chat.setTyping', { channelId, isTyping }).catch(() => {});
   }, []);
+
+  const setTypingAction = useCallback(async (channelId: string, isTyping: boolean): Promise<void> => {
+    let st = typingStateRef.current.get(channelId);
+    if (!st) {
+      st = { debounceTimer: null, idleTimer: null, lastSentValue: null, lastWriteTs: 0 };
+      typingStateRef.current.set(channelId, st);
+    }
+
+    if (isTyping) {
+      // Refresh 1.5s idle timer — auto-stop if no further keystrokes arrive.
+      if (st.idleTimer) clearTimeout(st.idleTimer);
+      st.idleTimer = setTimeout(() => {
+        const cur = typingStateRef.current.get(channelId);
+        if (cur?.lastSentValue === true) {
+          sendTypingWrite(channelId, false);
+        }
+        if (cur) cur.idleTimer = null;
+      }, 1500);
+
+      // Rate-limit: if we already told the server we're typing and did so
+      // within the last 2s, swallow — idle timer will close us out.
+      const now = Date.now();
+      if (st.lastSentValue === true && (now - st.lastWriteTs) < 2000) {
+        return;
+      }
+
+      // Debounce 250ms to coalesce rapid keystrokes into one write.
+      if (st.debounceTimer) return;
+      st.debounceTimer = setTimeout(() => {
+        const cur = typingStateRef.current.get(channelId);
+        if (!cur) return;
+        cur.debounceTimer = null;
+        // Re-check rate-limit at fire time (another call may have written in-between).
+        const now2 = Date.now();
+        if (cur.lastSentValue === true && (now2 - cur.lastWriteTs) < 2000) return;
+        sendTypingWrite(channelId, true);
+      }, 250);
+    } else {
+      // Explicit stop — cancel pending timers and flush false if needed.
+      if (st.debounceTimer) { clearTimeout(st.debounceTimer); st.debounceTimer = null; }
+      if (st.idleTimer) { clearTimeout(st.idleTimer); st.idleTimer = null; }
+      if (st.lastSentValue === true) {
+        sendTypingWrite(channelId, false);
+      }
+    }
+  }, [sendTypingWrite]);
 
   const refreshChannels = useCallback(async () => {
     await loadChannels();

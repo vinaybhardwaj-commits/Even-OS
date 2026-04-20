@@ -378,7 +378,7 @@ export const chatRouter = router({
       `;
 
       // Audit log
-      logAudit({
+      void logAudit({
         action: 'message_sent',
         user_id: userId,
         user_name: ctx.user.name,
@@ -485,7 +485,7 @@ export const chatRouter = router({
       `;
 
       // Audit log
-      logAudit({
+      void logAudit({
         action: 'message_retracted',
         user_id: userId,
         user_name: ctx.user.name,
@@ -712,7 +712,7 @@ export const chatRouter = router({
       `;
 
       // Audit log
-      logAudit({
+      void logAudit({
         action: 'dm_created',
         user_id: userId,
         user_name: ctx.user.name,
@@ -934,7 +934,7 @@ export const chatRouter = router({
 
       if (existing) {
         await sql`DELETE FROM chat_reactions WHERE id = ${existing.id}`;
-        logAudit({
+        void logAudit({
           action: 'reaction_removed',
           user_id: userId,
           user_name: ctx.user.name,
@@ -949,7 +949,7 @@ export const chatRouter = router({
           INSERT INTO chat_reactions (message_id, user_id, emoji)
           VALUES (${input.messageId}, ${userId}, ${input.emoji})
         `;
-        logAudit({
+        void logAudit({
           action: 'reaction_added',
           user_id: userId,
           user_name: ctx.user.name,
@@ -998,7 +998,7 @@ export const chatRouter = router({
         priority: input.priority,
       });
 
-      logAudit({
+      void logAudit({
         action: 'task_created',
         user_id: userId,
         user_name: ctx.user.name,
@@ -1021,7 +1021,7 @@ export const chatRouter = router({
         hospital_id: ctx.user.hospital_id,
       });
 
-      logAudit({
+      void logAudit({
         action: 'task_completed',
         user_id: ctx.user.sub,
         user_name: ctx.user.name,
@@ -1047,7 +1047,7 @@ export const chatRouter = router({
         hospital_id: ctx.user.hospital_id,
       });
 
-      logAudit({
+      void logAudit({
         action: 'task_reassigned',
         user_id: ctx.user.sub,
         user_name: ctx.user.name,
@@ -1130,7 +1130,7 @@ export const chatRouter = router({
         WHERE id = ${channel.id}
       `;
 
-      logAudit({
+      void logAudit({
         action: 'slash_command',
         user_id: userId,
         user_name: ctx.user.name,
@@ -1196,7 +1196,7 @@ export const chatRouter = router({
         WHERE id = ${channel.id}
       `;
 
-      logAudit({
+      void logAudit({
         action: 'form_submission_card',
         user_id: userId,
         user_name: ctx.user.name,
