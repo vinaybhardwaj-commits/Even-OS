@@ -120,7 +120,7 @@ export function MessageBubble({ message, isOwnMessage, showSender, channelType, 
   return (
     <>
       <div
-        className={`group px-4 py-0.5 hover:bg-white/[0.03] transition-colors relative ${showSender ? 'mt-3' : 'mt-0'} ${isPending ? 'opacity-60' : ''}`}
+        className={`group px-4 py-0.5 hover:bg-white/[0.03] transition-colors relative ${showSender ? 'mt-3' : 'mt-0'} ${isPending || isFailed ? 'opacity-60' : ''}`}
         onMouseEnter={() => canRetract && setShowActions(true)}
         onMouseLeave={() => { setShowActions(false); }}
       >
@@ -162,16 +162,6 @@ export function MessageBubble({ message, isOwnMessage, showSender, channelType, 
                 <span className="text-[10px] text-white/30">
                   {formatTime(created_at)}
                 </span>
-                {isPending && (
-                  <span className="text-[10px] text-white/40 italic" title="Sending…">
-                    sending…
-                  </span>
-                )}
-                {isFailed && (
-                  <span className="text-[10px] text-red-400 font-medium" title="Send failed — message stayed local">
-                    ⚠ failed
-                  </span>
-                )}
               </div>
             )}
 
@@ -191,6 +181,22 @@ export function MessageBubble({ message, isOwnMessage, showSender, channelType, 
             ) : (
               <div className="text-[13px] text-white/85 leading-relaxed break-words">
                 {renderContent(content)}
+              </div>
+            )}
+
+            {/* CHAT.X.0a.1 — send-status indicator (always renders, independent of showSender) */}
+            {(isPending || isFailed) && (
+              <div className="mt-0.5 flex items-center gap-1.5">
+                {isPending && (
+                  <span className="text-[10px] text-white/40 italic" title="Sending…">
+                    sending…
+                  </span>
+                )}
+                {isFailed && (
+                  <span className="text-[10px] text-red-400 font-medium" title="Send failed — message stayed local">
+                    ⚠ failed
+                  </span>
+                )}
               </div>
             )}
 
