@@ -7,6 +7,7 @@ import { createTask, completeTask, reassignTask } from '@/lib/chat/task-bridge';
 import { parseSlashCommand, executeReadOnlyCommand, getSlashCommandsForRole, resolveCommand } from '@/lib/chat/slash-commands';
 import { getUnreadSummary } from '@/lib/chat/unread';
 import { logAudit } from '@/lib/chat/audit';
+import { notifyChatMessage } from '@/lib/chat/chat-event-bus';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -364,6 +365,11 @@ export const chatRouter = router({
         UPDATE chat_channels SET last_message_at = NOW(), updated_at = NOW()
         WHERE id = ${channel.id}
       `;
+
+      // CHAT.X.4 — push wakeup so SSE listeners pull the new message in <50ms
+      // instead of waiting on the 5s safety poll. Fire-and-forget; receiver
+      // does the cursor-since query (payload only carries hospital_id).
+      void notifyChatMessage(hospitalId);
 
       // Audit log
       void logAudit({
@@ -1136,6 +1142,9 @@ export const chatRouter = router({
         WHERE id = ${channel.id}
       `;
 
+      // CHAT.X.4 — push wakeup for slash-command result card.
+      void notifyChatMessage(hospitalId);
+
       void logAudit({
         action: 'slash_command',
         user_id: userId,
@@ -1201,6 +1210,9 @@ export const chatRouter = router({
         UPDATE chat_channels SET last_message_at = NOW(), updated_at = NOW()
         WHERE id = ${channel.id}
       `;
+
+      // CHAT.X.4 — push wakeup for form confirmation card.
+      void notifyChatMessage(hospitalId);
 
       void logAudit({
         action: 'form_submission_card',

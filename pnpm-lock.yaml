@@ -98,6 +98,9 @@ importers:
       unpdf:
         specifier: ^0.12.1
         version: 0.12.2
+      ws:
+        specifier: ^8.18.0
+        version: 8.20.0
       zod:
         specifier: ^3.22.0
         version: 3.25.76
@@ -117,6 +120,9 @@ importers:
       '@types/react-dom':
         specifier: ^18.2.0
         version: 18.3.7(@types/react@18.3.28)
+      '@types/ws':
+        specifier: ^8.5.10
+        version: 8.18.1
       autoprefixer:
         specifier: ^10.4.0
         version: 10.4.27(postcss@8.5.9)

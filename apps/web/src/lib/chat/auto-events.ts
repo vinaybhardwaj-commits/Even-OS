@@ -17,6 +17,7 @@
 
 import { neon } from '@neondatabase/serverless';
 import { logAudit } from './audit';
+import { notifyChatMessage } from './chat-event-bus';
 
 function getSql() {
   return neon(process.env.DATABASE_URL!);
@@ -54,6 +55,11 @@ async function postAutoEvent(
       UPDATE chat_channels SET last_message_at = NOW(), updated_at = NOW()
       WHERE id = ${channel.id}
     `;
+
+    // CHAT.X.4 — wake up any SSE listeners for this hospital so the auto-event
+    // lands in the patient channel in <50ms instead of waiting on the 5s
+    // safety poll. Fire-and-forget; receiver does the cursor-since query.
+    void notifyChatMessage(hospital_id);
 
     // CHAT.X.7 — audit (system source: clinical auto-events have no direct user
     // actor; they fire from tRPC mutations after the underlying clinical write)

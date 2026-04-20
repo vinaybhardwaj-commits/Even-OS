@@ -14,6 +14,7 @@
 
 import { neon } from '@neondatabase/serverless';
 import { logAudit } from './audit';
+import { notifyChatMessage } from './chat-event-bus';
 
 function getSql() {
   return neon(process.env.DATABASE_URL!);
@@ -402,6 +403,9 @@ async function postSystemMessage(channelInternalId: string, hospital_id: string,
       UPDATE chat_channels SET last_message_at = NOW(), updated_at = NOW()
       WHERE id = ${channelInternalId}
     `;
+    // CHAT.X.4 — push wakeup so lifecycle announcements (admit/transfer/
+    // discharge/care-team-change) paint in listeners within ~50ms.
+    void notifyChatMessage(hospital_id);
   } catch (err) {
     console.error('[channel-manager] postSystemMessage failed:', err);
   }

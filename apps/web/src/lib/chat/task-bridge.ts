@@ -19,6 +19,7 @@
  */
 
 import { neon } from '@neondatabase/serverless';
+import { notifyChatMessage } from './chat-event-bus';
 
 function getSql() {
   return neon(process.env.DATABASE_URL!);
@@ -138,6 +139,9 @@ export async function createTask(params: CreateTaskParams) {
     WHERE id = ${params.channel_id}
   `;
 
+  // CHAT.X.4 — push wakeup so the task card shows up in listeners instantly.
+  void notifyChatMessage(params.hospital_id);
+
   return {
     ...message,
     task_id: taskId,
@@ -223,6 +227,9 @@ export async function completeTask(params: CompleteTaskParams) {
     WHERE id = ${msg.channel_id}
   `;
 
+  // CHAT.X.4 — push wakeup for the completion system message.
+  void notifyChatMessage(params.hospital_id);
+
   return { success: true, task_id: meta.task_id };
 }
 
@@ -295,6 +302,9 @@ export async function reassignTask(params: ReassignTaskParams) {
     UPDATE chat_channels SET last_message_at = NOW(), updated_at = NOW()
     WHERE id = ${msg.channel_id}
   `;
+
+  // CHAT.X.4 — push wakeup for reassign system message.
+  void notifyChatMessage(params.hospital_id);
 
   return { success: true };
 }
