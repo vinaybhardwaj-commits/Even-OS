@@ -67,3 +67,5 @@ export * from './58-patient-complaints';
 export * from './59-chart-subscriptions';
 
 export * from './60-chart-print-exports';
+
+export * from './61-tasks';

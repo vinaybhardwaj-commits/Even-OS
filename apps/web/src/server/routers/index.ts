@@ -90,6 +90,7 @@ import { previewRoleRouter } from './preview-role';
 import { chartHealthRouter } from './chart-health';
 import { chartSubscriptionsRouter } from './chart-subscriptions';
 import { chartPrintRouter } from './chart-print';
+import { tasksRouter } from './tasks';
 
 export const appRouter = router({
   auth: authRouter,
@@ -183,6 +184,7 @@ export const appRouter = router({
   chartHealth: chartHealthRouter,
   chartSubscriptions: chartSubscriptionsRouter,
   chartPrint: chartPrintRouter,
+  tasks: tasksRouter,
 });
 
 export type AppRouter = typeof appRouter;
