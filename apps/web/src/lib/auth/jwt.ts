@@ -37,6 +37,14 @@ export function getSessionTimeout(role: string): string {
   const clinicalRoles = ['attending_physician', 'resident', 'rmo', 'nurse', 'nurse_aide', 'pharmacist', 'pharmacy_tech', 'lab_tech', 'radiologist', 'radiology_tech', 'anaesthetist'];
   const executiveRoles = ['super_admin', 'medical_director'];
 
+  // DEMO.7 — demo-account sessions expire fast so a forgotten demo
+  // tab on a shared laptop auto-locks. The *target* session created
+  // by /api/demo/switch uses the target user's normal role TTL via
+  // createSession(target), so this 5m only applies to the pre-pick
+  // demo@even.in session sitting on /demo/picker. parseTimeout in
+  // lib/auth/session.ts already accepts the 'm' unit.
+  if (role === 'demo') return '5m';
+
   if (executiveRoles.includes(role)) return '24h';
   if (clinicalRoles.includes(role)) return '8h';
   return '12h'; // admin default
