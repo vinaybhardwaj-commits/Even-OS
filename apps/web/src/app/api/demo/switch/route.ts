@@ -48,15 +48,13 @@ interface SwitchBody {
 }
 
 export async function POST(req: NextRequest) {
-  // ── 1. Env kill-switch ──────────────────────────────────────────────
-  if (process.env.DEMO_ACCOUNT_ENABLED !== 'true') {
-    return NextResponse.json(
-      { ok: false, error: 'Demo mode is disabled on this deployment.' },
-      { status: 403 },
-    );
-  }
+  // Env kill-switch removed 20 Apr 2026 — the only thing that reaches this
+  // route is a live session with role='demo', which can only be obtained
+  // by logging in as demo@even.in (a row that only exists if the seed
+  // migration was deliberately run). The role-gate below is now the primary
+  // authorization check.
 
-  // ── 2. Caller must be the demo user ─────────────────────────────────
+  // ── Caller must be the demo user ───────────────────────────────────
   const caller = await getCurrentUser();
   if (!caller) {
     return NextResponse.json(

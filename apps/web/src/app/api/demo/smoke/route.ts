@@ -70,12 +70,13 @@ async function checkEnv(): Promise<CheckResult> {
   const flag = process.env.DEMO_ACCOUNT_ENABLED;
   const jwt = process.env.JWT_SECRET;
   const issues: string[] = [];
-  if (flag !== 'true') issues.push(`DEMO_ACCOUNT_ENABLED=${JSON.stringify(flag)} (expected 'true')`);
+  // DEMO_ACCOUNT_ENABLED gate was retired 20 Apr 2026 — no longer required.
+  // We still surface its current value for visibility but it doesn't fail.
   if (!jwt) issues.push('JWT_SECRET missing');
   if (issues.length > 0) {
-    return fail(issues.join('; '), { DEMO_ACCOUNT_ENABLED: flag, JWT_SECRET_present: Boolean(jwt) });
+    return fail(issues.join('; '), { DEMO_ACCOUNT_ENABLED: flag ?? null, JWT_SECRET_present: Boolean(jwt) });
   }
-  return ok({ DEMO_ACCOUNT_ENABLED: 'true', JWT_SECRET_present: true });
+  return ok({ DEMO_ACCOUNT_ENABLED: flag ?? null, JWT_SECRET_present: true, env_gate_note: 'flag retired — no longer enforced' });
 }
 
 async function checkDemoUser(): Promise<CheckResult> {

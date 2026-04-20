@@ -18,12 +18,9 @@ export const dynamic = 'force-dynamic';
  * handle the fetch to `POST /api/demo/switch`.
  */
 export default async function DemoPickerPage() {
-  // Env kill-switch — mirrors DEMO.1 login gate. If the flag is off
-  // there is no demo account anyway, but a bookmarked /demo/picker URL
-  // shouldn't render a fake-looking picker.
-  if (process.env.DEMO_ACCOUNT_ENABLED !== 'true') {
-    redirect('/login');
-  }
+  // Env kill-switch removed 20 Apr 2026 — gating now lives at
+  // role === 'demo' below. Non-demo visitors are bounced to /dashboard;
+  // anonymous visitors are bounced to /login.
 
   const user = await getCurrentUser();
   if (!user) {

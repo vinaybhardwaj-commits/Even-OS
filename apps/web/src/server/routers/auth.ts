@@ -20,16 +20,13 @@ export const authRouter = router({
     }))
     .mutation(async ({ input }) => {
 
-      // DEMO.1 gate — demo account is only loginable when DEMO_ACCOUNT_ENABLED=true.
-      // The demo user exists in the DB regardless (see migration
-      // /api/migrations/demo-account-seed); this gate is what keeps it inert
-      // in prod when we don't want it. Also gated at /api/demo/switch for
-      // defense-in-depth. Rejects with "Invalid credentials" on purpose —
-      // avoids leaking whether the demo account exists to strangers.
-      if (input.email.toLowerCase() === 'demo@even.in' &&
-          process.env.DEMO_ACCOUNT_ENABLED !== 'true') {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid credentials' });
-      }
+      // DEMO.1 gate removed 20 Apr 2026 — demo account is now loginable whenever
+      // the `demo@even.in` row exists (seeded by /api/migrations/demo-account-seed).
+      // The original env-flag `DEMO_ACCOUNT_ENABLED` is no longer checked; V's
+      // kill switches are now (a) never run the seed migration, or (b) delete the
+      // row. Row existence is already deliberate (seed migration is super_admin
+      // gated) and the row is hidden from admin lists via DEMO.9. See the demo
+      // sprint notes in memory for full rationale.
 
       // Rate limiting check: 5 attempts per 10 minutes
       const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
