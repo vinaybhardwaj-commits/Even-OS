@@ -6,6 +6,7 @@ import {
   UserRound,
   UserCog,
   ClipboardCheck,
+  Headphones,
   AlertTriangle,
   Loader2,
   type LucideIcon,
@@ -30,6 +31,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   UserRound,
   UserCog,
   ClipboardCheck,
+  Headphones,
 };
 
 interface PickerClientProps {

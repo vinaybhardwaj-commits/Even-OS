@@ -59,6 +59,7 @@ const DEMO_EMAILS = [
   'dr.arun.jose@even.in',
   'charge.nurse@even.in',
   'test.nurse@even.in',
+  'test.ipd@even.in',
 ] as const;
 
 export async function GET() {

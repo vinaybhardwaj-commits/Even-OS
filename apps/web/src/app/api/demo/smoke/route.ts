@@ -32,7 +32,7 @@ export const runtime = 'nodejs';
  *       • `demo` row exists in `roles` for EHRC
  *       • role_group='system', is_system_role=true, is_active=true
  *
- *   [D] Target users (DEMO.2 catalog × 4)
+ *   [D] Target users (every entry in the DEMO.2 catalog)
  *       For each DEMO_ROLES entry:
  *         • target_email resolves to exactly 1 row in EHRC
  *         • status='active'

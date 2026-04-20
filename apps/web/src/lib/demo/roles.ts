@@ -25,7 +25,8 @@ export type DemoRoleKey =
   | 'doctor_consultant'
   | 'doctor_resident'
   | 'charge_nurse'
-  | 'nurse';
+  | 'nurse'
+  | 'customer_care';
 
 export interface DemoRole {
   /** Machine key — sent by the picker to POST /api/demo/switch. */
@@ -74,6 +75,14 @@ export const DEMO_ROLES: readonly DemoRole[] = [
     target_email: 'test.nurse@even.in',
     icon: 'ClipboardCheck',
     order: 4,
+  },
+  {
+    key: 'customer_care',
+    label: 'Customer Care View',
+    description: 'IP coordinator view — admission pipeline, LSQ leads, family follow-ups.',
+    target_email: 'test.ipd@even.in',
+    icon: 'Headphones',
+    order: 5,
   },
 ] as const;
 
