@@ -14,6 +14,10 @@ import { trpcMutate } from '@/lib/chat/poll';
 interface ChatRoomHeaderProps {
   channel: ChatChannel;
   onBack: () => void;
+  /** CHAT.X.6 UI.b — when true, render the Messages / Tasks tab pill. */
+  showTabs?: boolean;
+  roomView?: 'messages' | 'tasks';
+  onRoomViewChange?: (view: 'messages' | 'tasks') => void;
 }
 
 function channelIcon(type: string): string {
@@ -34,7 +38,13 @@ function channelIconColor(type: string): string {
   }
 }
 
-export function ChatRoomHeader({ channel, onBack }: ChatRoomHeaderProps) {
+export function ChatRoomHeader({
+  channel,
+  onBack,
+  showTabs = false,
+  roomView = 'messages',
+  onRoomViewChange,
+}: ChatRoomHeaderProps) {
   const [showMuteMenu, setShowMuteMenu] = useState(false);
   const [isMuted, setIsMuted] = useState(channel.is_muted);
 
@@ -85,6 +95,30 @@ export function ChatRoomHeader({ channel, onBack }: ChatRoomHeaderProps) {
           </div>
         </div>
       </div>
+
+      {/* Tabs (CHAT.X.6 UI.b — Messages / Tasks) — patient channels only */}
+      {showTabs && onRoomViewChange && (
+        <div className="flex items-center rounded-md border border-white/10 bg-white/5 p-0.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => onRoomViewChange('messages')}
+            className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
+              roomView === 'messages' ? 'bg-white/15 text-white' : 'text-white/50 hover:text-white/80'
+            }`}
+          >
+            Messages
+          </button>
+          <button
+            type="button"
+            onClick={() => onRoomViewChange('tasks')}
+            className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
+              roomView === 'tasks' ? 'bg-white/15 text-white' : 'text-white/50 hover:text-white/80'
+            }`}
+          >
+            Tasks
+          </button>
+        </div>
+      )}
 
       {/* Member count */}
       <div className="flex items-center gap-1 text-xs text-white/40 shrink-0">

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import ShiftBadge from '@/components/shifts/ShiftBadge';
+import MyTasksBadge from '@/components/caregiver/MyTasksBadge';
 
 // ── Role display helpers ──────────────────────────────────────────────────
 const ROLE_LABELS: Record<string, string> = {
@@ -140,6 +141,9 @@ export default function CaregiverShell({ user, children }: CaregiverShellProps) 
         <div className="hidden sm:block">
           <ShiftBadge />
         </div>
+
+        {/* My Tasks badge (CHAT.X.6 UI.c) */}
+        <MyTasksBadge />
 
         {/* Notification bell */}
         <button className="relative p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors">

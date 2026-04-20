@@ -13,10 +13,13 @@ import { ChatRoomHeader } from './ChatRoomHeader';
 import { MessageList } from './MessageList';
 import { MessageComposer } from './MessageComposer';
 import { TypingIndicator } from './TypingIndicator';
+import { ChannelTasksPanel } from './ChannelTasksPanel';
 import { FormModal } from '@/components/forms/FormModal';
 import { trpcMutate } from '@/lib/chat/poll';
 import type { SlashCommandDef } from './SlashCommandMenu';
 import type { FormDefinition } from '@/lib/forms/types';
+
+type RoomView = 'messages' | 'tasks';
 
 export function ChatRoom() {
   const {
@@ -175,6 +178,22 @@ export function ChatRoom() {
       .map(t => t.user_name);
   }, [typing, activeChannelId, currentUserId]);
 
+  // ── Room view toggle (CHAT.X.6 UI.b — Tasks tab) ─────────
+  // Tasks tab only makes sense for channels with patient context. Department/DM/broadcast
+  // channels stay messages-only. Reset to 'messages' whenever channel changes.
+  const [roomView, setRoomView] = useState<RoomView>('messages');
+  useEffect(() => { setRoomView('messages'); }, [activeChannelId]);
+
+  const hasTaskContext = useMemo(() => {
+    if (!activeChannel) return false;
+    if (activeChannel.channel_type !== 'patient') return false;
+    let meta: any = activeChannel.metadata;
+    if (typeof meta === 'string') {
+      try { meta = JSON.parse(meta); } catch { meta = {}; }
+    }
+    return Boolean(activeChannel.encounter_id || meta?.patient_id || meta?.encounter_id);
+  }, [activeChannel]);
+
   if (!activeChannel) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[#0D1B2A] text-white/30">
@@ -189,32 +208,42 @@ export function ChatRoom() {
   return (
     <div className="flex flex-col h-full bg-[#0D1B2A]">
       {/* Header */}
-      <ChatRoomHeader channel={activeChannel} onBack={closeChannel} />
-
-      {/* Messages */}
-      <MessageList
-        messages={activeMessages}
-        currentUserId={currentUserId || ''}
-        channelType={activeChannel.channel_type}
-        channelId={activeChannel.channel_id}
-        onLoadOlder={handleLoadOlder}
-        onMessageUpdated={handleMessageUpdated}
-        onViewportRead={handleViewportRead}
+      <ChatRoomHeader
+        channel={activeChannel}
+        onBack={closeChannel}
+        showTabs={hasTaskContext}
+        roomView={roomView}
+        onRoomViewChange={setRoomView}
       />
 
-      {/* Typing indicator */}
-      <TypingIndicator names={typingNames} />
+      {/* Body — Messages OR Tasks */}
+      {roomView === 'tasks' && hasTaskContext ? (
+        <ChannelTasksPanel channel={activeChannel} currentUserId={currentUserId} />
+      ) : (
+        <>
+          <MessageList
+            messages={activeMessages}
+            currentUserId={currentUserId || ''}
+            channelType={activeChannel.channel_type}
+            channelId={activeChannel.channel_id}
+            onLoadOlder={handleLoadOlder}
+            onMessageUpdated={handleMessageUpdated}
+            onViewportRead={handleViewportRead}
+          />
 
-      {/* Composer */}
-      <MessageComposer
-        channelId={activeChannel.channel_id}
-        channelType={activeChannel.channel_type}
-        slashCommands={slashCommands}
-        onSend={sendMessage}
-        onSlashCommand={handleSlashCommand}
-        onFormCommand={handleFormCommand}
-        onTyping={setTypingAction}
-      />
+          <TypingIndicator names={typingNames} />
+
+          <MessageComposer
+            channelId={activeChannel.channel_id}
+            channelType={activeChannel.channel_type}
+            slashCommands={slashCommands}
+            onSend={sendMessage}
+            onSlashCommand={handleSlashCommand}
+            onFormCommand={handleFormCommand}
+            onTyping={setTypingAction}
+          />
+        </>
+      )}
 
       {/* Form Modal (SC.2) — opens when form-backed slash command selected */}
       {activeFormDef && (
