@@ -324,14 +324,25 @@ export const chatRouter = router({
       // Auto-add user as member
       await ensureMembership(channel.id, userId);
 
-      // For broadcast, only admins can post
+      // CHAT.X.9 — Broadcast policy
+      // Per V: "Any user should be able to use the broadcast channel."
+      // Old behaviour: only chat_channel_members.role='admin' could post.
+      // New behaviour: any authenticated user can post BUT we cap them at
+      // 5 broadcast posts per rolling 60 minutes (counted via chat_audit_log
+      // 'broadcast_sent' entries). Admin ops on broadcast (pin/archive/
+      // member-add) remain RBAC-gated elsewhere — only the post path opens up.
       if (channel.channel_type === 'broadcast') {
-        const [mem] = await sql`
-          SELECT role FROM chat_channel_members
-          WHERE channel_id = ${channel.id} AND user_id = ${userId}
+        const [{ count }] = await sql`
+          SELECT COUNT(*)::int AS count FROM chat_audit_log
+          WHERE user_id = ${userId}
+            AND action = 'broadcast_sent'
+            AND created_at > NOW() - INTERVAL '60 minutes'
         `;
-        if (mem?.role !== 'admin') {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can post to broadcast channels' });
+        if (count >= 5) {
+          throw new TRPCError({
+            code: 'TOO_MANY_REQUESTS',
+            message: 'Broadcast rate limit reached (5 per hour). Please wait before posting again.',
+          });
         }
       }
 
@@ -392,6 +403,24 @@ export const chatRouter = router({
           content_length: input.content.length,
         },
       });
+
+      // CHAT.X.9 — Separate broadcast_sent audit entry powers the rate-limit
+      // COUNT(*) above. Keeps the message_sent row untouched so generic
+      // message metrics aren't skewed.
+      if (channel.channel_type === 'broadcast') {
+        void logAudit({
+          action: 'broadcast_sent',
+          user_id: userId,
+          user_name: ctx.user.name,
+          hospital_id: hospitalId,
+          channel_id: input.channelId,
+          message_id: message.id,
+          details: {
+            content_length: input.content.length,
+            priority: input.priority,
+          },
+        });
+      }
 
       return {
         ...message,
