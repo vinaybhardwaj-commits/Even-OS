@@ -19,8 +19,9 @@ export const runtime = 'nodejs';
  * What it verifies end-to-end (all server-side, no cookies):
  *
  *   [A] Environment
- *       • DEMO_ACCOUNT_ENABLED present + equal to 'true'
  *       • JWT_SECRET present (middleware needs it)
+ *       • DEMO_ACCOUNT_ENABLED value surfaced for visibility only
+ *         (gate retired 20 Apr 2026 — no longer a fail condition)
  *
  *   [B] Demo user row (DEMO.1)
  *       • exists in EHRC

@@ -12,9 +12,10 @@ export const dynamic = 'force-dynamic';
  * (shipped in DEMO.3). No other code path should ever authenticate as `demo`.
  *
  * Guardrails baked in:
- *   - `DEMO_ACCOUNT_ENABLED=true` env flag is checked at the login route (see
- *     authRouter.login) AND at the switch endpoint. If the flag is off, the
- *     user row is inert — it exists but cannot be logged into.
+ *   - The DEMO_ACCOUNT_ENABLED env-flag gate was retired 20 Apr 2026 — the
+ *     only kill switch now is to NOT run this migration, or to delete /
+ *     deactivate the row after the fact. The row is authoritative: it exists
+ *     iff demo login should work.
  *   - `must_change_password=false` so the picker path isn't blocked by a
  *     forced-password-change redirect.
  *   - `roles='{demo}'::text[]` is a new value but no enum change is required
@@ -99,9 +100,7 @@ export async function GET() {
       migration: '0059_demo_user_seed',
       steps,
       envNote:
-        process.env.DEMO_ACCOUNT_ENABLED === 'true'
-          ? 'DEMO_ACCOUNT_ENABLED=true — demo login is ACTIVE on this deployment'
-          : 'DEMO_ACCOUNT_ENABLED is NOT set to "true" — demo login is GATED OFF. Set the env var in Vercel to enable.',
+        'DEMO_ACCOUNT_ENABLED gate retired 20 Apr 2026 — demo login is ACTIVE whenever this row exists.',
       demoUser: row,
     });
   } catch (err: any) {

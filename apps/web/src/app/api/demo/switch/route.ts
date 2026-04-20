@@ -27,14 +27,15 @@ export const runtime = 'nodejs';
  *     new session cookie is picked up by the next request's middleware.
  *
  * Guardrails (in order):
- *   1. `DEMO_ACCOUNT_ENABLED === 'true'` — else 403 (env kill-switch).
- *   2. Caller must have a live session with role='demo' — else 403.
- *      (No anonymous, no full-user, no break-glass can hit this route.)
- *   3. Body.role must be a DEMO_ROLES key — else 400.
- *   4. Rate-limit: at most 20 `demo.switch` audit rows for this actor
+ *   1. Caller must have a live session with role='demo' — else 403.
+ *      (No anonymous, no full-user, no break-glass can hit this route.
+ *      The env-flag `DEMO_ACCOUNT_ENABLED` gate was retired 20 Apr 2026;
+ *      row-existence + role='demo' are now the primary auth check.)
+ *   2. Body.role must be a DEMO_ROLES key — else 400.
+ *   3. Rate-limit: at most 20 `demo.switch` audit rows for this actor
  *      in the last minute — else 429. Mirrors CHAT.X.9's COUNT-on-
  *      audit-log pattern (no extra table needed).
- *   5. Target user lookup: must exist in the same hospital, be
+ *   4. Target user lookup: must exist in the same hospital, be
  *      status='active', and have at least one role — else 500.
  *
  * Audit row is written BEFORE destroySession so `actor_id` still
