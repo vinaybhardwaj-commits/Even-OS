@@ -23,6 +23,9 @@ export default async function AdminUsersPage() {
   }
 
   // Fetch users for this hospital
+  // DEMO.9 — exclude hidden rows (demo@even.in + 4 persona targets) from
+  // the admin People page. Super_admin who needs to manage them can query
+  // via tRPC users.list with show_hidden=true or touch the DB directly.
   const userRows = await db.select({
     id: users.id,
     email: users.email,
@@ -36,7 +39,10 @@ export default async function AdminUsersPage() {
     created_at: users.created_at,
   })
     .from(users)
-    .where(eq(users.hospital_id, user.hospital_id))
+    .where(and(
+      eq(users.hospital_id, user.hospital_id),
+      eq(users.hidden, false),
+    ))
     .orderBy(desc(users.last_active_at));
 
   // Fetch available roles
@@ -51,10 +57,14 @@ export default async function AdminUsersPage() {
       eq(roles.is_active, true),
     ));
 
-  // Fetch departments
+  // Fetch departments — also honors hidden so the filter dropdown
+  // doesn't expose a department that only contains demo accounts.
   const deptRows = await db.selectDistinct({ department: users.department })
     .from(users)
-    .where(eq(users.hospital_id, user.hospital_id));
+    .where(and(
+      eq(users.hospital_id, user.hospital_id),
+      eq(users.hidden, false),
+    ));
 
   const departments = deptRows.map(d => d.department).filter(Boolean).sort();
 

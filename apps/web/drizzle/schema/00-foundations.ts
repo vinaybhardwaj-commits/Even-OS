@@ -90,6 +90,11 @@ export const users = pgTable('users', {
   first_login_at: timestamp('first_login_at', { withTimezone: true }),
   last_active_at: timestamp('last_active_at', { withTimezone: true }),
   login_count: integer('login_count').notNull().default(0),
+  // DEMO.9 — demo/test accounts (demo@even.in + 4 persona targets) are
+  // hidden from admin display lists but remain active so /api/demo/switch
+  // can swap sessions to them. Filter fires on display queries only;
+  // exact-ID lookups (auth login, profile, shifts) ignore it.
+  hidden: boolean('hidden').notNull().default(false),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
@@ -97,6 +102,7 @@ export const users = pgTable('users', {
   statusIdx: index('idx_users_status').on(table.status),
   departmentIdx: index('idx_users_department').on(table.department),
   biometricIdx: index('idx_users_biometric_enrolled').on(table.biometric_enrolled),
+  hiddenIdx: index('idx_users_hidden').on(table.hidden),
 }));
 
 // ============================================================

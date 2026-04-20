@@ -18,11 +18,14 @@ export const usersRouter = router({
       status: z.enum(['active', 'suspended', 'deleted', 'all']).default('all'),
       role: z.string().optional(),
       department: z.string().optional(),
+      // DEMO.9 — default hides demo@even.in + 4 persona targets from admin
+      // People page. Toggle on the UI flips this true to show the full set.
+      show_hidden: z.boolean().default(false),
       page: z.number().min(1).default(1),
       pageSize: z.number().min(1).max(100).default(25),
     }).optional().default({}))
     .query(async ({ ctx, input }) => {
-      const { search, status, role, department, page, pageSize } = input;
+      const { search, status, role, department, show_hidden, page, pageSize } = input;
       const offset = (page - 1) * pageSize;
 
       // Build WHERE conditions
@@ -45,6 +48,11 @@ export const usersRouter = router({
         );
       }
 
+      // DEMO.9 — hide demo/test rows unless caller explicitly asks.
+      if (!show_hidden) {
+        conditions.push(eq(users.hidden, false));
+      }
+
       const where = and(...conditions);
 
       // Get total count
@@ -61,6 +69,7 @@ export const usersRouter = router({
         department: users.department,
         roles: users.roles,
         status: users.status,
+        hidden: users.hidden,
         last_active_at: users.last_active_at,
         login_count: users.login_count,
         must_change_password: users.must_change_password,

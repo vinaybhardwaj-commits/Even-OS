@@ -234,6 +234,8 @@ export const rolesRouter = router({
     const countMap = new Map(permCounts.map(pc => [pc.role_id, Number(pc.perm_count)]));
 
     // Get user counts per role (users.roles is text[], need to check array contains)
+    // DEMO.9 — exclude hidden rows (demo@even.in + 4 persona targets) from
+    // admin display counts. Enforcement queries elsewhere still see them.
     const allUsers = await db.select({
       id: users.id,
       userRoles: users.roles,
@@ -242,6 +244,7 @@ export const rolesRouter = router({
       .where(and(
         eq(users.hospital_id, ctx.user.hospital_id),
         eq(users.status, 'active'),
+        eq(users.hidden, false),
       ));
 
     const userCountMap = new Map<string, number>();
@@ -288,6 +291,8 @@ export const rolesRouter = router({
         .where(eq(rolePermissions.role_id, role.id));
 
       // Get users with this role
+      // DEMO.9 — exclude hidden rows from role drill-down so demo/test
+      // accounts don't appear in the "Users with this role" panel.
       const roleUsers = await db.select({
         id: users.id,
         full_name: users.full_name,
@@ -298,6 +303,7 @@ export const rolesRouter = router({
         .where(and(
           eq(users.hospital_id, ctx.user.hospital_id),
           eq(users.status, 'active'),
+          eq(users.hidden, false),
           sql`${users.roles} @> ARRAY[${role.name}]::text[]`,
         ));
 
