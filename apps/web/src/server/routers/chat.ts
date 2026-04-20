@@ -5,6 +5,7 @@ import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { routeFileToMedicalRecord } from '@/lib/chat/file-to-record';
 import { createTask, completeTask, reassignTask } from '@/lib/chat/task-bridge';
 import { parseSlashCommand, executeReadOnlyCommand, getSlashCommandsForRole, resolveCommand } from '@/lib/chat/slash-commands';
+import { getUnreadSummary } from '@/lib/chat/unread';
 
 let _sqlClient: NeonQueryFunction<false, false> | null = null;
 function getSql() {
@@ -503,9 +504,18 @@ export const chatRouter = router({
   /**
    * Mark channel as read (updates last_read_at).
    * Auto-creates membership row if needed.
+   *
+   * CHAT.X.2: Returns a fresh A/B/C unreadSummary so the client can reconcile
+   * its optimistic local decrement against the authoritative DB state in the
+   * same round-trip (no separate follow-up query needed).
    */
   markRead: protectedProcedure
-    .input(z.object({ channelId: z.string() }))
+    .input(z.object({
+      channelId: z.string(),
+      // Optional — message id up to which we're marking read. Present for
+      // viewport-based marks. If omitted, last_read_at jumps to NOW() (channel-open semantic).
+      messageId: z.number().int().optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       const sql = getSql();
       const userId = ctx.user.sub;
@@ -516,13 +526,41 @@ export const chatRouter = router({
       `;
       if (channel) {
         await ensureMembership(channel.id, userId);
-        await sql`
-          UPDATE chat_channel_members
-          SET last_read_at = NOW()
-          WHERE channel_id = ${channel.id} AND user_id = ${userId}
-        `;
+
+        if (input.messageId != null) {
+          // Mark-read up to a specific message: set last_read_at to that message's
+          // timestamp, but only if it advances the watermark (never rewind).
+          await sql`
+            UPDATE chat_channel_members ccm
+            SET last_read_at = GREATEST(
+              COALESCE(ccm.last_read_at, '1970-01-01'::timestamptz),
+              (SELECT created_at FROM chat_messages WHERE id = ${input.messageId})
+            )
+            WHERE ccm.channel_id = ${channel.id} AND ccm.user_id = ${userId}
+          `;
+        } else {
+          // Channel-open semantic: clear unreads up to now.
+          await sql`
+            UPDATE chat_channel_members
+            SET last_read_at = NOW()
+            WHERE channel_id = ${channel.id} AND user_id = ${userId}
+          `;
+        }
       }
-      return { success: true };
+
+      const summary = await getUnreadSummary(sql, userId, ctx.user.hospital_id);
+      return { success: true, unreadSummary: summary };
+    }),
+
+  /**
+   * CHAT.X.2 — Fetch the A/B/C unread summary on demand.
+   * Cheap single-query endpoint; used by ChatProvider on bootstrap and after
+   * local state changes that may have drifted from the server (e.g., tab refocus).
+   */
+  getUnreadSummary: protectedProcedure
+    .query(async ({ ctx }) => {
+      const sql = getSql();
+      return getUnreadSummary(sql, ctx.user.sub, ctx.user.hospital_id);
     }),
 
   // ── POLL ────────────────────────────────────────────────────

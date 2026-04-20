@@ -24,6 +24,13 @@ interface MessageListProps {
   channelId: string;
   onLoadOlder: () => Promise<boolean>;
   onMessageUpdated?: () => void;
+  /**
+   * CHAT.X.2 — Fired when the bottom of the message list has been
+   * continuously visible in the viewport for ~800ms. Consumer should
+   * mark the channel as read. Debounced + resets on every newest-message
+   * change so only the *latest* bottom triggers.
+   */
+  onViewportRead?: () => void;
 }
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -47,7 +54,7 @@ function getDateKey(dateStr: string): string {
 
 // ── Component ───────────────────────────────────────────────
 
-export function MessageList({ messages, currentUserId, channelType, channelId, onLoadOlder, onMessageUpdated }: MessageListProps) {
+export function MessageList({ messages, currentUserId, channelType, channelId, onLoadOlder, onMessageUpdated, onViewportRead }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
@@ -106,6 +113,85 @@ export function MessageList({ messages, currentUserId, channelType, channelId, o
   useEffect(() => {
     bottomRef.current?.scrollIntoView();
   }, []);
+
+  // ── CHAT.X.2 — Viewport-based mark-as-read ─────────────────
+  // When the bottom sentinel is in view AND the tab is visible for 800ms
+  // continuously, fire `onViewportRead`. Reset timer if scrolled away or
+  // tab hidden. This is what flips "the user has actually seen this" vs
+  // "the window is open but they tabbed away".
+  const viewportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestMsgIdRef = useRef<number | null>(null);
+  // Track newest message id so we reset the timer only when newer content arrives
+  const newestId = messages.length > 0 ? messages[messages.length - 1].id : null;
+
+  useEffect(() => {
+    if (!onViewportRead || !bottomRef.current) return;
+    const node = bottomRef.current;
+
+    const clearTimer = () => {
+      if (viewportTimerRef.current) {
+        clearTimeout(viewportTimerRef.current);
+        viewportTimerRef.current = null;
+      }
+    };
+
+    const scheduleMark = () => {
+      if (viewportTimerRef.current) return; // already scheduled
+      viewportTimerRef.current = setTimeout(() => {
+        viewportTimerRef.current = null;
+        // Only fire if the bottom is *still* the current newest we saw
+        // and the tab is still visible.
+        if (
+          typeof document !== 'undefined' &&
+          document.visibilityState === 'visible' &&
+          newestId !== null &&
+          latestMsgIdRef.current !== newestId
+        ) {
+          latestMsgIdRef.current = newestId;
+          onViewportRead();
+        }
+      }, 800);
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && document.visibilityState === 'visible') {
+            scheduleMark();
+          } else {
+            clearTimer();
+          }
+        }
+      },
+      { threshold: 0.5 },
+    );
+    observer.observe(node);
+
+    // Also re-evaluate when the tab returns to the foreground: if the
+    // bottom sentinel is still on screen, re-schedule.
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        const rect = node.getBoundingClientRect();
+        const inView = rect.top < (window.innerHeight || 0) && rect.bottom > 0;
+        if (inView) scheduleMark();
+      } else {
+        clearTimer();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', onVisibility);
+      clearTimer();
+    };
+  }, [onViewportRead, newestId]);
+
+  // When switching channels, reset the "already marked" memo so the new
+  // channel gets a fresh viewport-read cycle.
+  useEffect(() => {
+    latestMsgIdRef.current = null;
+  }, [channelId]);
 
   // ── Pre-compute message display metadata (memoized) ────────
   const messageItems = useMemo(() => {

@@ -13,10 +13,18 @@
 
 export type ChatUIState = 'collapsed' | 'sidebar' | 'chatroom';
 
+export interface UnreadSummary {
+  a: number; // total unread across member channels
+  b: number; // role-scoped subset (department + patient)
+  c: number; // DMs to me
+}
+
 export interface PollResult {
   messages: PollMessage[];
   typing: TypingIndicator[];
   unreadCounts: Record<string, number>;
+  /** CHAT.X.2 — A/B/C badge summary. Optional for forward-compat. */
+  unreadSummary?: UnreadSummary;
   lastEventId: number;
   serverTime: string;
 }

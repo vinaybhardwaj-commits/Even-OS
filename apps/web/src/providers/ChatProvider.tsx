@@ -29,6 +29,7 @@ import {
   type PollMessage,
   type PollResult,
   type TypingIndicator,
+  type UnreadSummary,
 } from '@/lib/chat/poll';
 import { ChatStreamEngine } from '@/lib/chat/stream';
 
@@ -87,6 +88,8 @@ export interface ChatContextValue {
   activeChannelId: string | null;
   activeMessages: ChatMessage[];
   unreadTotal: number;
+  /** CHAT.X.2 — A/B/C badge summary. A=total, B=role-scoped, C=DMs. */
+  unreadSummary: UnreadSummary;
   typing: TypingIndicator[];
   isLoading: boolean;
   isAuthenticated: boolean;
@@ -128,6 +131,7 @@ export function useChat(): ChatContextValue {
       activeChannelId: null,
       activeMessages: [],
       unreadTotal: 0,
+      unreadSummary: { a: 0, b: 0, c: 0 },
       typing: [],
       isLoading: false,
       isAuthenticated: false,
@@ -207,6 +211,7 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [activeMessages, setActiveMessages] = useState<ChatMessage[]>([]);
   const [unreadTotal, setUnreadTotal] = useState(0);
+  const [unreadSummary, setUnreadSummary] = useState<UnreadSummary>({ a: 0, b: 0, c: 0 });
   const [typing, setTyping] = useState<TypingIndicator[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -233,6 +238,12 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
   const handleStreamMessage = useCallback((result: PollResult) => {
     // Update typing indicators
     setTyping(result.typing);
+
+    // CHAT.X.2 — sync A/B/C badge from server snapshot. The server pushes this
+    // on every batch so the badge stays correct without a separate query.
+    if (result.unreadSummary) {
+      setUnreadSummary(result.unreadSummary);
+    }
 
     // If there are new messages, update unread counts and channel list
     if (result.messages.length > 0) {
@@ -319,6 +330,20 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // CHAT.X.2 — Cheap dedicated fetch for the A/B/C badge. Used on bootstrap
+  // and tab refocus where we want a fresh snapshot without re-pulling the
+  // full channel list.
+  const refreshUnreadSummary = useCallback(async () => {
+    try {
+      const params = `?input=${encodeURIComponent(JSON.stringify({ json: {} }))}`;
+      const res = await fetch(`/api/trpc/chat.getUnreadSummary${params}`, { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const json = await res.json();
+      const summary = json.result?.data?.json as UnreadSummary | undefined;
+      if (summary) setUnreadSummary(summary);
+    } catch { /* silent — badge is non-critical */ }
+  }, []);
+
   // ── Initialize ──────────────────────────────────────────────
   useEffect(() => {
     let mounted = true;
@@ -347,8 +372,8 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
         }
       } catch { /* noop */ }
 
-      // 3. Load initial channels
-      await loadChannels();
+      // 3. Load initial channels + unread summary in parallel
+      await Promise.all([loadChannels(), refreshUnreadSummary()]);
       if (!mounted) return;
 
       setIsLoading(false);
@@ -367,7 +392,7 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
       streamEngineRef.current?.stop();
       streamEngineRef.current = null;
     };
-  }, [loadChannels, handleStreamMessage, handleStreamError]);
+  }, [loadChannels, refreshUnreadSummary, handleStreamMessage, handleStreamError]);
 
   // ── Actions ─────────────────────────────────────────────────
 
@@ -375,9 +400,28 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     setActiveChannelId(channelId);
     setChatState('chatroom');
 
+    // Optimistically zero this channel's unread count in the sidebar so the
+    // dot disappears the instant the user clicks in — matches CHAT.X.2 intent.
+    setChannels(prev => {
+      if (!prev) return prev;
+      const zero = (list: ChatChannel[]) =>
+        list.map(c => c.channel_id === channelId ? { ...c, unread_count: 0 } : c);
+      return {
+        my_patients: zero(prev.my_patients),
+        departments: zero(prev.departments),
+        direct_messages: zero(prev.direct_messages),
+        broadcast: zero(prev.broadcast),
+        archived: zero(prev.archived),
+      };
+    });
+
     // Load full message history for the channel
     try {
       const data = await trpcMutate('chat.markRead', { channelId });
+      // CHAT.X.2 — sync A/B/C badge from server's authoritative post-mark snapshot
+      if (data?.unreadSummary) {
+        setUnreadSummary(data.unreadSummary);
+      }
       // Fetch via query, not mutation
       const params = `?input=${encodeURIComponent(JSON.stringify({ json: { channelId } }))}`;
       const res = await fetch(`/api/trpc/chat.getChannel${params}`);
@@ -517,23 +561,57 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
   }, [currentUserId]);
 
   const markRead = useCallback(async (channelId: string) => {
+    // CHAT.X.2 — optimistic decrement: snapshot the channel's current unread_count
+    // and its channel_type, then subtract from A (and B or C) in the same paint.
+    // Reconcile against the server-returned summary when the mutation resolves.
+    let optimisticDelta: { a: number; b: number; c: number } | null = null;
+
+    setChannels(prev => {
+      if (!prev) return prev;
+      const allLists: ChatChannel[] = [
+        ...prev.my_patients,
+        ...prev.departments,
+        ...prev.direct_messages,
+        ...prev.broadcast,
+      ];
+      const target = allLists.find(c => c.channel_id === channelId);
+      if (target && target.unread_count > 0) {
+        const n = target.unread_count;
+        optimisticDelta = { a: n, b: 0, c: 0 };
+        if (target.channel_type === 'department' || target.channel_type === 'patient') optimisticDelta.b = n;
+        else if (target.channel_type === 'direct') optimisticDelta.c = n;
+      }
+      const update = (list: ChatChannel[]) =>
+        list.map(c => c.channel_id === channelId ? { ...c, unread_count: 0 } : c);
+      return {
+        my_patients: update(prev.my_patients),
+        departments: update(prev.departments),
+        direct_messages: update(prev.direct_messages),
+        broadcast: update(prev.broadcast),
+        archived: update(prev.archived),
+      };
+    });
+
+    if (optimisticDelta) {
+      const { a, b, c } = optimisticDelta;
+      setUnreadSummary(prev => ({
+        a: Math.max(0, prev.a - a),
+        b: Math.max(0, prev.b - b),
+        c: Math.max(0, prev.c - c),
+      }));
+    }
+
     try {
-      await trpcMutate('chat.markRead', { channelId });
-      // Update local unread count
-      setChannels(prev => {
-        if (!prev) return prev;
-        const update = (list: ChatChannel[]) =>
-          list.map(c => c.channel_id === channelId ? { ...c, unread_count: 0 } : c);
-        return {
-          my_patients: update(prev.my_patients),
-          departments: update(prev.departments),
-          direct_messages: update(prev.direct_messages),
-          broadcast: update(prev.broadcast),
-          archived: update(prev.archived),
-        };
-      });
-    } catch { /* silent */ }
-  }, []);
+      const result = await trpcMutate('chat.markRead', { channelId });
+      // Reconcile with authoritative server snapshot.
+      if (result?.unreadSummary) {
+        setUnreadSummary(result.unreadSummary);
+      }
+    } catch {
+      // Mutation failed — pull fresh server state so we don't drift.
+      refreshUnreadSummary();
+    }
+  }, [refreshUnreadSummary]);
 
   const setTypingAction = useCallback(async (channelId: string, isTyping: boolean) => {
     try {
@@ -565,7 +643,10 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     }
   }, [activeMessages]);
 
-  // ── OC.6: Tab title unread badge ───────────────────────────
+  // ── CHAT.X.2 — Tab title 3-number badge (A · B · C) Even OS ──
+  // Format: `(12 · 4 · 2) Even OS` so the user sees, at a glance, total
+  // unread / role-scoped / DMs even when this tab is in the background.
+  // Falls back to plain title when A=0.
   const originalTitleRef = useRef<string | null>(null);
   useEffect(() => {
     if (!originalTitleRef.current && typeof document !== 'undefined') {
@@ -573,9 +654,15 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     }
     if (typeof document !== 'undefined') {
       const base = originalTitleRef.current || 'Even OS';
-      document.title = unreadTotal > 0 ? `(${unreadTotal > 99 ? '99+' : unreadTotal}) ${base}` : base;
+      const { a, b, c } = unreadSummary;
+      if (a > 0) {
+        const cap = (n: number) => (n > 99 ? '99+' : String(n));
+        document.title = `(${cap(a)} · ${cap(b)} · ${cap(c)}) ${base}`;
+      } else {
+        document.title = base;
+      }
     }
-  }, [unreadTotal]);
+  }, [unreadSummary]);
 
   // ── OC.6: Sound notification for new messages ─────────────
   const prevUnreadRef = useRef(0);
@@ -615,6 +702,21 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('open-patient-chat', handler);
   }, [openChannel]);
 
+  // ── CHAT.X.2 — Re-sync badge on tab refocus ────────────────
+  // While the tab is backgrounded, browsers throttle timers + SSE can
+  // stall. When the user comes back we do a single authoritative fetch
+  // so the A/B/C badge matches reality before they look at it.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && isAuthenticated) {
+        refreshUnreadSummary();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [isAuthenticated, refreshUnreadSummary]);
+
   // ── Context value ───────────────────────────────────────────
   const value: ChatContextValue = {
     chatState,
@@ -622,6 +724,7 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     activeChannelId,
     activeMessages,
     unreadTotal,
+    unreadSummary,
     typing,
     isLoading,
     isAuthenticated,

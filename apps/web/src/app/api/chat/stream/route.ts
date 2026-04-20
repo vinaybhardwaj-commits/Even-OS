@@ -13,6 +13,7 @@
 
 import { verifyToken } from '@/lib/auth/jwt';
 import { getSql } from '@/lib/db';
+import { getUnreadSummary } from '@/lib/chat/unread';
 
 // Vercel Pro: allow up to 300 seconds streaming
 export const maxDuration = 300;
@@ -140,11 +141,22 @@ export async function GET(req: Request) {
             const unreadMap: Record<string, number> = {};
             unreadCounts.forEach((r: any) => { unreadMap[r.cid] = r.unread; });
 
+            // CHAT.X.2 — A/B/C summary computed once and shipped with the batch.
+            // Cheap (single GROUP BY) and keeps the badge always in sync with
+            // the authoritative server state on every push.
+            let unreadSummary = { a: 0, b: 0, c: 0 };
+            try {
+              unreadSummary = await getUnreadSummary(sql, userId, hospitalId);
+            } catch (err) {
+              console.warn('[SSE Stream] getUnreadSummary failed:', err);
+            }
+
             // Push SSE event
             const eventData = JSON.stringify({
               messages: newMessages,
               typing,
               unreadCounts: unreadMap,
+              unreadSummary,
               lastEventId: maxId,
               serverTime: new Date().toISOString(),
             });

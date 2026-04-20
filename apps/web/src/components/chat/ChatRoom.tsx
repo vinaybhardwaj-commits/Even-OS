@@ -29,6 +29,7 @@ export function ChatRoom() {
     loadOlderMessages,
     sendMessage,
     setTyping: setTypingAction,
+    markRead,
   } = useChat();
 
   // Find active channel object from groups
@@ -52,6 +53,14 @@ export function ChatRoom() {
   const handleMessageUpdated = useCallback(() => {
     // Force a poll to refresh messages after edit/delete/retract
   }, []);
+
+  // CHAT.X.2 — mark the active channel read once its bottom has been on
+  // screen for ~800ms. MessageList does the timing + tab-visibility gate.
+  const handleViewportRead = useCallback(() => {
+    if (activeChannelId) {
+      markRead(activeChannelId);
+    }
+  }, [activeChannelId, markRead]);
 
   // ── Slash commands (SC.2) ──────────────────────────────
   const [slashCommands, setSlashCommands] = useState<SlashCommandDef[]>([]);
@@ -190,6 +199,7 @@ export function ChatRoom() {
         channelId={activeChannel.channel_id}
         onLoadOlder={handleLoadOlder}
         onMessageUpdated={handleMessageUpdated}
+        onViewportRead={handleViewportRead}
       />
 
       {/* Typing indicator */}
