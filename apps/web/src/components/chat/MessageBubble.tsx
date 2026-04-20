@@ -88,6 +88,11 @@ interface MessageBubbleProps {
 export function MessageBubble({ message, isOwnMessage, showSender, channelType, channelId, currentUserId, onMessageUpdated }: MessageBubbleProps) {
   const { id, sender_name, sender_department, sender_roles, message_type, content, created_at, is_retracted, retracted_reason } = message;
 
+  // CHAT.X.0a — optimistic send status (temp rows carry metadata.status='sending' | 'failed')
+  const sendStatus = (message.metadata as any)?.status as 'sending' | 'failed' | undefined;
+  const isPending = sendStatus === 'sending';
+  const isFailed = sendStatus === 'failed';
+
   const [showActions, setShowActions] = useState(false);
   const [showRetractModal, setShowRetractModal] = useState(false);
   const [retractReason, setRetractReason] = useState('');
@@ -115,7 +120,7 @@ export function MessageBubble({ message, isOwnMessage, showSender, channelType, 
   return (
     <>
       <div
-        className={`group px-4 py-0.5 hover:bg-white/[0.03] transition-colors relative ${showSender ? 'mt-3' : 'mt-0'}`}
+        className={`group px-4 py-0.5 hover:bg-white/[0.03] transition-colors relative ${showSender ? 'mt-3' : 'mt-0'} ${isPending ? 'opacity-60' : ''}`}
         onMouseEnter={() => canRetract && setShowActions(true)}
         onMouseLeave={() => { setShowActions(false); }}
       >
@@ -157,6 +162,16 @@ export function MessageBubble({ message, isOwnMessage, showSender, channelType, 
                 <span className="text-[10px] text-white/30">
                   {formatTime(created_at)}
                 </span>
+                {isPending && (
+                  <span className="text-[10px] text-white/40 italic" title="Sending…">
+                    sending…
+                  </span>
+                )}
+                {isFailed && (
+                  <span className="text-[10px] text-red-400 font-medium" title="Send failed — message stayed local">
+                    ⚠ failed
+                  </span>
+                )}
               </div>
             )}
 

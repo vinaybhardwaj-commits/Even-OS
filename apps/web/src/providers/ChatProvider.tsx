@@ -239,12 +239,25 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
       // Update active channel messages if any new messages belong to it
       const activeId = activeChannelRef.current;
       if (activeId) {
-        // Append new messages from stream (deduplicate by ID)
+        // Merge new messages from stream (CHAT.X.0a optimistic-aware dedup):
+        // 1. If server id already present → skip
+        // 2. If incoming metadata.client_temp_id matches an optimistic temp row → replace it in-place
+        // 3. Otherwise → append
         setActiveMessages(prev => {
           const existingIds = new Set(prev.map(m => m.id));
-          const newMsgs: ChatMessage[] = result.messages
-            .filter((m: PollMessage) => !existingIds.has(m.id))
-            .map((m: PollMessage) => ({
+          const tempIdToIndex = new Map<string, number>();
+          prev.forEach((m, i) => {
+            const t = (m.metadata as any)?.client_temp_id;
+            if (typeof t === 'string' && m.id < 0) tempIdToIndex.set(t, i);
+          });
+
+          let next = prev;
+          let mutated = false;
+          for (const m of result.messages as PollMessage[]) {
+            if (existingIds.has(m.id)) continue;
+
+            const incomingTempId = (m.metadata as any)?.client_temp_id;
+            const converted: ChatMessage = {
               id: m.id,
               sender_id: m.sender_id,
               message_type: m.message_type,
@@ -258,8 +271,28 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
               updated_at: m.created_at,
               sender_name: m.sender_name,
               sender_department: m.sender_department,
-            }));
-          return [...prev, ...newMsgs];
+            };
+
+            if (
+              typeof incomingTempId === 'string' &&
+              tempIdToIndex.has(incomingTempId)
+            ) {
+              // Reconcile — replace optimistic row with server row
+              if (!mutated) {
+                next = [...next];
+                mutated = true;
+              }
+              next[tempIdToIndex.get(incomingTempId)!] = converted;
+              tempIdToIndex.delete(incomingTempId);
+            } else {
+              if (!mutated) {
+                next = [...next];
+                mutated = true;
+              }
+              next.push(converted);
+            }
+          }
+          return mutated ? next : prev;
         });
       }
 
@@ -374,28 +407,82 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
     replyToId?: number;
     attachments?: { file_name: string; file_type: string; file_size: number; file_url: string; thumbnail_url?: string }[];
   }) => {
+    // CHAT.X.0a — TRUE optimistic send.
+    // 1. Build optimistic row with client_temp_id + status='sending'
+    // 2. Insert into activeMessages BEFORE awaiting network
+    // 3. On server ack: reconcile temp row → real server row (keep client_temp_id in metadata so SSE echo is a no-op)
+    // 4. On error: flip metadata.status='failed', surface error
+    // SSE dedup is handled in handleStreamMessage by matching metadata.client_temp_id.
+
+    const tempId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `tmp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const tempNumericId = -(Math.floor(Math.random() * 1e9) + Date.now());
+    const nowIso = new Date().toISOString();
+
+    const optimisticMetadata: Record<string, any> = {
+      ...(params.metadata || {}),
+      client_temp_id: tempId,
+      status: 'sending',
+    };
+
+    const optimisticMessage: ChatMessage = {
+      id: tempNumericId,
+      sender_id: currentUserId,
+      message_type: params.messageType || 'chat',
+      priority: params.priority || 'normal',
+      content: params.content,
+      metadata: optimisticMetadata,
+      reply_to_id: params.replyToId,
+      is_edited: false,
+      is_deleted: false,
+      is_retracted: false,
+      created_at: nowIso,
+      updated_at: nowIso,
+      sender_name: 'You',
+      sender_department: '',
+    };
+
+    // Insert immediately so UI renders in <16ms (no network roundtrip).
+    if (activeChannelRef.current === params.channelId) {
+      setActiveMessages(prev => [...prev, optimisticMessage]);
+    }
+
     try {
       const result = await trpcMutate('chat.sendMessage', {
         channelId: params.channelId,
         content: params.content,
         messageType: params.messageType || 'chat',
         priority: params.priority || 'normal',
-        metadata: params.metadata,
+        metadata: { ...(params.metadata || {}), client_temp_id: tempId },
         replyToId: params.replyToId,
         attachments: params.attachments,
       });
 
-      // Optimistic insert into active messages
+      // Reconcile: replace the optimistic row with the server row.
+      // If SSE already swapped it in (matched by client_temp_id), the temp row is gone
+      // and we skip the replace — the server row is already present.
       if (result && activeChannelRef.current === params.channelId) {
-        setActiveMessages(prev => [
-          ...prev,
-          {
+        setActiveMessages(prev => {
+          const tempIdx = prev.findIndex(m => m.id === tempNumericId);
+          if (tempIdx === -1) return prev; // SSE already reconciled
+          // Guard against a race where the real server row arrived via SSE
+          // with a different lookup (shouldn't happen, but belt-and-braces).
+          if (prev.some(m => m.id === result.id)) {
+            // Real row already present — just drop the temp.
+            const next = [...prev];
+            next.splice(tempIdx, 1);
+            return next;
+          }
+          const replaced: ChatMessage = {
             id: result.id,
             sender_id: result.sender_id,
             message_type: result.message_type,
             priority: result.priority,
             content: params.content,
-            metadata: result.metadata,
+            // Keep client_temp_id in metadata so a late SSE echo dedups correctly.
+            metadata: { ...(result.metadata || {}), client_temp_id: tempId },
             reply_to_id: result.reply_to_id,
             is_edited: false,
             is_deleted: false,
@@ -404,20 +491,30 @@ function ChatProviderInner({ children }: { children: ReactNode }) {
             updated_at: result.created_at,
             sender_name: result.sender_name || 'You',
             sender_department: result.sender_department || '',
-          },
-        ]);
+          };
+          const next = [...prev];
+          next[tempIdx] = replaced;
+          return next;
+        });
       }
-
-      // SSE stream will deliver the message back within ~300ms.
-      // Optimistic insert above ensures the sender sees it immediately.
 
       return result;
     } catch (err) {
+      // Mark the optimistic row as failed (keeps it visible, user can retry).
+      if (activeChannelRef.current === params.channelId) {
+        setActiveMessages(prev =>
+          prev.map(m =>
+            m.id === tempNumericId
+              ? { ...m, metadata: { ...(m.metadata || {}), status: 'failed' } }
+              : m
+          )
+        );
+      }
       const msg = err instanceof Error ? err.message : 'Failed to send message';
       setError(msg);
       throw err;
     }
-  }, []);
+  }, [currentUserId]);
 
   const markRead = useCallback(async (channelId: string) => {
     try {
