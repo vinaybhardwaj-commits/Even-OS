@@ -10,87 +10,122 @@ interface User {
   name: string;
 }
 
+// Shape returned by patient.list (items array)
 interface Patient {
   id: string;
-  name: string;
+  name_full: string;
   uhid: string;
-  dob: string;
+  phone?: string | null;
+  dob?: string | null;
 }
 
+// Shape returned by billingAccounts.getAccount / listAccounts
+// (field names here match the router's SQL aliases — see routers/billing-accounts.ts)
 interface BillingAccount {
   id: string;
   patient_id: string;
-  account_type: 'self_pay' | 'insurance' | 'corporate' | 'ngo';
-  insurer_name?: string;
-  tpa_name?: string;
-  policy_number?: string;
-  member_id?: string;
-  sum_insured?: number;
-  room_rent_eligibility?: number;
-  co_pay_percent?: number;
-  estimated_total: number;
+  encounter_id: string | null;
+  account_type: 'self_pay' | 'insurance' | 'corporate' | 'government';
+  insurer_name?: string | null;
+  tpa_name?: string | null;
+  policy_number?: string | null;
+  member_id?: string | null;
+  sum_insured?: string | number | null;
+  room_rent_eligibility?: string | number | null;
+  co_pay_percent?: string | number | null;
+  total_charges?: string | number | null;
+  total_deposits?: string | number | null;
+  total_payments?: string | number | null;
+  total_approved?: string | number | null;
+  balance_due?: string | number | null;
+  estimated_total?: string | number | null;
+  patient_liability_estimate?: string | number | null;
+  is_active: boolean;
   created_at: string;
-  is_over_eligible: boolean;
+  updated_at?: string;
+  name_full?: string | null;
+  encounter_type?: string | null;
+  admission_date?: string | null;
+  discharge_date?: string | null;
+  // UI-derived flag — NOT returned by router; used for the banner
+  is_over_eligible?: boolean;
 }
 
-interface RunningBillItem {
-  id: string;
-  category: 'room' | 'procedure' | 'lab' | 'pharmacy' | 'consultation' | 'nursing' | 'other';
-  description: string;
-  amount: number;
-  date: string;
+// Shape returned by billingAccounts.getRunningBill (aggregate, not per-item)
+interface RunningBillSummary {
+  charges_by_category: Array<{ category: string; count: number; total: number }>;
+  subtotal: string;
+  gst_total: string;
+  grand_total: string;
+  deposits: string;
+  payments: string;
+  approved: string;
+  balance_due: string;
+  room_charges: { total: string; days: number };
+  package_info: unknown;
 }
 
+// Shape returned by billingAccounts.listDeposits
 interface Deposit {
   id: string;
-  account_id: string;
-  amount: number;
+  amount: string | number;
   payment_method: 'cash' | 'card' | 'upi' | 'neft' | 'cheque';
-  reference_number: string;
-  receipt_number: string;
-  status: 'collected' | 'applied' | 'refunded';
-  collected_by: string;
+  reference_number: string | null;
+  status: 'collected' | 'applied' | 'refunded' | 'partial_refund';
+  collector_name: string | null;
   collected_at: string;
-  notes?: string;
+  notes?: string | null;
 }
 
+// Census row returned by billingAccounts.ipdCensus
+interface CensusRow {
+  encounter_id: string;
+  admission_at: string;
+  encounter_class: string | null;
+  pre_auth_status: string | null;
+  patient_id: string;
+  patient_name: string;
+  uhid: string;
+  phone: string | null;
+  patient_category: string | null;
+  bed_code: string | null;
+  bed_name: string | null;
+  ward_code: string | null;
+  ward_name: string | null;
+  account_id: string | null;
+  account_type: string | null;
+  insurer_name: string | null;
+  account_active: boolean | null;
+  deposits_collected: string | number;
+  running_total: string | number;
+}
+
+// Shape returned by billingAccounts.listPackages (summary row — no components)
+// Full detail w/ components comes from getPackageDetail if we ever need it.
 interface BillingPackage {
   id: string;
-  account_id: string;
   package_name: string;
-  package_code: string;
-  package_price: number;
-  includes_room: boolean;
-  includes_pharmacy: boolean;
-  includes_investigations: boolean;
-  max_los_days: number;
-  actual_cost: number;
-  status: 'active' | 'completed' | 'cancelled';
-  created_at: string;
-  components: PackageComponent[];
+  package_code: string | null;
+  status: 'active' | 'completed' | 'cancelled' | 'exceeded';
+  package_price: string | number;
+  actual_cost: string | number | null;
+  variance_amount: string | number | null;
+  applied_at: string;
+  name_full?: string | null;
 }
 
-interface PackageComponent {
-  id: string;
-  component_name: string;
-  category: string;
-  budgeted_amount: number;
-  actual_amount: number;
-  max_quantity: number;
-  used_quantity: number;
-}
-
+// Shape returned by billingAccounts.listRoomCharges
 interface RoomCharge {
   id: string;
-  account_id: string;
   charge_date: string;
-  charge_type: string;
-  ward_name: string;
-  room_category: 'General' | 'Semi-Private' | 'Private' | 'Deluxe' | 'ICU' | 'NICU';
-  base_rate: number;
-  nursing_charge: number;
-  room_rent_eligible: boolean;
-  created_at: string;
+  room_charge_type: string | null;
+  ward_name: string | null;
+  room_category: string | null;
+  base_rate: string | number;
+  nursing_charge: string | number | null;
+  total_charge: string | number | null;
+  room_rent_eligible: string | number | null;
+  is_over_eligible: boolean | null;
 }
 
 interface TabState {
@@ -123,10 +158,19 @@ export function BillingV2Client({ user }: { user: User }) {
   const [showPatientSearch, setShowPatientSearch] = useState(false);
 
   const [account, setAccount] = useState<BillingAccount | null>(null);
-  const [runningBill, setRunningBill] = useState<RunningBillItem[]>([]);
+  const [runningBill, setRunningBill] = useState<RunningBillSummary | null>(null);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [packages, setPackages] = useState<BillingPackage[]>([]);
   const [roomCharges, setRoomCharges] = useState<RoomCharge[]>([]);
+
+  // Current encounter for the selected account — needed for collectDeposit,
+  // applyPackage, addRoomCharge, listRoomCharges, listPackages (all filter by encounter_id).
+  const [encounterId, setEncounterId] = useState<string | null>(null);
+
+  // IPD census — default landing view. One row per currently-admitted encounter.
+  const [census, setCensus] = useState<CensusRow[]>([]);
+  const [censusLoading, setCensusLoading] = useState(false);
+  const [censusSearch, setCensusSearch] = useState('');
 
   const [showAccountForm, setShowAccountForm] = useState(false);
   const [showDepositForm, setShowDepositForm] = useState(false);
@@ -180,58 +224,50 @@ export function BillingV2Client({ user }: { user: User }) {
     room_rent_eligible: true,
   });
 
-  // Fetch patients list
+  // Fetch patients list — patient.list returns { items, total, page, pageSize, totalPages }
+  // (NOT `patients`). tRPC's query-procedure call style uses GET w/ ?input=… but the
+  // whole module was written to POST against mutations, which works for queries too in
+  // the tRPC HTTP adapter, so we keep the pattern here.
   const fetchPatients = useCallback(async (query: string) => {
     try {
       const response = await fetch('/api/trpc/patient.list', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: { search: query, limit: 20 } }),
+        body: JSON.stringify({ json: { search: query, pageSize: 20 } }),
       });
       const data = await response.json();
-      if (data.result?.data?.json?.patients) {
-        setPatients(data.result.data.json.patients);
+      const items = data.result?.data?.json?.items;
+      if (Array.isArray(items)) {
+        setPatients(items);
       }
     } catch (err) {
       console.error('Error fetching patients:', err);
     }
   }, []);
 
-  // Handle patient selection
-  const handleSelectPatient = useCallback((patientId: string) => {
-    setTabState(prev => ({ ...prev, selectedPatientId: patientId }));
-    setShowPatientSearch(false);
-    // Auto-fetch account for this patient
-    fetchAccountForPatient(patientId);
-  }, []);
-
-  const fetchAccountForPatient = useCallback(async (patientId: string) => {
-    setTabState(prev => ({ ...prev, loading: true, error: null }));
+  // IPD census loader — single tRPC call, returns denormalized row per active encounter.
+  const fetchIpdCensus = useCallback(async () => {
+    setCensusLoading(true);
     try {
-      const response = await fetch('/api/trpc/billingAccounts.getByPatient', {
+      const response = await fetch('/api/trpc/billingAccounts.ipdCensus', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: { patient_id: patientId } }),
+        body: JSON.stringify({ json: {} }),
       });
       const data = await response.json();
-      if (data.result?.data?.json) {
-        setAccount(data.result.data.json);
-        setTabState(prev => ({ ...prev, selectedAccountId: data.result.data.json.id }));
-        // Fetch related data
-        await Promise.all([
-          fetchRunningBill(data.result.data.json.id),
-          fetchDeposits(data.result.data.json.id),
-          fetchPackages(data.result.data.json.id),
-          fetchRoomCharges(data.result.data.json.id),
-        ]);
+      const rows = data.result?.data?.json;
+      if (Array.isArray(rows)) {
+        setCensus(rows as CensusRow[]);
       }
     } catch (err) {
-      setTabState(prev => ({ ...prev, error: 'Failed to load billing account' }));
+      console.error('Error fetching IPD census:', err);
     } finally {
-      setTabState(prev => ({ ...prev, loading: false }));
+      setCensusLoading(false);
     }
   }, []);
 
+  // Fetch the running bill aggregate for an account — router returns the summary
+  // shape directly (charges_by_category + totals), not a list of line items.
   const fetchRunningBill = useCallback(async (accountId: string) => {
     try {
       const response = await fetch('/api/trpc/billingAccounts.getRunningBill', {
@@ -240,87 +276,223 @@ export function BillingV2Client({ user }: { user: User }) {
         body: JSON.stringify({ json: { account_id: accountId } }),
       });
       const data = await response.json();
-      if (data.result?.data?.json?.items) {
-        setRunningBill(data.result.data.json.items);
+      const summary = data.result?.data?.json;
+      if (summary && typeof summary === 'object' && Array.isArray(summary.charges_by_category)) {
+        setRunningBill(summary as RunningBillSummary);
       }
     } catch (err) {
       console.error('Error fetching running bill:', err);
     }
   }, []);
 
+  // listDeposits returns a bare array (no envelope `.deposits`).
+  // Filter by account_id (falls back to encounter_id if account missing).
   const fetchDeposits = useCallback(async (accountId: string) => {
     try {
-      const response = await fetch('/api/trpc/billingAccounts.getDeposits', {
+      const response = await fetch('/api/trpc/billingAccounts.listDeposits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ json: { account_id: accountId } }),
       });
       const data = await response.json();
-      if (data.result?.data?.json?.deposits) {
-        setDeposits(data.result.data.json.deposits);
+      const rows = data.result?.data?.json;
+      if (Array.isArray(rows)) {
+        setDeposits(rows as Deposit[]);
       }
     } catch (err) {
       console.error('Error fetching deposits:', err);
     }
   }, []);
 
-  const fetchPackages = useCallback(async (accountId: string) => {
+  // listPackages takes encounter_id (NOT account_id) and returns a bare array.
+  const fetchPackages = useCallback(async (encId: string | null) => {
+    if (!encId) {
+      setPackages([]);
+      return;
+    }
     try {
-      const response = await fetch('/api/trpc/billingAccounts.getPackages', {
+      const response = await fetch('/api/trpc/billingAccounts.listPackages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: { account_id: accountId } }),
+        body: JSON.stringify({ json: { encounter_id: encId } }),
       });
       const data = await response.json();
-      if (data.result?.data?.json?.packages) {
-        setPackages(data.result.data.json.packages);
+      const rows = data.result?.data?.json;
+      if (Array.isArray(rows)) {
+        setPackages(rows as BillingPackage[]);
       }
     } catch (err) {
       console.error('Error fetching packages:', err);
     }
   }, []);
 
-  const fetchRoomCharges = useCallback(async (accountId: string) => {
+  // listRoomCharges takes encounter_id (NOT account_id) and returns a bare array.
+  const fetchRoomCharges = useCallback(async (encId: string | null) => {
+    if (!encId) {
+      setRoomCharges([]);
+      return;
+    }
     try {
-      const response = await fetch('/api/trpc/billingAccounts.getRoomCharges', {
+      const response = await fetch('/api/trpc/billingAccounts.listRoomCharges', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: { account_id: accountId } }),
+        body: JSON.stringify({ json: { encounter_id: encId } }),
       });
       const data = await response.json();
-      if (data.result?.data?.json?.charges) {
-        setRoomCharges(data.result.data.json.charges);
+      const rows = data.result?.data?.json;
+      if (Array.isArray(rows)) {
+        setRoomCharges(rows as RoomCharge[]);
       }
     } catch (err) {
       console.error('Error fetching room charges:', err);
     }
   }, []);
 
+  // fetchAccountForPatient: uses listAccounts (active only) + getAccount for full detail.
+  // getByPatient does not exist on the router — that was the primary bug. We pick the
+  // first active account for the patient; if none exists the UI falls through to the
+  // "create billing account" CTA.
+  const fetchAccountForPatient = useCallback(async (patientId: string) => {
+    setTabState(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const listRes = await fetch('/api/trpc/billingAccounts.listAccounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: { patient_id: patientId, is_active: true } }),
+      });
+      const listData = await listRes.json();
+      const listed = listData.result?.data?.json;
+      const firstAccount = Array.isArray(listed) && listed.length > 0 ? listed[0] : null;
+
+      if (!firstAccount) {
+        // No active account — clear state; "Create Billing Account" CTA shows.
+        setAccount(null);
+        setEncounterId(null);
+        setRunningBill(null);
+        setDeposits([]);
+        setPackages([]);
+        setRoomCharges([]);
+        setTabState(prev => ({ ...prev, selectedAccountId: null }));
+        return;
+      }
+
+      // Full detail via getAccount — gives us encounter_id + all derived fields.
+      const detailRes = await fetch('/api/trpc/billingAccounts.getAccount', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: { account_id: firstAccount.id } }),
+      });
+      const detailData = await detailRes.json();
+      const full = detailData.result?.data?.json as BillingAccount | undefined;
+      if (!full) {
+        throw new Error('getAccount returned no row');
+      }
+
+      setAccount(full);
+      setEncounterId(full.encounter_id);
+      setTabState(prev => ({ ...prev, selectedAccountId: full.id }));
+
+      // Fetch all related data in parallel — each has its own no-throw try/catch.
+      await Promise.all([
+        fetchRunningBill(full.id),
+        fetchDeposits(full.id),
+        fetchPackages(full.encounter_id),
+        fetchRoomCharges(full.encounter_id),
+      ]);
+    } catch (err) {
+      setTabState(prev => ({ ...prev, error: 'Failed to load billing account' }));
+    } finally {
+      setTabState(prev => ({ ...prev, loading: false }));
+    }
+  }, [fetchRunningBill, fetchDeposits, fetchPackages, fetchRoomCharges]);
+
+  // Handle patient selection — defined AFTER fetchAccountForPatient so the closure is valid.
+  const handleSelectPatient = useCallback((patientId: string) => {
+    setTabState(prev => ({ ...prev, selectedPatientId: patientId }));
+    setShowPatientSearch(false);
+    void fetchAccountForPatient(patientId);
+  }, [fetchAccountForPatient]);
+
+  // Load IPD census on mount so the landing page is never empty.
+  useEffect(() => {
+    void fetchIpdCensus();
+  }, [fetchIpdCensus]);
+
+  // Format a number into Zod's regex shape (/^\d+(\.\d{1,2})?$/).
+  // Router rejects "1e3", "1.234", "-5" etc., so we normalize + clamp here.
+  const toMoneyString = (n: number): string => {
+    if (!Number.isFinite(n) || n < 0) return '0';
+    return n.toFixed(2);
+  };
+
   const handleCreateAccount = async () => {
     if (!tabState.selectedPatientId) return;
     setTabState(prev => ({ ...prev, loading: true, error: null }));
     try {
-      const response = await fetch('/api/trpc/billingAccounts.create', {
+      // Router is `createAccount` (NOT `create`). Monetary fields are strings matching
+      // Zod's /^\d+(\.\d{1,2})?$/ regex, so we stringify here. Also `room_rent_eligibility`
+      // is the server-side key name — client form already uses that name.
+      const payload: Record<string, unknown> = {
+        patient_id: tabState.selectedPatientId,
+        account_type: accountFormData.account_type,
+        estimated_total: toMoneyString(accountFormData.estimated_total),
+      };
+      if (accountFormData.account_type === 'insurance') {
+        if (accountFormData.insurer_name) payload.insurer_name = accountFormData.insurer_name;
+        if (accountFormData.tpa_name) payload.tpa_name = accountFormData.tpa_name;
+        if (accountFormData.policy_number) payload.policy_number = accountFormData.policy_number;
+        if (accountFormData.member_id) payload.member_id = accountFormData.member_id;
+        payload.sum_insured = toMoneyString(accountFormData.sum_insured);
+        payload.room_rent_eligibility = toMoneyString(accountFormData.room_rent_eligibility);
+        payload.co_pay_percent = toMoneyString(accountFormData.co_pay_percent);
+      }
+      if (encounterId) payload.encounter_id = encounterId;
+
+      const response = await fetch('/api/trpc/billingAccounts.createAccount', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: { patient_id: tabState.selectedPatientId, ...accountFormData } }),
+        body: JSON.stringify({ json: payload }),
       });
       const data = await response.json();
-      if (data.result?.data?.json) {
-        setAccount(data.result.data.json);
-        setShowAccountForm(false);
-        setAccountFormData({
-          account_type: 'self_pay',
-          insurer_name: '',
-          tpa_name: '',
-          policy_number: '',
-          member_id: '',
-          sum_insured: 0,
-          room_rent_eligibility: 0,
-          co_pay_percent: 0,
-          estimated_total: 0,
-        });
+      const created = data.result?.data?.json as { account_id?: string } | undefined;
+      if (!created?.account_id) {
+        throw new Error(data.error?.json?.message || 'createAccount returned no id');
       }
+
+      // createAccount returns a thin {account_id, account_type, created_at} envelope —
+      // fetch the full detail via getAccount so the UI has encounter_id + eligibility.
+      const detailRes = await fetch('/api/trpc/billingAccounts.getAccount', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: { account_id: created.account_id } }),
+      });
+      const detailData = await detailRes.json();
+      const full = detailData.result?.data?.json as BillingAccount | undefined;
+      if (full) {
+        setAccount(full);
+        setEncounterId(full.encounter_id);
+        setTabState(prev => ({ ...prev, selectedAccountId: full.id }));
+        // Refresh derived data for the newly created account.
+        await Promise.all([
+          fetchRunningBill(full.id),
+          fetchDeposits(full.id),
+          fetchPackages(full.encounter_id),
+          fetchRoomCharges(full.encounter_id),
+        ]);
+      }
+
+      setShowAccountForm(false);
+      setAccountFormData({
+        account_type: 'self_pay',
+        insurer_name: '',
+        tpa_name: '',
+        policy_number: '',
+        member_id: '',
+        sum_insured: 0,
+        room_rent_eligibility: 0,
+        co_pay_percent: 0,
+        estimated_total: 0,
+      });
     } catch (err) {
       setTabState(prev => ({ ...prev, error: 'Failed to create account' }));
     } finally {
@@ -329,33 +501,41 @@ export function BillingV2Client({ user }: { user: User }) {
   };
 
   const handleCollectDeposit = async () => {
-    if (!tabState.selectedAccountId) return;
+    if (!tabState.selectedAccountId || !tabState.selectedPatientId) return;
     setTabState(prev => ({ ...prev, loading: true, error: null }));
     try {
-      const response = await fetch('/api/trpc/billingAccounts.addDeposit', {
+      // Router is `collectDeposit` (NOT `addDeposit`). Requires patient_id + amount
+      // as a string in Zod regex shape. collected_by / collected_at are set server-side
+      // (from ctx.user.sub + NOW()), so we must NOT send them.
+      const response = await fetch('/api/trpc/billingAccounts.collectDeposit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           json: {
+            patient_id: tabState.selectedPatientId,
+            encounter_id: encounterId ?? undefined,
             account_id: tabState.selectedAccountId,
-            ...depositFormData,
-            collected_by: user.name,
-            collected_at: new Date().toISOString(),
+            amount: toMoneyString(depositFormData.amount),
+            payment_method: depositFormData.payment_method,
+            reference_number: depositFormData.reference_number || undefined,
+            receipt_number: depositFormData.receipt_number || undefined,
+            notes: depositFormData.notes || undefined,
           },
         }),
       });
       const data = await response.json();
-      if (data.result?.data?.json) {
-        await fetchDeposits(tabState.selectedAccountId);
-        setShowDepositForm(false);
-        setDepositFormData({
-          amount: 0,
-          payment_method: 'cash',
-          reference_number: '',
-          receipt_number: '',
-          notes: '',
-        });
+      if (data.error) {
+        throw new Error(data.error?.json?.message || 'Deposit failed');
       }
+      await fetchDeposits(tabState.selectedAccountId);
+      setShowDepositForm(false);
+      setDepositFormData({
+        amount: 0,
+        payment_method: 'cash',
+        reference_number: '',
+        receipt_number: '',
+        notes: '',
+      });
     } catch (err) {
       setTabState(prev => ({ ...prev, error: 'Failed to collect deposit' }));
     } finally {
@@ -364,36 +544,56 @@ export function BillingV2Client({ user }: { user: User }) {
   };
 
   const handleApplyPackage = async () => {
-    if (!tabState.selectedAccountId) return;
+    if (!tabState.selectedAccountId || !tabState.selectedPatientId || !encounterId) {
+      setTabState(prev => ({ ...prev, error: 'Select a patient with an active encounter first' }));
+      return;
+    }
     setTabState(prev => ({ ...prev, loading: true, error: null }));
     try {
-      const response = await fetch('/api/trpc/billingAccounts.addPackage', {
+      // Router is `applyPackage`. Requires patient_id + encounter_id; package_price
+      // and component budgeted_amount must be regex-matching strings.
+      const response = await fetch('/api/trpc/billingAccounts.applyPackage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           json: {
+            patient_id: tabState.selectedPatientId,
+            encounter_id: encounterId,
             account_id: tabState.selectedAccountId,
-            ...packageFormData,
-            actual_cost: 0,
-            status: 'active',
+            package_name: packageFormData.package_name,
+            package_code: packageFormData.package_code || undefined,
+            package_price: toMoneyString(packageFormData.package_price),
+            includes_room: packageFormData.includes_room,
+            includes_pharmacy: packageFormData.includes_pharmacy,
+            includes_investigations: packageFormData.includes_investigations,
+            max_los_days: packageFormData.max_los_days || undefined,
+            components: packageFormData.components.length > 0
+              ? packageFormData.components.map(c => ({
+                  component_name: c.component_name,
+                  category: c.category,
+                  budgeted_amount: toMoneyString(c.budgeted_amount),
+                  max_quantity: c.max_quantity || undefined,
+                }))
+              : undefined,
           },
         }),
       });
       const data = await response.json();
-      if (data.result?.data?.json) {
-        await fetchPackages(tabState.selectedAccountId);
-        setShowPackageForm(false);
-        setPackageFormData({
-          package_name: '',
-          package_code: '',
-          package_price: 0,
-          includes_room: false,
-          includes_pharmacy: false,
-          includes_investigations: false,
-          max_los_days: 0,
-          components: [],
-        });
+      if (data.error) {
+        throw new Error(data.error?.json?.message || 'Package apply failed');
       }
+      await fetchPackages(encounterId);
+      setShowPackageForm(false);
+      setPackageFormData({
+        package_name: '',
+        package_code: '',
+        package_price: 0,
+        includes_room: false,
+        includes_pharmacy: false,
+        includes_investigations: false,
+        max_los_days: 0,
+        components: [],
+      });
     } catch (err) {
       setTabState(prev => ({ ...prev, error: 'Failed to apply package' }));
     } finally {
@@ -402,33 +602,47 @@ export function BillingV2Client({ user }: { user: User }) {
   };
 
   const handleAddRoomCharge = async () => {
-    if (!tabState.selectedAccountId) return;
+    if (!tabState.selectedAccountId || !tabState.selectedPatientId || !encounterId) {
+      setTabState(prev => ({ ...prev, error: 'Select a patient with an active encounter first' }));
+      return;
+    }
     setTabState(prev => ({ ...prev, loading: true, error: null }));
     try {
+      // Router is `addRoomCharge`. Amount fields are regex-matching strings.
+      // `is_over_eligible` is a boolean — mapped as the inverse of the UI's
+      // "Room Rent Eligible" checkbox (checked = within eligibility = NOT over).
       const response = await fetch('/api/trpc/billingAccounts.addRoomCharge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           json: {
-            account_id: tabState.selectedAccountId,
-            ...roomChargeFormData,
+            patient_id: tabState.selectedPatientId,
+            encounter_id: encounterId,
+            charge_date: roomChargeFormData.charge_date,
+            charge_type: roomChargeFormData.charge_type,
+            ward_name: roomChargeFormData.ward_name || undefined,
+            room_category: roomChargeFormData.room_category,
+            base_rate: toMoneyString(roomChargeFormData.base_rate),
+            nursing_charge: toMoneyString(roomChargeFormData.nursing_charge),
+            is_over_eligible: !roomChargeFormData.room_rent_eligible,
           },
         }),
       });
       const data = await response.json();
-      if (data.result?.data?.json) {
-        await fetchRoomCharges(tabState.selectedAccountId);
-        setShowRoomChargeForm(false);
-        setRoomChargeFormData({
-          charge_date: new Date().toISOString().split('T')[0],
-          charge_type: 'daily',
-          ward_name: '',
-          room_category: 'General',
-          base_rate: 0,
-          nursing_charge: 0,
-          room_rent_eligible: true,
-        });
+      if (data.error) {
+        throw new Error(data.error?.json?.message || 'Add room charge failed');
       }
+      await fetchRoomCharges(encounterId);
+      setShowRoomChargeForm(false);
+      setRoomChargeFormData({
+        charge_date: new Date().toISOString().split('T')[0],
+        charge_type: 'daily',
+        ward_name: '',
+        room_category: 'General',
+        base_rate: 0,
+        nursing_charge: 0,
+        room_rent_eligible: true,
+      });
     } catch (err) {
       setTabState(prev => ({ ...prev, error: 'Failed to add room charge' }));
     } finally {
@@ -469,26 +683,37 @@ export function BillingV2Client({ user }: { user: User }) {
     }
   };
 
-  const categoryTotals = runningBill.reduce(
-    (acc, item) => {
-      acc[item.category] = (acc[item.category] || 0) + item.amount;
-      return acc;
-    },
-    {} as Record<string, number>
-  );
-
-  const billTotal = Object.values(categoryTotals).reduce((sum, val) => sum + val, 0);
-  const gst = billTotal * 0.05;
-
-  const depositSummary = {
-    collected: deposits.filter(d => d.status === 'collected').reduce((sum, d) => sum + d.amount, 0),
-    applied: deposits.filter(d => d.status === 'applied').reduce((sum, d) => sum + d.amount, 0),
-    refunded: deposits.filter(d => d.status === 'refunded').reduce((sum, d) => sum + d.amount, 0),
+  // Server returns strings for numeric columns (Drizzle numeric type) — always coerce.
+  const toNum = (v: string | number | null | undefined): number => {
+    if (v === null || v === undefined) return 0;
+    const n = typeof v === 'number' ? v : Number(v);
+    return Number.isFinite(n) ? n : 0;
   };
 
-  const roomChargeTotal = roomCharges.reduce((sum, rc) => sum + rc.base_rate + rc.nursing_charge, 0);
-  const eligibleDays = roomCharges.filter(rc => rc.room_rent_eligible).length;
-  const overEligibleDays = roomCharges.filter(rc => !rc.room_rent_eligible).length;
+  // Running bill is an aggregate object (not an array). Categories come pre-bucketed
+  // from getRunningBill. Subtotal/GST/Grand-total are authoritative from the router.
+  const runningCategories = runningBill?.charges_by_category ?? [];
+  const runningItemCount = runningCategories.reduce((sum, c) => sum + (c.count || 0), 0);
+  const billTotal = toNum(runningBill?.subtotal);
+  const gst = toNum(runningBill?.gst_total);
+  const grandTotal = toNum(runningBill?.grand_total);
+
+  const depositSummary = {
+    collected: deposits
+      .filter(d => d.status === 'collected' || d.status === 'applied')
+      .reduce((sum, d) => sum + toNum(d.amount), 0),
+    applied: deposits.filter(d => d.status === 'applied').reduce((sum, d) => sum + toNum(d.amount), 0),
+    refunded: deposits
+      .filter(d => d.status === 'refunded' || d.status === 'partial_refund')
+      .reduce((sum, d) => sum + toNum(d.amount), 0),
+  };
+
+  const roomChargeTotal = roomCharges.reduce(
+    (sum, rc) => sum + toNum(rc.total_charge ?? toNum(rc.base_rate) + toNum(rc.nursing_charge)),
+    0,
+  );
+  const eligibleDays = roomCharges.filter(rc => !rc.is_over_eligible).length;
+  const overEligibleDays = roomCharges.filter(rc => rc.is_over_eligible).length;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -528,11 +753,11 @@ export function BillingV2Client({ user }: { user: User }) {
                         key={p.id}
                         onClick={() => {
                           handleSelectPatient(p.id);
-                          setPatientSearch(p.name);
+                          setPatientSearch(p.name_full);
                         }}
                         className="w-full text-left px-4 py-3 hover:bg-gray-100 border-b border-gray-200 last:border-b-0"
                       >
-                        <div className="font-medium text-gray-900">{p.name}</div>
+                        <div className="font-medium text-gray-900">{p.name_full}</div>
                         <div className="text-sm text-gray-600">UHID: {p.uhid}</div>
                       </button>
                     ))}
@@ -585,15 +810,15 @@ export function BillingV2Client({ user }: { user: User }) {
                 </div>
                 <div>
                   <span className="text-xs font-semibold text-gray-600 uppercase">Balance</span>
-                  <p className={`text-lg font-bold mt-1 ${billTotal + gst > depositSummary.collected ? 'text-red-600' : 'text-green-600'}`}>
-                    {formatCurrency(Math.max(0, billTotal + gst - depositSummary.collected))}
+                  <p className={`text-lg font-bold mt-1 ${grandTotal > depositSummary.collected ? 'text-red-600' : 'text-green-600'}`}>
+                    {formatCurrency(Math.max(0, grandTotal - depositSummary.collected))}
                   </p>
                 </div>
               </div>
               {account.is_over_eligible && (
                 <div className="mt-4 bg-red-50 border-l-4 border-red-500 p-4">
                   <p className="text-sm font-medium text-red-800">
-                    ⚠️ Patient exceeds room rent eligibility. Proportional deduction risk: ₹{(account.sum_insured || 0).toLocaleString('en-IN')}
+                    ⚠️ Patient exceeds room rent eligibility. Proportional deduction risk: ₹{toNum(account.sum_insured).toLocaleString('en-IN')}
                   </p>
                 </div>
               )}
@@ -799,34 +1024,44 @@ export function BillingV2Client({ user }: { user: User }) {
                             </tr>
                           </thead>
                           <tbody>
-                            {Object.entries(categoryTotals).map(([category, total]) => (
-                              <tr key={category} className="border-b border-gray-200 hover:bg-gray-50">
-                                <td className="border border-gray-300 px-4 py-3 text-sm font-medium text-gray-900">{category.replace('_', ' ')}</td>
-                                <td className="border border-gray-300 px-4 py-3 text-right text-sm text-gray-600">
-                                  {runningBill.filter(b => b.category === category).length}
-                                </td>
-                                <td className="border border-gray-300 px-4 py-3 text-right text-sm font-medium text-gray-900">
-                                  {formatCurrency(total)}
+                            {runningCategories.length > 0 ? (
+                              runningCategories.map(cat => (
+                                <tr key={cat.category} className="border-b border-gray-200 hover:bg-gray-50">
+                                  <td className="border border-gray-300 px-4 py-3 text-sm font-medium text-gray-900">
+                                    {cat.category.replace(/_/g, ' ')}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-right text-sm text-gray-600">
+                                    {cat.count}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-right text-sm font-medium text-gray-900">
+                                    {formatCurrency(toNum(cat.total))}
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td colSpan={3} className="border border-gray-300 px-4 py-6 text-center text-sm text-gray-500">
+                                  No charges posted yet for this encounter.
                                 </td>
                               </tr>
-                            ))}
+                            )}
                             <tr className="bg-gray-100 font-semibold">
                               <td className="border border-gray-300 px-4 py-3 text-sm text-gray-900">Subtotal</td>
-                              <td className="border border-gray-300 px-4 py-3 text-right text-sm text-gray-900">{runningBill.length}</td>
+                              <td className="border border-gray-300 px-4 py-3 text-right text-sm text-gray-900">{runningItemCount}</td>
                               <td className="border border-gray-300 px-4 py-3 text-right text-sm text-gray-900">{formatCurrency(billTotal)}</td>
                             </tr>
                             <tr className="bg-gray-100">
-                              <td className="border border-gray-300 px-4 py-3 text-sm font-semibold text-gray-900">GST (5%)</td>
+                              <td className="border border-gray-300 px-4 py-3 text-sm font-semibold text-gray-900">GST</td>
                               <td className="border border-gray-300 px-4 py-3"></td>
                               <td className="border border-gray-300 px-4 py-3 text-right text-sm font-medium text-gray-900">
                                 {formatCurrency(gst)}
                               </td>
                             </tr>
                             <tr className="bg-blue-50">
-                              <td className="border border-gray-300 px-4 py-3 text-sm font-bold text-blue-900">Total Due</td>
+                              <td className="border border-gray-300 px-4 py-3 text-sm font-bold text-blue-900">Grand Total</td>
                               <td className="border border-gray-300 px-4 py-3"></td>
                               <td className="border border-gray-300 px-4 py-3 text-right text-sm font-bold text-blue-900">
-                                {formatCurrency(billTotal + gst)}
+                                {formatCurrency(grandTotal)}
                               </td>
                             </tr>
                           </tbody>
@@ -967,7 +1202,7 @@ export function BillingV2Client({ user }: { user: User }) {
                             <th className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-900">Date</th>
                             <th className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-900">Amount</th>
                             <th className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-900">Method</th>
-                            <th className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-900">Receipt #</th>
+                            <th className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-900">Reference #</th>
                             <th className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-900">Status</th>
                             <th className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-900">Collected By</th>
                           </tr>
@@ -977,9 +1212,9 @@ export function BillingV2Client({ user }: { user: User }) {
                             deposits.map(deposit => (
                               <tr key={deposit.id} className="border-b border-gray-200 hover:bg-gray-50">
                                 <td className="border border-gray-300 px-4 py-3 text-sm text-gray-600">{formatDate(deposit.collected_at)}</td>
-                                <td className="border border-gray-300 px-4 py-3 text-sm font-medium text-gray-900">{formatCurrency(deposit.amount)}</td>
+                                <td className="border border-gray-300 px-4 py-3 text-sm font-medium text-gray-900">{formatCurrency(toNum(deposit.amount))}</td>
                                 <td className="border border-gray-300 px-4 py-3 text-sm text-gray-600">{deposit.payment_method}</td>
-                                <td className="border border-gray-300 px-4 py-3 text-sm text-gray-600">{deposit.receipt_number}</td>
+                                <td className="border border-gray-300 px-4 py-3 text-sm text-gray-600">{deposit.reference_number ?? '—'}</td>
                                 <td className="border border-gray-300 px-4 py-3 text-sm">
                                   <span
                                     className={`inline-block px-2 py-1 rounded text-xs font-medium ${
@@ -993,7 +1228,7 @@ export function BillingV2Client({ user }: { user: User }) {
                                     {deposit.status}
                                   </span>
                                 </td>
-                                <td className="border border-gray-300 px-4 py-3 text-sm text-gray-600">{deposit.collected_by}</td>
+                                <td className="border border-gray-300 px-4 py-3 text-sm text-gray-600">{deposit.collector_name ?? '—'}</td>
                               </tr>
                             ))
                           ) : (
@@ -1142,7 +1377,13 @@ export function BillingV2Client({ user }: { user: User }) {
                     <div className="space-y-4">
                       {packages.length > 0 ? (
                         packages.map(pkg => {
-                          const variance = pkg.package_price - pkg.actual_cost;
+                          const packagePrice = toNum(pkg.package_price);
+                          const actualCost = toNum(pkg.actual_cost);
+                          // Router returns variance_amount = package_price - actual_cost
+                          // (positive = under-budget, negative = over-budget).
+                          const variance = pkg.variance_amount !== null && pkg.variance_amount !== undefined
+                            ? toNum(pkg.variance_amount)
+                            : packagePrice - actualCost;
                           return (
                             <div key={pkg.id} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-lg transition-shadow">
                               <div
@@ -1158,12 +1399,12 @@ export function BillingV2Client({ user }: { user: User }) {
                                       {pkg.status}
                                     </span>
                                   </div>
-                                  <p className="text-sm text-gray-600 mt-1">Code: {pkg.package_code}</p>
+                                  <p className="text-sm text-gray-600 mt-1">Code: {pkg.package_code ?? '—'}</p>
                                 </div>
                                 <div className="text-right">
-                                  <div className="text-lg font-bold text-gray-900">{formatCurrency(pkg.package_price)}</div>
-                                  <div className={`text-sm font-medium ${variance > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {variance > 0 ? '+' : ''}{formatCurrency(variance)}
+                                  <div className="text-lg font-bold text-gray-900">{formatCurrency(packagePrice)}</div>
+                                  <div className={`text-sm font-medium ${variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {variance >= 0 ? '+' : ''}{formatCurrency(variance)}
                                   </div>
                                 </div>
                                 <div className="ml-4 text-gray-400">{expandedPackageId === pkg.id ? '▼' : '▶'}</div>
@@ -1174,46 +1415,23 @@ export function BillingV2Client({ user }: { user: User }) {
                                   <div className="grid md:grid-cols-3 gap-4 mb-4">
                                     <div>
                                       <span className="text-xs font-semibold text-gray-600 uppercase">Budgeted</span>
-                                      <p className="text-lg font-bold text-gray-900 mt-1">{formatCurrency(pkg.package_price)}</p>
+                                      <p className="text-lg font-bold text-gray-900 mt-1">{formatCurrency(packagePrice)}</p>
                                     </div>
                                     <div>
                                       <span className="text-xs font-semibold text-gray-600 uppercase">Actual Cost</span>
-                                      <p className="text-lg font-bold text-gray-900 mt-1">{formatCurrency(pkg.actual_cost)}</p>
+                                      <p className="text-lg font-bold text-gray-900 mt-1">{formatCurrency(actualCost)}</p>
                                     </div>
                                     <div>
                                       <span className="text-xs font-semibold text-gray-600 uppercase">Variance</span>
-                                      <p className={`text-lg font-bold mt-1 ${variance > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                        {variance > 0 ? '+' : ''}{formatCurrency(variance)}
+                                      <p className={`text-lg font-bold mt-1 ${variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        {variance >= 0 ? '+' : ''}{formatCurrency(variance)}
                                       </p>
                                     </div>
                                   </div>
-                                  {pkg.components.length > 0 && (
-                                    <div className="space-y-2">
-                                      <h5 className="font-medium text-gray-900 text-sm">Components:</h5>
-                                      {pkg.components.map(comp => {
-                                        const utilization =
-                                          comp.max_quantity > 0
-                                            ? (comp.used_quantity / comp.max_quantity) * 100
-                                            : 0;
-                                        return (
-                                          <div key={comp.id} className="bg-gray-50 p-3 rounded text-sm">
-                                            <div className="flex justify-between mb-1">
-                                              <span className="font-medium text-gray-900">{comp.component_name}</span>
-                                              <span className="text-gray-600">{comp.used_quantity}/{comp.max_quantity}</span>
-                                            </div>
-                                            <div className="w-full bg-gray-300 rounded-full h-2">
-                                              <div
-                                                className={`h-2 rounded-full transition-all ${
-                                                  utilization > 100 ? 'bg-red-500' : 'bg-green-500'
-                                                }`}
-                                                style={{ width: `${Math.min(utilization, 100)}%` }}
-                                              ></div>
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
+                                  <p className="text-xs text-gray-500 italic">
+                                    Applied {formatDate(pkg.applied_at)}
+                                    {pkg.name_full ? ` • Patient: ${pkg.name_full}` : ''}
+                                  </p>
                                 </div>
                               )}
                             </div>
@@ -1397,38 +1615,46 @@ export function BillingV2Client({ user }: { user: User }) {
                         </thead>
                         <tbody>
                           {roomCharges.length > 0 ? (
-                            roomCharges.map(charge => (
-                              <tr
-                                key={charge.id}
-                                className={`border-b border-gray-200 ${
-                                  !charge.room_rent_eligible ? 'bg-red-50' : 'hover:bg-gray-50'
-                                }`}
-                              >
-                                <td className="border border-gray-300 px-4 py-3 text-sm text-gray-600">{formatDate(charge.charge_date)}</td>
-                                <td className="border border-gray-300 px-4 py-3 text-sm text-gray-900">{charge.ward_name}</td>
-                                <td className="border border-gray-300 px-4 py-3 text-sm text-gray-600">{charge.room_category}</td>
-                                <td className="border border-gray-300 px-4 py-3 text-sm font-medium text-right text-gray-900">
-                                  {formatCurrency(charge.base_rate)}
-                                </td>
-                                <td className="border border-gray-300 px-4 py-3 text-sm font-medium text-right text-gray-900">
-                                  {formatCurrency(charge.nursing_charge)}
-                                </td>
-                                <td className="border border-gray-300 px-4 py-3 text-sm font-bold text-right text-gray-900">
-                                  {formatCurrency(charge.base_rate + charge.nursing_charge)}
-                                </td>
-                                <td className="border border-gray-300 px-4 py-3 text-center text-sm">
-                                  <span
-                                    className={`inline-block px-2 py-1 rounded text-xs font-medium ${
-                                      charge.room_rent_eligible
-                                        ? 'bg-green-100 text-green-800'
-                                        : 'bg-red-100 text-red-800'
-                                    }`}
-                                  >
-                                    {charge.room_rent_eligible ? '✓' : '✗'}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))
+                            roomCharges.map(charge => {
+                              const baseRate = toNum(charge.base_rate);
+                              const nursing = toNum(charge.nursing_charge);
+                              const total = charge.total_charge !== null && charge.total_charge !== undefined
+                                ? toNum(charge.total_charge)
+                                : baseRate + nursing;
+                              const eligible = !charge.is_over_eligible;
+                              return (
+                                <tr
+                                  key={charge.id}
+                                  className={`border-b border-gray-200 ${
+                                    !eligible ? 'bg-red-50' : 'hover:bg-gray-50'
+                                  }`}
+                                >
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-600">{formatDate(charge.charge_date)}</td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-900">{charge.ward_name ?? '—'}</td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm text-gray-600">{charge.room_category ?? '—'}</td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm font-medium text-right text-gray-900">
+                                    {formatCurrency(baseRate)}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm font-medium text-right text-gray-900">
+                                    {formatCurrency(nursing)}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-sm font-bold text-right text-gray-900">
+                                    {formatCurrency(total)}
+                                  </td>
+                                  <td className="border border-gray-300 px-4 py-3 text-center text-sm">
+                                    <span
+                                      className={`inline-block px-2 py-1 rounded text-xs font-medium ${
+                                        eligible
+                                          ? 'bg-green-100 text-green-800'
+                                          : 'bg-red-100 text-red-800'
+                                      }`}
+                                    >
+                                      {eligible ? '✓' : '✗'}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })
                           ) : (
                             <tr>
                               <td colSpan={7} className="border border-gray-300 px-4 py-3 text-center text-sm text-gray-600">
@@ -1600,10 +1826,132 @@ export function BillingV2Client({ user }: { user: User }) {
           </div>
         )}
 
+        {/* Default landing: IPD census table. Shown whenever no patient is selected
+            (and we're not mid-load). Every row is clickable — click loads the billing
+            account for that patient into the detail view above. Search filters locally
+            on name / UHID / ward — no extra round-trip. */}
         {!tabState.selectedPatientId && !tabState.loading && (
-          <div className="bg-white rounded-lg shadow p-8 text-center">
-            <p className="text-lg font-medium text-gray-900 mb-2">Welcome to Enhanced Billing</p>
-            <p className="text-gray-600">Select a patient to get started</p>
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Currently Admitted (IPD)</h2>
+                <p className="text-sm text-gray-600">
+                  {censusLoading
+                    ? 'Loading census…'
+                    : `${census.length} active ${census.length === 1 ? 'encounter' : 'encounters'}`}
+                </p>
+              </div>
+              <input
+                type="text"
+                placeholder="Filter by name, UHID, or ward"
+                value={censusSearch}
+                onChange={(e) => setCensusSearch(e.target.value)}
+                className="w-72 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              />
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full border-collapse">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-900">Patient</th>
+                    <th className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-900">UHID</th>
+                    <th className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-900">Ward / Bed</th>
+                    <th className="border border-gray-300 px-4 py-2 text-right text-sm font-semibold text-gray-900">Days</th>
+                    <th className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-900">Account</th>
+                    <th className="border border-gray-300 px-4 py-2 text-right text-sm font-semibold text-gray-900">Deposits</th>
+                    <th className="border border-gray-300 px-4 py-2 text-right text-sm font-semibold text-gray-900">Running Bill</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const q = censusSearch.trim().toLowerCase();
+                    const filtered = q
+                      ? census.filter(
+                          r =>
+                            (r.patient_name || '').toLowerCase().includes(q) ||
+                            (r.uhid || '').toLowerCase().includes(q) ||
+                            (r.ward_name || '').toLowerCase().includes(q) ||
+                            (r.bed_code || '').toLowerCase().includes(q),
+                        )
+                      : census;
+
+                    if (censusLoading && census.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={7} className="border border-gray-300 px-4 py-8 text-center text-sm text-gray-600">
+                            Loading currently-admitted patients…
+                          </td>
+                        </tr>
+                      );
+                    }
+                    if (filtered.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={7} className="border border-gray-300 px-4 py-8 text-center text-sm text-gray-600">
+                            {census.length === 0
+                              ? 'No patients currently admitted.'
+                              : 'No matches for that filter.'}
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    const now = Date.now();
+                    return filtered.map(row => {
+                      const admittedMs = new Date(row.admission_at).getTime();
+                      const days = Number.isFinite(admittedMs)
+                        ? Math.max(1, Math.floor((now - admittedMs) / 86400000) + 1)
+                        : '—';
+                      const deposit = toNum(row.deposits_collected);
+                      const running = toNum(row.running_total);
+                      const accountLabel = row.account_id
+                        ? (row.account_type ?? 'account').replace(/_/g, ' ')
+                        : 'none';
+                      return (
+                        <tr
+                          key={row.encounter_id}
+                          onClick={() => handleSelectPatient(row.patient_id)}
+                          className="border-b border-gray-200 hover:bg-blue-50 cursor-pointer transition-colors"
+                        >
+                          <td className="border border-gray-300 px-4 py-3 text-sm font-medium text-gray-900">
+                            {row.patient_name}
+                          </td>
+                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">{row.uhid}</td>
+                          <td className="border border-gray-300 px-4 py-3 text-sm text-gray-700">
+                            {row.ward_name ?? '—'}
+                            {row.bed_code ? (
+                              <span className="text-xs text-gray-500 ml-2">#{row.bed_code}</span>
+                            ) : null}
+                          </td>
+                          <td className="border border-gray-300 px-4 py-3 text-sm text-right text-gray-900">{days}</td>
+                          <td className="border border-gray-300 px-4 py-3 text-sm">
+                            <span
+                              className={`inline-block px-2 py-1 rounded text-xs font-medium ${
+                                row.account_id
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {accountLabel}
+                            </span>
+                            {row.insurer_name ? (
+                              <span className="text-xs text-gray-600 ml-2">{row.insurer_name}</span>
+                            ) : null}
+                          </td>
+                          <td className="border border-gray-300 px-4 py-3 text-sm text-right text-gray-900">
+                            {formatCurrency(deposit)}
+                          </td>
+                          <td className="border border-gray-300 px-4 py-3 text-sm text-right font-medium text-gray-900">
+                            {formatCurrency(running)}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

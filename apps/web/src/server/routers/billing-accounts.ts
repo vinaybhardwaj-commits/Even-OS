@@ -208,6 +208,75 @@ export const billingAccountsRouter = router({
       }
     }),
 
+  // 3b. IPD CENSUS — billing landing page's default list.
+  // Returns every currently-admitted IPD encounter with pre-joined billing
+  // context so the UI can render a census table without N+1 requests.
+  // One row per active encounter; billing fields are null when the encounter
+  // has no billing account yet (patient admitted but no account created).
+  ipdCensus: protectedProcedure
+    .query(async ({ ctx }) => {
+      try {
+        const hospitalId = ctx.user.hospital_id;
+
+        const result = await getSql()`
+          SELECT
+            e.id as encounter_id,
+            e.admission_at,
+            e.encounter_class,
+            e.pre_auth_status,
+            p.id as patient_id,
+            p.name_full as patient_name,
+            p.uhid,
+            p.phone,
+            p.patient_category,
+            l.code as bed_code,
+            l.name as bed_name,
+            w.code as ward_code,
+            w.name as ward_name,
+            ba.id as account_id,
+            ba.account_type,
+            ba.insurer_name,
+            ba.ba_is_active as account_active,
+            COALESCE(dep.collected_total, 0) as deposits_collected,
+            COALESCE(ch.running_total, 0) as running_total
+          FROM encounters e
+          JOIN patients p ON e.patient_id = p.id
+          LEFT JOIN locations l ON e.current_location_id = l.id
+          LEFT JOIN locations w ON l.parent_location_id = w.id
+          LEFT JOIN billing_accounts ba
+            ON ba.ba_encounter_id = e.id
+            AND ba.hospital_id = ${hospitalId}
+            AND ba.ba_is_active = true
+          LEFT JOIN (
+            SELECT dep_encounter_id,
+                   SUM(CAST(dep_amount AS NUMERIC)) as collected_total
+            FROM deposits
+            WHERE hospital_id = ${hospitalId}
+              AND dep_status IN ('collected', 'applied', 'partial_refund')
+            GROUP BY dep_encounter_id
+          ) dep ON dep.dep_encounter_id = e.id
+          LEFT JOIN (
+            SELECT encounter_id,
+                   SUM(CAST(net_amount AS NUMERIC)) as running_total
+            FROM encounter_charges
+            WHERE hospital_id = ${hospitalId}
+            GROUP BY encounter_id
+          ) ch ON ch.encounter_id = e.id
+          WHERE e.hospital_id = ${hospitalId}
+            AND e.status = 'in-progress'
+          ORDER BY e.admission_at DESC
+        `;
+
+        return result || [];
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Error loading IPD census',
+        });
+      }
+    }),
+
   // 4. GET RUNNING BILL
   getRunningBill: protectedProcedure
     .input(z.object({ account_id: z.string().uuid() }))
