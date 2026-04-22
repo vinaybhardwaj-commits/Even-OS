@@ -4,5 +4,8 @@
       "path": "/api/lsq-sync",
       "schedule": "0 * * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": false
+  }
 }
