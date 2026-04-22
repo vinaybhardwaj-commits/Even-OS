@@ -1,0 +1,5 @@
+# BV3.2.A — generated parser outputs.
+# These are re-generatable from the PDFs in Daily Dash EHRC/Charge Master/
+# by re-running the 3 parser scripts.  Keeping them out of git so
+# the repo doesn't churn on every run.
+out/
