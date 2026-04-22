@@ -144,6 +144,46 @@ const formatDate = (dateStr: string): string => {
   return new Date(dateStr).toLocaleDateString('en-IN');
 };
 
+// ─── tRPC helpers ──────────────────────────────────────────
+// tRPC's fetchRequestHandler routes GET → .query() and POST → .mutation().
+// Sending a POST to a .query() returns an error envelope (no `result.data.json`),
+// which previously rendered as a silent empty state in the billing-v2 UI.
+// These two helpers match the pattern used in admissions-client / emar / dedup /
+// test-catalog / rca / critical-values and throw on error so callers surface it.
+async function trpcQuery<T = unknown>(path: string, input?: unknown): Promise<T> {
+  const wrapped = input !== undefined ? { json: input } : { json: {} };
+  const params = `?input=${encodeURIComponent(JSON.stringify(wrapped))}`;
+  const res = await fetch(`/api/trpc/${path}${params}`);
+  const json = await res.json();
+  if (json.error) {
+    const msg =
+      json.error?.json?.message ||
+      json.error?.message ||
+      json.error?.data?.code ||
+      `tRPC query failed: ${path}`;
+    throw new Error(msg);
+  }
+  return json.result?.data?.json as T;
+}
+
+async function trpcMutate<T = unknown>(path: string, input?: unknown): Promise<T> {
+  const res = await fetch(`/api/trpc/${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ json: input !== undefined ? input : {} }),
+  });
+  const json = await res.json();
+  if (json.error) {
+    const msg =
+      json.error?.json?.message ||
+      json.error?.message ||
+      json.error?.data?.code ||
+      `tRPC mutation failed: ${path}`;
+    throw new Error(msg);
+  }
+  return json.result?.data?.json as T;
+}
+
 export function BillingV2Client({ user }: { user: User }) {
   const [tabState, setTabState] = useState<TabState>({
     activeTab: 'accounts',
@@ -170,6 +210,7 @@ export function BillingV2Client({ user }: { user: User }) {
   // IPD census — default landing view. One row per currently-admitted encounter.
   const [census, setCensus] = useState<CensusRow[]>([]);
   const [censusLoading, setCensusLoading] = useState(false);
+  const [censusError, setCensusError] = useState<string | null>(null);
   const [censusSearch, setCensusSearch] = useState('');
 
   const [showAccountForm, setShowAccountForm] = useState(false);
@@ -225,18 +266,15 @@ export function BillingV2Client({ user }: { user: User }) {
   });
 
   // Fetch patients list — patient.list returns { items, total, page, pageSize, totalPages }
-  // (NOT `patients`). tRPC's query-procedure call style uses GET w/ ?input=… but the
-  // whole module was written to POST against mutations, which works for queries too in
-  // the tRPC HTTP adapter, so we keep the pattern here.
+  // (NOT `patients`). tRPC .query() procedures MUST use GET w/ ?input=; POSTing gets
+  // silently rejected by the fetchRequestHandler — which was the bug that broke BV2.
   const fetchPatients = useCallback(async (query: string) => {
     try {
-      const response = await fetch('/api/trpc/patient.list', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: { search: query, pageSize: 20 } }),
-      });
-      const data = await response.json();
-      const items = data.result?.data?.json?.items;
+      const data = await trpcQuery<{ items?: Patient[] } | undefined>(
+        'patient.list',
+        { search: query, pageSize: 20 },
+      );
+      const items = data?.items;
       if (Array.isArray(items)) {
         setPatients(items);
       }
@@ -248,19 +286,19 @@ export function BillingV2Client({ user }: { user: User }) {
   // IPD census loader — single tRPC call, returns denormalized row per active encounter.
   const fetchIpdCensus = useCallback(async () => {
     setCensusLoading(true);
+    setCensusError(null);
     try {
-      const response = await fetch('/api/trpc/billingAccounts.ipdCensus', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: {} }),
-      });
-      const data = await response.json();
-      const rows = data.result?.data?.json;
+      const rows = await trpcQuery<CensusRow[]>('billingAccounts.ipdCensus');
       if (Array.isArray(rows)) {
-        setCensus(rows as CensusRow[]);
+        setCensus(rows);
+      } else {
+        setCensus([]);
+        setCensusError('Census endpoint returned an unexpected shape');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching IPD census:', err);
+      setCensus([]);
+      setCensusError(err?.message || 'Failed to load IPD census');
     } finally {
       setCensusLoading(false);
     }
@@ -270,15 +308,12 @@ export function BillingV2Client({ user }: { user: User }) {
   // shape directly (charges_by_category + totals), not a list of line items.
   const fetchRunningBill = useCallback(async (accountId: string) => {
     try {
-      const response = await fetch('/api/trpc/billingAccounts.getRunningBill', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: { account_id: accountId } }),
-      });
-      const data = await response.json();
-      const summary = data.result?.data?.json;
+      const summary = await trpcQuery<RunningBillSummary>(
+        'billingAccounts.getRunningBill',
+        { account_id: accountId },
+      );
       if (summary && typeof summary === 'object' && Array.isArray(summary.charges_by_category)) {
-        setRunningBill(summary as RunningBillSummary);
+        setRunningBill(summary);
       }
     } catch (err) {
       console.error('Error fetching running bill:', err);
@@ -289,15 +324,12 @@ export function BillingV2Client({ user }: { user: User }) {
   // Filter by account_id (falls back to encounter_id if account missing).
   const fetchDeposits = useCallback(async (accountId: string) => {
     try {
-      const response = await fetch('/api/trpc/billingAccounts.listDeposits', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: { account_id: accountId } }),
-      });
-      const data = await response.json();
-      const rows = data.result?.data?.json;
+      const rows = await trpcQuery<Deposit[]>(
+        'billingAccounts.listDeposits',
+        { account_id: accountId },
+      );
       if (Array.isArray(rows)) {
-        setDeposits(rows as Deposit[]);
+        setDeposits(rows);
       }
     } catch (err) {
       console.error('Error fetching deposits:', err);
@@ -311,15 +343,12 @@ export function BillingV2Client({ user }: { user: User }) {
       return;
     }
     try {
-      const response = await fetch('/api/trpc/billingAccounts.listPackages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: { encounter_id: encId } }),
-      });
-      const data = await response.json();
-      const rows = data.result?.data?.json;
+      const rows = await trpcQuery<BillingPackage[]>(
+        'billingAccounts.listPackages',
+        { encounter_id: encId },
+      );
       if (Array.isArray(rows)) {
-        setPackages(rows as BillingPackage[]);
+        setPackages(rows);
       }
     } catch (err) {
       console.error('Error fetching packages:', err);
@@ -333,15 +362,12 @@ export function BillingV2Client({ user }: { user: User }) {
       return;
     }
     try {
-      const response = await fetch('/api/trpc/billingAccounts.listRoomCharges', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: { encounter_id: encId } }),
-      });
-      const data = await response.json();
-      const rows = data.result?.data?.json;
+      const rows = await trpcQuery<RoomCharge[]>(
+        'billingAccounts.listRoomCharges',
+        { encounter_id: encId },
+      );
       if (Array.isArray(rows)) {
-        setRoomCharges(rows as RoomCharge[]);
+        setRoomCharges(rows);
       }
     } catch (err) {
       console.error('Error fetching room charges:', err);
@@ -355,13 +381,10 @@ export function BillingV2Client({ user }: { user: User }) {
   const fetchAccountForPatient = useCallback(async (patientId: string) => {
     setTabState(prev => ({ ...prev, loading: true, error: null }));
     try {
-      const listRes = await fetch('/api/trpc/billingAccounts.listAccounts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: { patient_id: patientId, is_active: true } }),
-      });
-      const listData = await listRes.json();
-      const listed = listData.result?.data?.json;
+      const listed = await trpcQuery<BillingAccount[] | null>(
+        'billingAccounts.listAccounts',
+        { patient_id: patientId, is_active: true },
+      );
       const firstAccount = Array.isArray(listed) && listed.length > 0 ? listed[0] : null;
 
       if (!firstAccount) {
@@ -377,13 +400,10 @@ export function BillingV2Client({ user }: { user: User }) {
       }
 
       // Full detail via getAccount — gives us encounter_id + all derived fields.
-      const detailRes = await fetch('/api/trpc/billingAccounts.getAccount', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: { account_id: firstAccount.id } }),
-      });
-      const detailData = await detailRes.json();
-      const full = detailData.result?.data?.json as BillingAccount | undefined;
+      const full = await trpcQuery<BillingAccount | undefined>(
+        'billingAccounts.getAccount',
+        { account_id: firstAccount.id },
+      );
       if (!full) {
         throw new Error('getAccount returned no row');
       }
@@ -399,8 +419,12 @@ export function BillingV2Client({ user }: { user: User }) {
         fetchPackages(full.encounter_id),
         fetchRoomCharges(full.encounter_id),
       ]);
-    } catch (err) {
-      setTabState(prev => ({ ...prev, error: 'Failed to load billing account' }));
+    } catch (err: any) {
+      console.error('Error loading billing account:', err);
+      setTabState(prev => ({
+        ...prev,
+        error: err?.message || 'Failed to load billing account',
+      }));
     } finally {
       setTabState(prev => ({ ...prev, loading: false }));
     }
@@ -448,26 +472,20 @@ export function BillingV2Client({ user }: { user: User }) {
       }
       if (encounterId) payload.encounter_id = encounterId;
 
-      const response = await fetch('/api/trpc/billingAccounts.createAccount', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: payload }),
-      });
-      const data = await response.json();
-      const created = data.result?.data?.json as { account_id?: string } | undefined;
+      const created = await trpcMutate<{ account_id?: string } | undefined>(
+        'billingAccounts.createAccount',
+        payload,
+      );
       if (!created?.account_id) {
-        throw new Error(data.error?.json?.message || 'createAccount returned no id');
+        throw new Error('createAccount returned no id');
       }
 
       // createAccount returns a thin {account_id, account_type, created_at} envelope —
       // fetch the full detail via getAccount so the UI has encounter_id + eligibility.
-      const detailRes = await fetch('/api/trpc/billingAccounts.getAccount', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: { account_id: created.account_id } }),
-      });
-      const detailData = await detailRes.json();
-      const full = detailData.result?.data?.json as BillingAccount | undefined;
+      const full = await trpcQuery<BillingAccount | undefined>(
+        'billingAccounts.getAccount',
+        { account_id: created.account_id },
+      );
       if (full) {
         setAccount(full);
         setEncounterId(full.encounter_id);
@@ -493,8 +511,12 @@ export function BillingV2Client({ user }: { user: User }) {
         co_pay_percent: 0,
         estimated_total: 0,
       });
-    } catch (err) {
-      setTabState(prev => ({ ...prev, error: 'Failed to create account' }));
+    } catch (err: any) {
+      console.error('Error creating account:', err);
+      setTabState(prev => ({
+        ...prev,
+        error: err?.message || 'Failed to create account',
+      }));
     } finally {
       setTabState(prev => ({ ...prev, loading: false }));
     }
@@ -507,26 +529,16 @@ export function BillingV2Client({ user }: { user: User }) {
       // Router is `collectDeposit` (NOT `addDeposit`). Requires patient_id + amount
       // as a string in Zod regex shape. collected_by / collected_at are set server-side
       // (from ctx.user.sub + NOW()), so we must NOT send them.
-      const response = await fetch('/api/trpc/billingAccounts.collectDeposit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          json: {
-            patient_id: tabState.selectedPatientId,
-            encounter_id: encounterId ?? undefined,
-            account_id: tabState.selectedAccountId,
-            amount: toMoneyString(depositFormData.amount),
-            payment_method: depositFormData.payment_method,
-            reference_number: depositFormData.reference_number || undefined,
-            receipt_number: depositFormData.receipt_number || undefined,
-            notes: depositFormData.notes || undefined,
-          },
-        }),
+      await trpcMutate('billingAccounts.collectDeposit', {
+        patient_id: tabState.selectedPatientId,
+        encounter_id: encounterId ?? undefined,
+        account_id: tabState.selectedAccountId,
+        amount: toMoneyString(depositFormData.amount),
+        payment_method: depositFormData.payment_method,
+        reference_number: depositFormData.reference_number || undefined,
+        receipt_number: depositFormData.receipt_number || undefined,
+        notes: depositFormData.notes || undefined,
       });
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error?.json?.message || 'Deposit failed');
-      }
       await fetchDeposits(tabState.selectedAccountId);
       setShowDepositForm(false);
       setDepositFormData({
@@ -536,8 +548,12 @@ export function BillingV2Client({ user }: { user: User }) {
         receipt_number: '',
         notes: '',
       });
-    } catch (err) {
-      setTabState(prev => ({ ...prev, error: 'Failed to collect deposit' }));
+    } catch (err: any) {
+      console.error('Error collecting deposit:', err);
+      setTabState(prev => ({
+        ...prev,
+        error: err?.message || 'Failed to collect deposit',
+      }));
     } finally {
       setTabState(prev => ({ ...prev, loading: false }));
     }
@@ -552,36 +568,26 @@ export function BillingV2Client({ user }: { user: User }) {
     try {
       // Router is `applyPackage`. Requires patient_id + encounter_id; package_price
       // and component budgeted_amount must be regex-matching strings.
-      const response = await fetch('/api/trpc/billingAccounts.applyPackage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          json: {
-            patient_id: tabState.selectedPatientId,
-            encounter_id: encounterId,
-            account_id: tabState.selectedAccountId,
-            package_name: packageFormData.package_name,
-            package_code: packageFormData.package_code || undefined,
-            package_price: toMoneyString(packageFormData.package_price),
-            includes_room: packageFormData.includes_room,
-            includes_pharmacy: packageFormData.includes_pharmacy,
-            includes_investigations: packageFormData.includes_investigations,
-            max_los_days: packageFormData.max_los_days || undefined,
-            components: packageFormData.components.length > 0
-              ? packageFormData.components.map(c => ({
-                  component_name: c.component_name,
-                  category: c.category,
-                  budgeted_amount: toMoneyString(c.budgeted_amount),
-                  max_quantity: c.max_quantity || undefined,
-                }))
-              : undefined,
-          },
-        }),
+      await trpcMutate('billingAccounts.applyPackage', {
+        patient_id: tabState.selectedPatientId,
+        encounter_id: encounterId,
+        account_id: tabState.selectedAccountId,
+        package_name: packageFormData.package_name,
+        package_code: packageFormData.package_code || undefined,
+        package_price: toMoneyString(packageFormData.package_price),
+        includes_room: packageFormData.includes_room,
+        includes_pharmacy: packageFormData.includes_pharmacy,
+        includes_investigations: packageFormData.includes_investigations,
+        max_los_days: packageFormData.max_los_days || undefined,
+        components: packageFormData.components.length > 0
+          ? packageFormData.components.map(c => ({
+              component_name: c.component_name,
+              category: c.category,
+              budgeted_amount: toMoneyString(c.budgeted_amount),
+              max_quantity: c.max_quantity || undefined,
+            }))
+          : undefined,
       });
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error?.json?.message || 'Package apply failed');
-      }
       await fetchPackages(encounterId);
       setShowPackageForm(false);
       setPackageFormData({
@@ -594,8 +600,12 @@ export function BillingV2Client({ user }: { user: User }) {
         max_los_days: 0,
         components: [],
       });
-    } catch (err) {
-      setTabState(prev => ({ ...prev, error: 'Failed to apply package' }));
+    } catch (err: any) {
+      console.error('Error applying package:', err);
+      setTabState(prev => ({
+        ...prev,
+        error: err?.message || 'Failed to apply package',
+      }));
     } finally {
       setTabState(prev => ({ ...prev, loading: false }));
     }
@@ -611,27 +621,17 @@ export function BillingV2Client({ user }: { user: User }) {
       // Router is `addRoomCharge`. Amount fields are regex-matching strings.
       // `is_over_eligible` is a boolean — mapped as the inverse of the UI's
       // "Room Rent Eligible" checkbox (checked = within eligibility = NOT over).
-      const response = await fetch('/api/trpc/billingAccounts.addRoomCharge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          json: {
-            patient_id: tabState.selectedPatientId,
-            encounter_id: encounterId,
-            charge_date: roomChargeFormData.charge_date,
-            charge_type: roomChargeFormData.charge_type,
-            ward_name: roomChargeFormData.ward_name || undefined,
-            room_category: roomChargeFormData.room_category,
-            base_rate: toMoneyString(roomChargeFormData.base_rate),
-            nursing_charge: toMoneyString(roomChargeFormData.nursing_charge),
-            is_over_eligible: !roomChargeFormData.room_rent_eligible,
-          },
-        }),
+      await trpcMutate('billingAccounts.addRoomCharge', {
+        patient_id: tabState.selectedPatientId,
+        encounter_id: encounterId,
+        charge_date: roomChargeFormData.charge_date,
+        charge_type: roomChargeFormData.charge_type,
+        ward_name: roomChargeFormData.ward_name || undefined,
+        room_category: roomChargeFormData.room_category,
+        base_rate: toMoneyString(roomChargeFormData.base_rate),
+        nursing_charge: toMoneyString(roomChargeFormData.nursing_charge),
+        is_over_eligible: !roomChargeFormData.room_rent_eligible,
       });
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error?.json?.message || 'Add room charge failed');
-      }
       await fetchRoomCharges(encounterId);
       setShowRoomChargeForm(false);
       setRoomChargeFormData({
@@ -643,8 +643,12 @@ export function BillingV2Client({ user }: { user: User }) {
         nursing_charge: 0,
         room_rent_eligible: true,
       });
-    } catch (err) {
-      setTabState(prev => ({ ...prev, error: 'Failed to add room charge' }));
+    } catch (err: any) {
+      console.error('Error adding room charge:', err);
+      setTabState(prev => ({
+        ...prev,
+        error: err?.message || 'Failed to add room charge',
+      }));
     } finally {
       setTabState(prev => ({ ...prev, loading: false }));
     }
@@ -656,28 +660,29 @@ export function BillingV2Client({ user }: { user: User }) {
     setAiCostError(null);
     try {
       // We need encounter_id — fetch it from the billing account
-      const acctRes = await fetch('/api/trpc/billingAccounts.getAccount?input=' + encodeURIComponent(JSON.stringify({ json: { account_id: account.id } })));
-      const acctData = await acctRes.json();
-      const encounterId = acctData.result?.data?.json?.encounter_id;
+      const acct = await trpcQuery<{ encounter_id?: string } | undefined>(
+        'billingAccounts.getAccount',
+        { account_id: account.id },
+      );
+      const encounterId = acct?.encounter_id;
 
       if (!encounterId) {
         setAiCostError('No encounter linked to this billing account');
         return;
       }
 
-      const res = await fetch('/api/trpc/evenAI.runCostEstimation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ json: { encounter_id: encounterId } }),
-      });
-      const data = await res.json();
-      if (data.result?.data?.json) {
-        setAiCostEstimate(data.result.data.json);
+      const estimate = await trpcMutate<any>(
+        'evenAI.runCostEstimation',
+        { encounter_id: encounterId },
+      );
+      if (estimate) {
+        setAiCostEstimate(estimate);
       } else {
-        setAiCostError(data.error?.json?.message || 'Cost estimation failed');
+        setAiCostError('Cost estimation returned no payload');
       }
     } catch (e: any) {
-      setAiCostError(e.message || 'Network error');
+      console.error('Error running cost estimate:', e);
+      setAiCostError(e?.message || 'Network error');
     } finally {
       setAiCostLoading(false);
     }
@@ -1849,6 +1854,21 @@ export function BillingV2Client({ user }: { user: User }) {
                 className="w-72 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
               />
             </div>
+
+            {censusError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-medium">Could not load IPD census</div>
+                  <div className="text-red-700 mt-0.5">{censusError}</div>
+                </div>
+                <button
+                  onClick={() => void fetchIpdCensus()}
+                  className="shrink-0 px-3 py-1 bg-white border border-red-300 rounded text-red-700 hover:bg-red-100 text-xs font-medium"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
 
             <div className="overflow-x-auto">
               <table className="min-w-full border-collapse">
