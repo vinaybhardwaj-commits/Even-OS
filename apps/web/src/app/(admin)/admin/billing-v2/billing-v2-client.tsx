@@ -431,9 +431,17 @@ export function BillingV2Client({ user }: { user: User }) {
   }, [fetchRunningBill, fetchDeposits, fetchPackages, fetchRoomCharges]);
 
   // Handle patient selection — defined AFTER fetchAccountForPatient so the closure is valid.
-  const handleSelectPatient = useCallback((patientId: string) => {
+  // Optional encounterIdHint pre-seeds `encounterId` so that if the fetched listAccounts is empty
+  // (i.e., patient has no billing account yet), the subsequent createAccount call still binds
+  // to the active admission. Without this, clicking an IPD-census row for a patient who has
+  // never had a billing account would create an orphan account with no encounter linkage.
+  const handleSelectPatient = useCallback((patientId: string, encounterIdHint?: string | null) => {
     setTabState(prev => ({ ...prev, selectedPatientId: patientId }));
     setShowPatientSearch(false);
+    setShowAccountForm(false);
+    if (encounterIdHint) {
+      setEncounterId(encounterIdHint);
+    }
     void fetchAccountForPatient(patientId);
   }, [fetchAccountForPatient]);
 
@@ -720,6 +728,162 @@ export function BillingV2Client({ user }: { user: User }) {
   const eligibleDays = roomCharges.filter(rc => !rc.is_over_eligible).length;
   const overEligibleDays = roomCharges.filter(rc => rc.is_over_eligible).length;
 
+  // Shared account-creation form JSX. Extracted so it can render in two places:
+  //   1. Inside the {account && …} Accounts tab when the user wants to add a second account.
+  //   2. Inside the {!account && selectedPatientId} empty state when the patient has no
+  //      billing account yet. Previously the form only lived at (1), so when the empty-state
+  //      CTA flipped `showAccountForm=true` the form was unreachable because its parent
+  //      branch ({account && …}) didn't render. That was BV2.10.
+  const accountCreationForm = (
+    <div className="bg-gray-50 rounded-lg p-6 mb-6 border border-gray-200">
+      <h3 className="font-semibold text-gray-900 mb-4">Create Billing Account</h3>
+      <div className="grid md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Account Type</label>
+          <select
+            value={accountFormData.account_type}
+            onChange={(e) =>
+              setAccountFormData({
+                ...accountFormData,
+                account_type: e.target.value as any,
+              })
+            }
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="self_pay">Self Pay</option>
+            <option value="insurance">Insurance</option>
+            <option value="corporate">Corporate</option>
+            <option value="government">Government</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Estimated Total</label>
+          <input
+            type="number"
+            value={accountFormData.estimated_total}
+            onChange={(e) =>
+              setAccountFormData({
+                ...accountFormData,
+                estimated_total: parseFloat(e.target.value) || 0,
+              })
+            }
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        {accountFormData.account_type === 'insurance' && (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Insurer Name</label>
+              <input
+                type="text"
+                value={accountFormData.insurer_name}
+                onChange={(e) =>
+                  setAccountFormData({
+                    ...accountFormData,
+                    insurer_name: e.target.value,
+                  })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">TPA Name</label>
+              <input
+                type="text"
+                value={accountFormData.tpa_name}
+                onChange={(e) =>
+                  setAccountFormData({
+                    ...accountFormData,
+                    tpa_name: e.target.value,
+                  })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Policy Number</label>
+              <input
+                type="text"
+                value={accountFormData.policy_number}
+                onChange={(e) =>
+                  setAccountFormData({
+                    ...accountFormData,
+                    policy_number: e.target.value,
+                  })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Member ID</label>
+              <input
+                type="text"
+                value={accountFormData.member_id}
+                onChange={(e) =>
+                  setAccountFormData({
+                    ...accountFormData,
+                    member_id: e.target.value,
+                  })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Sum Insured</label>
+              <input
+                type="number"
+                value={accountFormData.sum_insured}
+                onChange={(e) =>
+                  setAccountFormData({
+                    ...accountFormData,
+                    sum_insured: parseFloat(e.target.value) || 0,
+                  })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Room Rent Eligibility</label>
+              <input
+                type="number"
+                value={accountFormData.room_rent_eligibility}
+                onChange={(e) =>
+                  setAccountFormData({
+                    ...accountFormData,
+                    room_rent_eligibility: parseFloat(e.target.value) || 0,
+                  })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Co-pay %</label>
+              <input
+                type="number"
+                value={accountFormData.co_pay_percent}
+                onChange={(e) =>
+                  setAccountFormData({
+                    ...accountFormData,
+                    co_pay_percent: parseFloat(e.target.value) || 0,
+                  })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </>
+        )}
+      </div>
+      <button
+        onClick={handleCreateAccount}
+        disabled={tabState.loading}
+        className="mt-6 w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+      >
+        {tabState.loading ? 'Creating...' : 'Create Account'}
+      </button>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -866,155 +1030,7 @@ export function BillingV2Client({ user }: { user: User }) {
                       </button>
                     </div>
 
-                    {showAccountForm && (
-                      <div className="bg-gray-50 rounded-lg p-6 mb-6 border border-gray-200">
-                        <h3 className="font-semibold text-gray-900 mb-4">Create Billing Account</h3>
-                        <div className="grid md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Account Type</label>
-                            <select
-                              value={accountFormData.account_type}
-                              onChange={(e) =>
-                                setAccountFormData({
-                                  ...accountFormData,
-                                  account_type: e.target.value as any,
-                                })
-                              }
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                            >
-                              <option value="self_pay">Self Pay</option>
-                              <option value="insurance">Insurance</option>
-                              <option value="corporate">Corporate</option>
-                              <option value="government">Government</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Estimated Total</label>
-                            <input
-                              type="number"
-                              value={accountFormData.estimated_total}
-                              onChange={(e) =>
-                                setAccountFormData({
-                                  ...accountFormData,
-                                  estimated_total: parseFloat(e.target.value) || 0,
-                                })
-                              }
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                            />
-                          </div>
-
-                          {accountFormData.account_type === 'insurance' && (
-                            <>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Insurer Name</label>
-                                <input
-                                  type="text"
-                                  value={accountFormData.insurer_name}
-                                  onChange={(e) =>
-                                    setAccountFormData({
-                                      ...accountFormData,
-                                      insurer_name: e.target.value,
-                                    })
-                                  }
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">TPA Name</label>
-                                <input
-                                  type="text"
-                                  value={accountFormData.tpa_name}
-                                  onChange={(e) =>
-                                    setAccountFormData({
-                                      ...accountFormData,
-                                      tpa_name: e.target.value,
-                                    })
-                                  }
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Policy Number</label>
-                                <input
-                                  type="text"
-                                  value={accountFormData.policy_number}
-                                  onChange={(e) =>
-                                    setAccountFormData({
-                                      ...accountFormData,
-                                      policy_number: e.target.value,
-                                    })
-                                  }
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Member ID</label>
-                                <input
-                                  type="text"
-                                  value={accountFormData.member_id}
-                                  onChange={(e) =>
-                                    setAccountFormData({
-                                      ...accountFormData,
-                                      member_id: e.target.value,
-                                    })
-                                  }
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Sum Insured</label>
-                                <input
-                                  type="number"
-                                  value={accountFormData.sum_insured}
-                                  onChange={(e) =>
-                                    setAccountFormData({
-                                      ...accountFormData,
-                                      sum_insured: parseFloat(e.target.value) || 0,
-                                    })
-                                  }
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Room Rent Eligibility</label>
-                                <input
-                                  type="number"
-                                  value={accountFormData.room_rent_eligibility}
-                                  onChange={(e) =>
-                                    setAccountFormData({
-                                      ...accountFormData,
-                                      room_rent_eligibility: parseFloat(e.target.value) || 0,
-                                    })
-                                  }
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Co-pay %</label>
-                                <input
-                                  type="number"
-                                  value={accountFormData.co_pay_percent}
-                                  onChange={(e) =>
-                                    setAccountFormData({
-                                      ...accountFormData,
-                                      co_pay_percent: parseFloat(e.target.value) || 0,
-                                    })
-                                  }
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                />
-                              </div>
-                            </>
-                          )}
-                        </div>
-                        <button
-                          onClick={handleCreateAccount}
-                          disabled={tabState.loading}
-                          className="mt-6 w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-lg transition-colors"
-                        >
-                          {tabState.loading ? 'Creating...' : 'Create Account'}
-                        </button>
-                      </div>
-                    )}
+                    {showAccountForm && accountCreationForm}
 
                     {/* Running Bill Table */}
                     <div className="space-y-4">
@@ -1817,18 +1833,30 @@ export function BillingV2Client({ user }: { user: User }) {
         )}
 
         {!account && tabState.selectedPatientId && !tabState.loading && (
-          <div className="bg-white rounded-lg shadow p-8 text-center">
-            <p className="text-gray-600 mb-4">No billing account exists for this patient</p>
-            <button
-              onClick={() => {
-                setTabState(prev => ({ ...prev, activeTab: 'accounts' }));
-                setShowAccountForm(true);
-              }}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-lg transition-colors"
-            >
-              Create Billing Account
-            </button>
-          </div>
+          showAccountForm ? (
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900">New Billing Account</h2>
+                <button
+                  onClick={() => setShowAccountForm(false)}
+                  className="text-sm text-gray-600 hover:text-gray-900"
+                >
+                  Cancel
+                </button>
+              </div>
+              {accountCreationForm}
+            </div>
+          ) : (
+            <div className="bg-white rounded-lg shadow p-8 text-center">
+              <p className="text-gray-600 mb-4">No billing account exists for this patient</p>
+              <button
+                onClick={() => setShowAccountForm(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-lg transition-colors"
+              >
+                Create Billing Account
+              </button>
+            </div>
+          )
         )}
 
         {/* Default landing: IPD census table. Shown whenever no patient is selected
@@ -1931,7 +1959,7 @@ export function BillingV2Client({ user }: { user: User }) {
                       return (
                         <tr
                           key={row.encounter_id}
-                          onClick={() => handleSelectPatient(row.patient_id)}
+                          onClick={() => handleSelectPatient(row.patient_id, row.encounter_id)}
                           className="border-b border-gray-200 hover:bg-blue-50 cursor-pointer transition-colors"
                         >
                           <td className="border border-gray-300 px-4 py-3 text-sm font-medium text-gray-900">

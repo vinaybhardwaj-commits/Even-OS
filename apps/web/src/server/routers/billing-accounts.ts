@@ -144,7 +144,9 @@ export const billingAccountsRouter = router({
             ba.ba_is_active as is_active, ba.ba_created_at as created_at,
             ba.ba_updated_at as updated_at,
             p.name_full,
-            e.encounter_type, e.admission_date, e.discharge_date
+            e.encounter_class as encounter_type,
+            e.admission_at as admission_date,
+            e.discharge_at as discharge_date
           FROM billing_accounts ba
           JOIN patients p ON ba.ba_patient_id = p.id
           LEFT JOIN encounters e ON ba.ba_encounter_id = e.id
@@ -1392,7 +1394,7 @@ export const billingAccountsRouter = router({
 
         // Get encounter admission/discharge for LOS
         const encounterResult = await getSql()`
-          SELECT admission_date, discharge_date FROM encounters
+          SELECT admission_at as admission_date, discharge_at as discharge_date FROM encounters
           WHERE id = ${encounterId}
           LIMIT 1
         `;
@@ -1599,7 +1601,7 @@ export const billingAccountsRouter = router({
 
         // Get encounter admission and discharge dates
         const encounterResult = await getSql()`
-          SELECT admission_date, discharge_date FROM encounters
+          SELECT admission_at as admission_date, discharge_at as discharge_date FROM encounters
           WHERE id = ${encounterId}
           LIMIT 1
         `;
