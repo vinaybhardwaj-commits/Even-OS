@@ -14,7 +14,14 @@
     "db:seed": "tsx drizzle/seed.ts",
     "db:seed:calculators": "tsx drizzle/seed-calculators.ts",
     "db:studio": "drizzle-kit studio",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.59",
@@ -58,6 +65,18 @@
     "tsx": "^4.7.0",
     "typescript": "^5.4.0",
     "@types/pdf-parse": "^1.1.4",
-    "@types/ws": "^8.5.10"
+    "@types/ws": "^8.5.10",
+    "vitest": "^1.6.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "@vitest/ui": "^1.6.0",
+    "@playwright/test": "^1.47.0",
+    "msw": "^2.6.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "jsdom": "^24.1.0",
+    "happy-dom": "^14.12.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/jest-dom": "^6.4.0",
+    "@testing-library/user-event": "^14.5.0",
+    "dotenv": "^16.4.0"
   }
 }

@@ -9,12 +9,17 @@
     "db:push": "pnpm --filter @even-os/web db:push",
     "db:seed": "pnpm --filter @even-os/web db:seed",
     "db:studio": "pnpm --filter @even-os/web db:studio",
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\""
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "test": "turbo test",
+    "test:watch": "turbo test:watch",
+    "test:coverage": "turbo test:coverage",
+    "test:e2e": "turbo test:e2e"
   },
   "devDependencies": {
     "prettier": "^3.2.0",
     "turbo": "^2.0.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "@playwright/test": "^1.47.0"
   },
   "packageManager": "pnpm@9.15.4",
   "engines": {
