@@ -31,3 +31,9 @@ drizzle/migrations/meta/
 package-lock.json
 .vercel-token
 .vercel-project-id
+
+# Test artifacts (Phase 0)
+/apps/web/coverage
+/apps/web/playwright-report
+/apps/web/test-results
+/apps/web/.vitest-cache

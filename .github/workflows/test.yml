@@ -1,0 +1,199 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '9.15.4'
+
+jobs:
+  # -----------------------------------------------------------------
+  # Lint + typecheck — fastest feedback; runs on every push
+  # -----------------------------------------------------------------
+  lint:
+    name: Lint + Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+  # -----------------------------------------------------------------
+  # Unit tests — pure functions, factories, validators
+  # No DB. Hermetic. Should always pass on a clean repo.
+  # -----------------------------------------------------------------
+  unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Vitest
+        working-directory: apps/web
+        run: pnpm test
+
+      # Coverage upload deferred to Phase 1 (Codecov integration)
+
+  # -----------------------------------------------------------------
+  # Integration tests — DB-touching, gated behind VITEST_INTEGRATION=1
+  # Phase 0: stub job that runs only when NEON_API_KEY secret exists.
+  # Phase 1: wires Neon ephemeral branches per worker.
+  # -----------------------------------------------------------------
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Skip if no NEON_API_KEY
+        id: check-neon
+        run: |
+          if [ -z "${{ secrets.NEON_API_KEY }}" ]; then
+            echo "Neon API key not set — skipping integration tests."
+            echo "Add NEON_API_KEY to repo secrets to enable."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run integration tests
+        if: steps.check-neon.outputs.skip != 'true'
+        working-directory: apps/web
+        env:
+          VITEST_INTEGRATION: '1'
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+        run: pnpm test
+
+  # -----------------------------------------------------------------
+  # E2E tests — Playwright against a deployed preview / local server
+  # Phase 0: stub. Phase 1: wires against a Vercel preview deployment URL.
+  # -----------------------------------------------------------------
+  e2e:
+    name: E2E Tests (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers (chromium only for v1)
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Skip if no test base URL
+        id: check-url
+        run: |
+          if [ -z "${{ secrets.TEST_E2E_BASE_URL }}" ]; then
+            echo "TEST_E2E_BASE_URL not set — skipping e2e."
+            echo "Set in repo secrets (e.g., a Vercel preview URL) to enable."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Playwright tests
+        if: steps.check-url.outputs.skip != 'true'
+        working-directory: apps/web
+        env:
+          TEST_E2E_BASE_URL: ${{ secrets.TEST_E2E_BASE_URL }}
+        run: pnpm test:e2e
+
+      - name: Upload Playwright report on failure
+        if: always() && steps.check-url.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
+
+  # -----------------------------------------------------------------
+  # Build verification — ensures Next.js still builds cleanly
+  # -----------------------------------------------------------------
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        env:
+          DATABASE_URL: 'postgresql://stub:stub@stub.invalid/stub'
+          JWT_SECRET: 'ci-test-jwt-secret-do-not-use-in-prod'
+          ENCRYPTION_KEY: 'ci-test-encryption-key-32-bytes-x'
+          ENABLE_EXPERIMENTAL_COREPACK: '1'
+        run: pnpm build
