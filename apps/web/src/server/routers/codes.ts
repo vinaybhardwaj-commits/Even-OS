@@ -5,6 +5,7 @@ import { router, protectedProcedure } from '../trpc';
 import { bucketKey, buildDisplayName, validateForm, type CompositionInput } from '@/lib/codes/code-utils';
 import { LOOKUP_KINDS, getLookupKindMeta } from '../../../drizzle/schema/66-codes';
 import { codesApprovalsRouter } from './codes-approvals';
+import { codesServicesRouter } from './codes-services';
 
 // ============================================================
 // CODES MODULE — Phase 1 (Cannibalize CodeCreator)
@@ -631,4 +632,7 @@ export const codesRouter = router({
   // clinicalApprove, reject, resubmit, listForStage, listMyHistory, getDetail,
   // assignRole, revokeRole, listRoles, listMyRoles, bootstrapHistorical).
   approvals: codesApprovalsRouter,
+  // Phase 3 — service code catalog router (create, detail, list, search,
+  // lookups for types/departments/subdepartments).
+  services: codesServicesRouter,
 });
