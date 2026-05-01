@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { router, protectedProcedure } from '../../trpc';
 import { assertHasScmRole } from '../../scm/sod-permissions';
+import { validateItemTransition, type ItemStatus, type DeprecationUrgencyTier } from '../../scm/item-lifecycle';
 
 // ============================================================
 // SCM › ITEMS — universal item master (Phase 1.4 NEW router)
@@ -327,31 +328,18 @@ export const itemTransitionStatusProcedure = protectedProcedure
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Item not found' });
       }
 
-      const from = current[0].status as string;
-      const to = input.to_status;
+      const from = current[0].status as ItemStatus;
+      const to = input.to_status as ItemStatus;
 
-      const allowed: Record<string, string[]> = {
-        pending_clinical_review: ['pending_master_data_review', 'rejected'],
-        pending_master_data_review: ['pending_cms_gm_review', 'rejected'],
-        pending_cms_gm_review: ['active', 'rejected'],
-        active: ['deprecated_grace'],
-        deprecated_grace: ['deprecated'],
-        deprecated: ['archived'],
-        archived: [],
-        rejected: [],
-      };
-      if (!allowed[from]?.includes(to)) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: `Invalid transition: ${from} → ${to}`,
-        });
-      }
-
-      if (to === 'deprecated_grace' && (!input.reason || !input.urgency_tier)) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Deprecation requires reason and urgency_tier',
-        });
+      // Codes Q3 5-state machine + Q12 deprecation — see scm/item-lifecycle.ts
+      const validation = validateItemTransition({
+        from,
+        to,
+        reason: input.reason,
+        urgency_tier: input.urgency_tier as DeprecationUrgencyTier | undefined,
+      });
+      if (!validation.ok) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: validation.reason });
       }
 
       const setParts = ['status = $2', 'updated_by = $3', 'updated_at = NOW()'];
