@@ -19,6 +19,7 @@ import { lsqRouter } from './lsq';
 import { clinicalOrdersRouter } from './clinical-orders';
 import { billingRouter } from './billing';
 import { billingAccountsRouter } from './billing-accounts';
+import { billingV3Router } from './billing-v3';
 import { clinicalFormsRouter } from './clinical-forms';
 import { conditionsRouter } from './conditions';
 import { allergiesRouter } from './allergies';
@@ -115,6 +116,7 @@ export const appRouter = router({
   clinicalOrders: clinicalOrdersRouter,
   billing: billingRouter,
   billingAccounts: billingAccountsRouter,
+  billingV3: billingV3Router,
   clinicalForms: clinicalFormsRouter,
   conditions: conditionsRouter,
   allergies: allergiesRouter,
