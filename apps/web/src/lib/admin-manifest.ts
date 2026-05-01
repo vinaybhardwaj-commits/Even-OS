@@ -93,6 +93,7 @@ export const adminRoutes: AdminRoute[] = [
   { path: '/admin/codes',         title: 'Codes — New Item',  pillar: 'platform', icon: '🆔', blurb: 'Create SOP-format Item Codes with LivePreview', roles: ADMIN_DEPT, shippedIn: 'C.1', status: 'live', keywords: ['code','codes','codecreator','item code','sop','master data','master','registry'] },
   { path: '/admin/codes/review',  title: 'Codes — Bad Codes Review', pillar: 'platform', icon: '🧹', blurb: 'Legacy import flagged rows; resolve to fix master data quality', roles: ADMIN_DEPT, shippedIn: 'C.1', status: 'live', keywords: ['bad codes','review queue','legacy','import errors','master data'] },
   { path: '/admin/codes/settings', title: 'Codes — Lookup Settings', pillar: 'platform', icon: '⚙️', blurb: 'Edit category / storage / classification / item-type / form / unit lookups', roles: ADMIN, shippedIn: 'C.1', status: 'live', keywords: ['lookups','category','storage','classification','dropdowns','master data'] },
+  { path: '/admin/codes/services', title: 'Codes — Services', pillar: 'platform', icon: '🔣', blurb: 'Service code catalog (procedures / labs / imaging / packages / rooms)', roles: ADMIN, shippedIn: 'C.3', status: 'live', keywords: ['services','procedures','labs','imaging','packages','rooms','service codes'] },
 
   // ── Clinical ─────────────────────────────────────────────────────────
   { path: '/admin/patients',          title: 'Patient Registry',  pillar: 'clinical', icon: '👥', blurb: 'Register, search, manage patients',      roles: ADMIN_DEPT, shippedIn: 'S3a', status: 'live' },
