@@ -425,6 +425,11 @@ export const billingV3AccountPayersRouter = router({
   list: billingV3AccountPayersListProcedure,
 });
 
+// Phase 4 — Bills + Discharge orchestration routers (composed externally
+// to keep billing-v3.ts focused on the BV3.1 read-mostly surface).
+import { billingV3BillsRouter } from './billing-v3-bills';
+import { billingV3DischargeRouter } from './billing-v3-discharge';
+
 export const billingV3Router = router({
   bootstrap: billingV3BootstrapRouter,
   items: billingV3ItemsRouter,
@@ -435,4 +440,8 @@ export const billingV3Router = router({
   charges: billingV3ChargesRouter,
   tariffImports: billingV3TariffImportsRouter,
   accountPayers: billingV3AccountPayersRouter,
+  // Phase 4 — bill builder spine
+  bills: billingV3BillsRouter,
+  // Phase 4 — discharge billing closure orchestration
+  discharge: billingV3DischargeRouter,
 });
