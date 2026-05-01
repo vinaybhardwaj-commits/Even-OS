@@ -348,9 +348,27 @@ function PODrillModal({ po: initialPo, onClose, onChanged }: { po: PurchaseOrder
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  // Phase 2 follow-up: a per-PO items list query lands then; until that
-  // ships, this modal shows aggregate totals (po.total_items, po.total_amount)
-  // and a banner explaining the gap.
+  // Per-PO line items fetched via scm.purchaseOrders.listItems (Phase 1.6).
+  const [items, setItems] = useState<POLineItem[]>([]);
+  const [loadingItems, setLoadingItems] = useState(true);
+  const [itemsErr, setItemsErr] = useState<string | null>(null);
+
+  const reloadItems = useCallback(async () => {
+    setLoadingItems(true);
+    setItemsErr(null);
+    try {
+      const data = await trpcQuery('scm.purchaseOrders.listItems', po.id);
+      setItems(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      setItemsErr(e?.message || 'Failed to load line items');
+    } finally {
+      setLoadingItems(false);
+    }
+  }, [po.id]);
+
+  useEffect(() => {
+    reloadItems();
+  }, [reloadItems]);
 
   const [showAdd, setShowAdd] = useState(false);
   const [showReceive, setShowReceive] = useState(false);
@@ -428,10 +446,57 @@ function PODrillModal({ po: initialPo, onClose, onChanged }: { po: PurchaseOrder
 
       {actionErr ? <ErrorBox msg={actionErr} /> : null}
 
-      {/* ─── Phase 1.5b note about line-items list ───── */}
-      <div style={{ padding: 12, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, fontSize: 13, color: '#92400e' }}>
-        <strong>Phase 2 follow-up:</strong> the PO list endpoint doesn't yet return its line-items inline. The dashboard shows aggregate totals (lines / total) sourced from <code>purchase_orders.total_items</code> and <code>total_amount</code>, which both update on every <code>addItem</code> call. A dedicated per-PO line-item query lands in Phase 2.
+      {/* ─── Line items (scm.purchaseOrders.listItems) ───── */}
+      <div style={{ marginTop: 16, marginBottom: 8, fontSize: 14, fontWeight: 600, color: '#374151' }}>
+        Line items {items.length > 0 ? <span style={{ color: '#9ca3af', fontWeight: 400 }}>({items.length})</span> : null}
       </div>
+      {loadingItems ? (
+        <div style={{ padding: 16, textAlign: 'center', color: '#6b7280', fontSize: 13 }}>Loading line items…</div>
+      ) : itemsErr ? (
+        <ErrorBox msg={itemsErr} />
+      ) : items.length === 0 ? (
+        <div style={{ padding: 16, textAlign: 'center', color: '#6b7280', fontSize: 13, background: '#fafafa', border: '1px dashed #e5e7eb', borderRadius: 6 }}>
+          {po.status === 'draft' ? 'No line items yet. Click + Add line item.' : 'This PO has no line items.'}
+        </div>
+      ) : (
+        <div style={{ background: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 6, overflow: 'hidden', marginBottom: 12 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead style={{ background: '#f3f4f6', borderBottom: '1px solid #e5e7eb' }}>
+              <tr>
+                <Th>Item</Th>
+                <Th style={{ textAlign: 'right' }}>Ordered</Th>
+                <Th style={{ textAlign: 'right' }}>Received</Th>
+                <Th style={{ textAlign: 'right' }}>Remaining</Th>
+                <Th style={{ textAlign: 'right' }}>Unit cost</Th>
+                <Th style={{ textAlign: 'right' }}>Total</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it) => {
+                const ordered = Number(it.quantity_ordered);
+                const received = Number(it.quantity_received);
+                const remaining = ordered - received;
+                const fully = remaining <= 0;
+                return (
+                  <tr key={it.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                    <Td>
+                      <div style={{ fontWeight: 500 }}>{it.item_name}</div>
+                      {it.kind ? <span style={{ fontSize: 10, color: '#6366f1' }}>[{it.kind}]</span> : null}
+                    </Td>
+                    <Td style={{ textAlign: 'right' }}>{ordered} {it.unit_of_measure || ''}</Td>
+                    <Td style={{ textAlign: 'right', color: fully ? '#10b981' : received > 0 ? '#f59e0b' : '#9ca3af' }}>{received}</Td>
+                    <Td style={{ textAlign: 'right', fontWeight: 500, color: fully ? '#10b981' : '#374151' }}>
+                      {fully ? '✓ done' : remaining}
+                    </Td>
+                    <Td style={{ textAlign: 'right' }}>{fmtCurrency(it.unit_cost)}</Td>
+                    <Td style={{ textAlign: 'right', fontWeight: 500 }}>{fmtCurrency(it.total_cost ?? Number(it.unit_cost) * ordered)}</Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* ─── Add item modal ─────── */}
       {showAdd ? (
@@ -440,6 +505,7 @@ function PODrillModal({ po: initialPo, onClose, onChanged }: { po: PurchaseOrder
           onClose={() => setShowAdd(false)}
           onAdded={() => {
             setShowAdd(false);
+            reloadItems();
             onChanged();
           }}
         />
@@ -450,6 +516,7 @@ function PODrillModal({ po: initialPo, onClose, onChanged }: { po: PurchaseOrder
           onClose={() => setShowReceive(false)}
           onReceived={() => {
             setShowReceive(false);
+            reloadItems();
             onChanged();
           }}
         />
@@ -546,28 +613,71 @@ function AddPOItemModal({ poId, onClose, onAdded }: { poId: string; onClose: () 
   );
 }
 
+interface POLineItem {
+  id: string;
+  po_id: string;
+  item_id: string;
+  item_name: string;
+  kind: string | null;
+  unit_of_measure: string | null;
+  quantity_ordered: string | number;
+  quantity_received: string | number;
+  unit_cost: string | number;
+  total_cost: string | number | null;
+}
+
 function ReceiveModal({ po, onClose, onReceived }: { po: PurchaseOrder; onClose: () => void; onReceived: () => void }) {
-  // Free-form line entry: user enters poi_id manually until Phase 2 lists items inline.
-  const [lines, setLines] = useState<Array<{ poi_id: string; quantity_received: string; batch_number: string; expiry_date: string; manufacturer: string; receive_location: string }>>([
-    { poi_id: '', quantity_received: '', batch_number: '', expiry_date: '', manufacturer: '', receive_location: 'warehouse' },
-  ]);
+  // Phase 1.6: line items fetched inline via scm.purchaseOrders.listItems.
+  // User picks remaining quantity per line; no manual UUID entry.
+  const [poItems, setPoItems] = useState<POLineItem[]>([]);
+  const [loadingItems, setLoadingItems] = useState(true);
+  const [itemsErr, setItemsErr] = useState<string | null>(null);
+
+  // Per-line input state, keyed by poi_id (only for the lines the user
+  // wants to receive against — others left blank).
+  const [linesByPoiId, setLinesByPoiId] = useState<Record<string, {
+    quantity_received: string;
+    batch_number: string;
+    expiry_date: string;
+    manufacturer: string;
+    receive_location: string;
+  }>>({});
+
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  function updateLine(i: number, patch: Partial<(typeof lines)[number]>) {
-    const next = [...lines];
-    next[i] = { ...next[i], ...patch };
-    setLines(next);
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await trpcQuery('scm.purchaseOrders.listItems', po.id);
+        const arr: POLineItem[] = Array.isArray(data) ? data : [];
+        setPoItems(arr);
+        // Pre-populate input rows with empty defaults
+        const initial: typeof linesByPoiId = {};
+        for (const it of arr) {
+          initial[it.id] = { quantity_received: '', batch_number: '', expiry_date: '', manufacturer: '', receive_location: 'warehouse' };
+        }
+        setLinesByPoiId(initial);
+      } catch (e: any) {
+        setItemsErr(e?.message || 'Failed to load PO line items');
+      } finally {
+        setLoadingItems(false);
+      }
+    })();
+  }, [po.id]);
+
+  function updateLine(poiId: string, patch: Partial<(typeof linesByPoiId)[string]>) {
+    setLinesByPoiId((prev) => ({ ...prev, [poiId]: { ...prev[poiId], ...patch } }));
   }
 
   async function submit() {
     setSubmitting(true);
     setErr(null);
     try {
-      const items = lines
-        .filter((l) => l.poi_id && Number(l.quantity_received) > 0)
-        .map((l) => ({
-          poi_id: l.poi_id,
+      const items = Object.entries(linesByPoiId)
+        .filter(([, l]) => Number(l.quantity_received) > 0)
+        .map(([poi_id, l]) => ({
+          poi_id,
           quantity_received: Number(l.quantity_received),
           batch_number: l.batch_number || undefined,
           expiry_date: l.expiry_date || undefined,
@@ -575,9 +685,20 @@ function ReceiveModal({ po, onClose, onReceived }: { po: PurchaseOrder; onClose:
           receive_location: l.receive_location || 'warehouse',
         }));
       if (items.length === 0) {
-        setErr('At least one line with a poi_id and quantity is required');
+        setErr('Enter a quantity > 0 for at least one line');
         setSubmitting(false);
         return;
+      }
+      // Validate per-line: cannot receive more than (ordered − already_received)
+      for (const it of items) {
+        const poItem = poItems.find((p) => p.id === it.poi_id);
+        if (!poItem) continue;
+        const remaining = Number(poItem.quantity_ordered) - Number(poItem.quantity_received);
+        if (it.quantity_received > remaining) {
+          setErr(`Line "${poItem.item_name}": cannot receive ${it.quantity_received}, only ${remaining} remaining of ${poItem.quantity_ordered} ordered`);
+          setSubmitting(false);
+          return;
+        }
       }
       await trpcMutate('scm.purchaseOrders.receive', { po_id: po.id, items });
       onReceived();
@@ -592,48 +713,81 @@ function ReceiveModal({ po, onClose, onReceived }: { po: PurchaseOrder; onClose:
     <Modal title={`Receive against ${po.po_number}`} onClose={onClose}>
       <div style={{ ...infoBox, marginBottom: 16 }}>
         <div style={{ fontSize: 13 }}>
-          Each row creates / updates an <code>inventory</code> row and writes a <code>grn_receive</code> entry to the stock_movements ledger
-          (<code>source_module='scm'</code>, <code>source_ref_id={`{po.id}`}</code>). PO transitions to <strong>partially_received</strong> or <strong>received</strong> based on cumulative receipt vs ordered quantity.
-        </div>
-        <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>
-          Note: poi_id (PO line item ID) is required. A line-items list lands in Phase 2; until then, fetch poi_id from the database directly.
+          Each line below creates / updates an <code>inventory</code> row and writes a <code>grn_receive</code> entry to the stock_movements ledger
+          (<code>source_module='scm'</code>, <code>source_ref_id={`{po.id}`}</code>). PO transitions to <strong>partially_received</strong> or <strong>received</strong> based on cumulative receipt vs ordered quantity. RBAC: requires the <code>grn_creator</code> SCM role (Phase 1.6).
         </div>
       </div>
 
-      {lines.map((l, i) => (
-        <div key={i} style={{ marginBottom: 12, padding: 12, background: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 6 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <Field label="PO line item ID (poi_id)">
-              <input value={l.poi_id} onChange={(e) => updateLine(i, { poi_id: e.target.value })} style={inputStyle} placeholder="UUID" />
-            </Field>
-            <Field label="Quantity received">
-              <input type="number" step="0.001" value={l.quantity_received} onChange={(e) => updateLine(i, { quantity_received: e.target.value })} style={inputStyle} />
-            </Field>
-            <Field label="Batch number">
-              <input value={l.batch_number} onChange={(e) => updateLine(i, { batch_number: e.target.value })} style={inputStyle} />
-            </Field>
-            <Field label="Expiry date">
-              <input type="date" value={l.expiry_date} onChange={(e) => updateLine(i, { expiry_date: e.target.value })} style={inputStyle} />
-            </Field>
-            <Field label="Manufacturer">
-              <input value={l.manufacturer} onChange={(e) => updateLine(i, { manufacturer: e.target.value })} style={inputStyle} />
-            </Field>
-            <Field label="Receive location">
-              <input value={l.receive_location} onChange={(e) => updateLine(i, { receive_location: e.target.value })} style={inputStyle} placeholder="warehouse / main_pharmacy / …" />
-            </Field>
-          </div>
-          {lines.length > 1 ? (
-            <button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ ...btnSecondarySmall, marginTop: 8, color: '#991b1b' }}>Remove line</button>
-          ) : null}
+      {loadingItems ? (
+        <div style={{ padding: 32, textAlign: 'center', color: '#6b7280' }}>Loading line items…</div>
+      ) : itemsErr ? (
+        <ErrorBox msg={itemsErr} />
+      ) : poItems.length === 0 ? (
+        <div style={{ padding: 24, textAlign: 'center', color: '#6b7280', fontSize: 13 }}>
+          This PO has no line items. Add line items first (PO must be in <code>draft</code> state to add items).
         </div>
-      ))}
-
-      <button
-        onClick={() => setLines([...lines, { poi_id: '', quantity_received: '', batch_number: '', expiry_date: '', manufacturer: '', receive_location: 'warehouse' }])}
-        style={btnSecondary}
-      >
-        + Add another line
-      </button>
+      ) : (
+        poItems.map((poi) => {
+          const ordered = Number(poi.quantity_ordered);
+          const alreadyReceived = Number(poi.quantity_received);
+          const remaining = ordered - alreadyReceived;
+          const fullyReceived = remaining <= 0;
+          const line = linesByPoiId[poi.id] || { quantity_received: '', batch_number: '', expiry_date: '', manufacturer: '', receive_location: 'warehouse' };
+          return (
+            <div
+              key={poi.id}
+              style={{
+                marginBottom: 12,
+                padding: 12,
+                background: fullyReceived ? '#f0fdf4' : '#fafafa',
+                border: `1px solid ${fullyReceived ? '#86efac' : '#e5e7eb'}`,
+                borderRadius: 6,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, fontSize: 13 }}>
+                <div>
+                  <strong>{poi.item_name}</strong>
+                  {poi.kind ? <span style={{ marginLeft: 6, fontSize: 11, color: '#6366f1' }}>[{poi.kind}]</span> : null}
+                  <span style={{ marginLeft: 8, color: '#9ca3af' }}>· {ordered} {poi.unit_of_measure || 'unit'} ordered @ {fmtCurrency(poi.unit_cost)}</span>
+                </div>
+                <div style={{ fontSize: 12 }}>
+                  {fullyReceived ? (
+                    <span style={{ color: '#10b981', fontWeight: 600 }}>✓ fully received</span>
+                  ) : (
+                    <span style={{ color: '#f59e0b', fontWeight: 600 }}>{remaining} remaining</span>
+                  )}
+                </div>
+              </div>
+              {fullyReceived ? null : (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <Field label={`Quantity received (max ${remaining})`}>
+                    <input
+                      type="number"
+                      step="0.001"
+                      max={remaining}
+                      value={line.quantity_received}
+                      onChange={(e) => updateLine(poi.id, { quantity_received: e.target.value })}
+                      style={inputStyle}
+                    />
+                  </Field>
+                  <Field label="Receive location">
+                    <input value={line.receive_location} onChange={(e) => updateLine(poi.id, { receive_location: e.target.value })} style={inputStyle} placeholder="warehouse / main_pharmacy / ot_stock" />
+                  </Field>
+                  <Field label="Batch number">
+                    <input value={line.batch_number} onChange={(e) => updateLine(poi.id, { batch_number: e.target.value })} style={inputStyle} />
+                  </Field>
+                  <Field label="Expiry date">
+                    <input type="date" value={line.expiry_date} onChange={(e) => updateLine(poi.id, { expiry_date: e.target.value })} style={inputStyle} />
+                  </Field>
+                  <Field label="Manufacturer">
+                    <input value={line.manufacturer} onChange={(e) => updateLine(poi.id, { manufacturer: e.target.value })} style={inputStyle} />
+                  </Field>
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
 
       {err ? <ErrorBox msg={err} /> : null}
 

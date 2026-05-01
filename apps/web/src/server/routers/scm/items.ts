@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { router, protectedProcedure } from '../../trpc';
+import { assertHasScmRole } from '../../scm/sod-permissions';
 
 // ============================================================
 // SCM › ITEMS — universal item master (Phase 1.4 NEW router)
@@ -99,6 +100,7 @@ export const itemCreateProcedure = protectedProcedure
   .input(itemCreateSchema)
   .mutation(async ({ ctx, input }) => {
     try {
+      await assertHasScmRole(ctx, ['item_master_steward']);
       const result = await getSql()(
         `INSERT INTO items (
           hospital_id, code, display_name, kind,
@@ -257,6 +259,7 @@ export const itemUpdateProcedure = protectedProcedure
     }
 
     try {
+      await assertHasScmRole(ctx, ['item_master_steward']);
       const setParts: string[] = [];
       const params: any[] = [id];
       let p = 2;
@@ -315,6 +318,7 @@ export const itemTransitionStatusProcedure = protectedProcedure
   )
   .mutation(async ({ ctx, input }) => {
     try {
+      await assertHasScmRole(ctx, ['item_master_steward']);
       const current = await getSql()(
         `SELECT id, status FROM items WHERE id = $1 AND (hospital_id = $2 OR hospital_id IS NULL)`,
         [input.id, ctx.user.hospital_id]

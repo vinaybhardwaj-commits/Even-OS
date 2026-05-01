@@ -4,6 +4,7 @@ import { scmItemsRouter } from './items';
 import { scmInventoryRouter } from './inventory';
 import { scmPurchaseOrdersRouter } from './purchase-orders';
 import { scmAlertsRouter } from './alerts';
+import { scmRolesRouter } from './roles';
 
 // ============================================================
 // SCM ROOT ROUTER — Phase 1.4 router split (Q2 Path C)
@@ -20,8 +21,9 @@ import { scmAlertsRouter } from './alerts';
 //   scm.vendors.{create, list, update, detail}
 //   scm.items.{create, list, detail, update, transitionStatus}
 //   scm.inventory.{add, list, detail, adjust, transfer, expiryWatchlist}
-//   scm.purchaseOrders.{create, addItem, approve, sendToVendor, receive, list}
+//   scm.purchaseOrders.{create, addItem, approve, sendToVendor, receive, list, listItems}
 //   scm.alerts.{checkLowStock, list, resolve}
+//   scm.roles.{assign, revoke, list, listForUser}
 // ============================================================
 
 export const scmRouter = router({
@@ -30,4 +32,5 @@ export const scmRouter = router({
   inventory: scmInventoryRouter,
   purchaseOrders: scmPurchaseOrdersRouter,
   alerts: scmAlertsRouter,
+  roles: scmRolesRouter,
 });

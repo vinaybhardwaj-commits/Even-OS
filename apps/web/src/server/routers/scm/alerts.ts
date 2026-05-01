@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { router, protectedProcedure } from '../../trpc';
+import { assertHasScmRole } from '../../scm/sod-permissions';
 
 // ============================================================
 // SCM › ALERTS — Phase 1.4 router (Q2 Path C)
@@ -32,6 +33,7 @@ function getSql() {
 /** Scan inventory for low-stock items, generate auto_reorder_drafts. */
 export const alertsCheckLowStockProcedure = protectedProcedure.mutation(async ({ ctx }) => {
   try {
+    await assertHasScmRole(ctx, ['inventory_manager', 'po_creator']);
     const lowStockItems = await getSql()(
       `SELECT inv.id AS inventory_id, inv.item_id, inv.quantity_on_hand,
               COALESCE(inv.reorder_level, it.default_reorder_level, 0) AS effective_reorder_level,
@@ -157,6 +159,7 @@ export const alertsResolveProcedure = protectedProcedure
   )
   .mutation(async ({ ctx, input }) => {
     try {
+      await assertHasScmRole(ctx, ['inventory_manager', 'po_creator']);
       const updated = await getSql()(
         `UPDATE auto_reorder_drafts
          SET status = 'rejected',

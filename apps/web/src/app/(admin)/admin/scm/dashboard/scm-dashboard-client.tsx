@@ -264,8 +264,8 @@ export default function ScmDashboardClient({ user }: { user: User }) {
           />
           <NavCard
             href="/admin/scm/roles"
-            title="🔐 Roles & SoD (Phase 1.6)"
-            blurb="7 SCM RBAC roles. Read-only matrix here; assignment + permission middleware lands in Phase 1.6 (mid-Nov per V's lock)."
+            title="🔐 Roles & SoD"
+            blurb="Assign / revoke SCM roles per hospital. SoD conflict matrix enforced server-side. KPMG approval matrix + role reference docs. Path B GO-LIVE."
           />
           <NavCard
             href="/admin/pharmacy"
@@ -278,7 +278,7 @@ export default function ScmDashboardClient({ user }: { user: User }) {
 
       {/* ─── Footer note ──────────────────────────────── */}
       <div style={{ marginTop: 32, padding: 16, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, color: '#4b5563' }}>
-        <strong>Phase status:</strong> SCM Phase 1.5b — full procurement workflow (items + inventory + POs + vendors + alerts) live. Phase 1.6 brings SoD permission middleware, role-assignment write flow, and a transactional helper for receive/transfer.
+        <strong>Phase status:</strong> SCM Phase 1.6 — SoD permission middleware enforces role checks on every SCM mutation; role-assignment write flow live on /admin/scm/roles; per-PO line-items query wired into Receive modal. Phase 1.7 adds tests against SCM routers using Phase 0 infra.
         <br />
         <strong>Cross-PRD:</strong> Codes Phase 1 (FK gate to <code>codes</code>), Billing v3 Phase 1 (3-way match against <code>vendor_invoices</code>), and OT (issue / consumption flow) all consume this module.
       </div>

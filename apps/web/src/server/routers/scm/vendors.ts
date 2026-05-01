@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { router, protectedProcedure } from '../../trpc';
+import { assertHasScmRole } from '../../scm/sod-permissions';
 
 // ============================================================
 // SCM › VENDORS — Phase 1.4 router split (Q2 Path C)
@@ -47,6 +48,7 @@ export const vendorCreateProcedure = protectedProcedure
   .input(vendorSchema)
   .mutation(async ({ ctx, input }) => {
     try {
+      await assertHasScmRole(ctx, ['scm_admin']);
       const result = await getSql()(
         `INSERT INTO vendors
         (hospital_id, vendor_code, vendor_name, contact_person, vendor_phone, vendor_email,
@@ -130,6 +132,7 @@ export const vendorUpdateProcedure = protectedProcedure
   .mutation(async ({ ctx, input }) => {
     const { id, ...updates } = input;
     try {
+      await assertHasScmRole(ctx, ['scm_admin']);
       const setClause = Object.keys(updates)
         .map((key, idx) => `${key} = $${idx + 2}`)
         .join(', ');

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { router, protectedProcedure } from '../../trpc';
+import { assertHasScmRole } from '../../scm/sod-permissions';
 
 // ============================================================
 // SCM › PURCHASE ORDERS — Phase 1.4 router (Q2 Path C)
@@ -64,6 +65,7 @@ export const purchaseOrderCreateProcedure = protectedProcedure
   .input(purchaseOrderCreateSchema)
   .mutation(async ({ ctx, input }) => {
     try {
+      await assertHasScmRole(ctx, ['po_creator']);
       const year = new Date().getFullYear();
       const countYear = await getSql()(
         `SELECT COUNT(*) as cnt FROM purchase_orders
@@ -123,6 +125,7 @@ export const purchaseOrderAddItemProcedure = protectedProcedure
   .input(poItemAddSchema)
   .mutation(async ({ ctx, input }) => {
     try {
+      await assertHasScmRole(ctx, ['po_creator']);
       const po = await getSql()(
         `SELECT * FROM purchase_orders WHERE id = $1 AND hospital_id = $2`,
         [input.po_id, ctx.user.hospital_id]
@@ -211,6 +214,7 @@ export const purchaseOrderApproveProcedure = protectedProcedure
   )
   .mutation(async ({ ctx, input }) => {
     try {
+      await assertHasScmRole(ctx, ['po_approver']);
       const po = await getSql()(
         `UPDATE purchase_orders
          SET status = 'approved',
@@ -255,6 +259,7 @@ export const purchaseOrderSendToVendorProcedure = protectedProcedure
   .input(z.string().uuid())
   .mutation(async ({ ctx, input }) => {
     try {
+      await assertHasScmRole(ctx, ['po_creator']);
       const po = await getSql()(
         `UPDATE purchase_orders
          SET status = 'sent_to_vendor',
@@ -292,6 +297,7 @@ export const purchaseOrderReceiveProcedure = protectedProcedure
   .input(poReceiveSchema)
   .mutation(async ({ ctx, input }) => {
     try {
+      await assertHasScmRole(ctx, ['grn_creator']);
       const po = await getSql()(
         `SELECT * FROM purchase_orders WHERE id = $1 AND hospital_id = $2`,
         [input.po_id, ctx.user.hospital_id]
@@ -499,6 +505,39 @@ export const purchaseOrderListProcedure = protectedProcedure
     }
   });
 
+/** List line items for a single PO. Hospital-scoped via ctx.user.hospital_id. */
+export const purchaseOrderListItemsProcedure = protectedProcedure
+  .input(z.string().uuid())
+  .query(async ({ ctx, input }) => {
+    try {
+      // Hospital-scope check: only return items for POs owned by this hospital
+      const poCheck = await getSql()(
+        `SELECT id FROM purchase_orders WHERE id = $1 AND hospital_id = $2`,
+        [input, ctx.user.hospital_id]
+      );
+      if (!poCheck.length) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Purchase order not found' });
+      }
+
+      const rows = await getSql()(
+        `SELECT poi.*, it.kind, it.unit_of_measure, it.generic_name
+         FROM purchase_order_items poi
+         LEFT JOIN items it ON poi.item_id = it.id
+         WHERE poi.po_id = $1 AND poi.hospital_id = $2
+         ORDER BY poi.created_at ASC`,
+        [input, ctx.user.hospital_id]
+      );
+      return rows;
+    } catch (error) {
+      if (error instanceof TRPCError) throw error;
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to list PO items',
+        cause: error,
+      });
+    }
+  });
+
 // ---------- Router ----------
 
 export const scmPurchaseOrdersRouter = router({
@@ -508,4 +547,5 @@ export const scmPurchaseOrdersRouter = router({
   sendToVendor: purchaseOrderSendToVendorProcedure,
   receive: purchaseOrderReceiveProcedure,
   list: purchaseOrderListProcedure,
+  listItems: purchaseOrderListItemsProcedure,
 });

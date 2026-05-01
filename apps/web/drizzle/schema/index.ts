@@ -73,3 +73,4 @@ export * from './61-tasks';
 export * from './62-billing-v3';
 
 export * from './63-scm-core';
+export * from './64-scm-rbac';

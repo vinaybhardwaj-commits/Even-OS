@@ -2,6 +2,10 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { router, protectedProcedure } from '../../trpc';
+import { assertHasScmRole } from '../../scm/sod-permissions';
+// runInTransaction available from '../../scm/tx-helper' — receive/transfer flows
+// don't currently use it because they have read→branch→write patterns that don't
+// fit batch-mode Neon transactions. Phase 2 (pgBouncer + pg) revisits this.
 
 // ============================================================
 // SCM › INVENTORY — Phase 1.4 router (Q2 Path C)
@@ -57,6 +61,7 @@ export const inventoryAddProcedure = protectedProcedure
   .input(inventoryAddSchema)
   .mutation(async ({ ctx, input }) => {
     try {
+      await assertHasScmRole(ctx, ['grn_creator', 'inventory_manager']);
       const result = await getSql()(
         `INSERT INTO inventory (
           hospital_id, item_id, location, batch_number, manufacturer, expiry_date,
@@ -220,6 +225,7 @@ export const inventoryAdjustProcedure = protectedProcedure
   .input(stockAdjustmentSchema)
   .mutation(async ({ ctx, input }) => {
     try {
+      await assertHasScmRole(ctx, ['inventory_manager']);
       const inv = await getSql()(
         `SELECT inv.*, it.display_name AS item_name FROM inventory inv
          LEFT JOIN items it ON inv.item_id = it.id
@@ -306,6 +312,7 @@ export const inventoryTransferProcedure = protectedProcedure
   .input(stockTransferSchema)
   .mutation(async ({ ctx, input }) => {
     try {
+      await assertHasScmRole(ctx, ['inventory_manager']);
       const inv = await getSql()(
         `SELECT inv.*, it.display_name AS item_name FROM inventory inv
          LEFT JOIN items it ON inv.item_id = it.id
