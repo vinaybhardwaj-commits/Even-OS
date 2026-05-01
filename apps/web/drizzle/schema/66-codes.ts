@@ -118,6 +118,19 @@ export const inventoryItems = pgTable('inventory_items', {
   item_sub_category: text('item_sub_category'),
   /** 'imported_legacy' | 'codecreator' */
   source: text('source').notNull(),
+  /**
+   * Approval workflow state (Phase 2 — SOP §5.6 enforcement). One of:
+   *   draft | pending_clinical_review | pending_master_data_review |
+   *   pending_cms_gm_review | active | rejected
+   *
+   * - Existing rows (pre-Phase-2) backfilled to 'active' via Phase 2.1.b
+   *   bootstrap (one historical codes_approval_history row per item).
+   * - NEW rows default to 'draft' (per A2: no super_admin bypass).
+   * - CPOE / billing blocked on status != 'active' (per Q3 server-side gate).
+   *
+   * CHECK constraint enforced in 0064_codes_approval_workflow.sql.
+   */
+  status: text('status').notNull().default('draft'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
