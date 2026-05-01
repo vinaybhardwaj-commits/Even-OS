@@ -6,6 +6,8 @@ import { scmPurchaseOrdersRouter } from './purchase-orders';
 import { scmAlertsRouter } from './alerts';
 import { scmRolesRouter } from './roles';
 import { scmIndentsRouter } from './indents';
+import { scmPurchaseRequisitionsRouter } from './purchase-requisitions';
+import { scmGrnsRouter } from './grns';
 
 // ============================================================
 // SCM ROOT ROUTER — Phase 1.4 router split (Q2 Path C)
@@ -26,6 +28,8 @@ import { scmIndentsRouter } from './indents';
 //   scm.alerts.{checkLowStock, list, resolve}
 //   scm.roles.{assign, revoke, list, listForUser}
 //   scm.indents.{create, list, listForMyApproval, detail, listItems, approve, reject, cancel, issue, acknowledge, close}
+//   scm.purchaseRequisitions.{create, addItem, list, detail, submit, approve, reject, cancel, convertToPO}
+//   scm.grns.{create, addLine, list, detail, startInspection, runInspection, recordInvoice, submit, accept, approveVariance}
 // ============================================================
 
 export const scmRouter = router({
@@ -36,4 +40,6 @@ export const scmRouter = router({
   alerts: scmAlertsRouter,
   roles: scmRolesRouter,
   indents: scmIndentsRouter,
+  purchaseRequisitions: scmPurchaseRequisitionsRouter,
+  grns: scmGrnsRouter,
 });

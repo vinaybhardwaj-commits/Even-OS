@@ -198,10 +198,226 @@ export const alertsResolveProcedure = protectedProcedure
     }
   });
 
+/**
+ * Convert an auto_reorder_drafts row into a PR (purchase requisition).
+ * Phase 3.4 closes the gap left by Phase 1.5b.
+ *
+ * Creates a PR (status='draft') + PR line item from the draft, then marks
+ * the draft as 'converted_to_pr' with pr_id linkage.
+ */
+export const alertsConvertToPrProcedure = protectedProcedure
+  .input(
+    z.object({
+      id: z.string().uuid(),
+      requisition_type: z.enum([
+        'inventory_replenishment',
+        'capex',
+        'service',
+        'consumable_emergency',
+        'consignment',
+        'tender_based',
+      ]).default('inventory_replenishment'),
+      priority: z.enum(['routine', 'urgent', 'emergency', 'stat']).default('routine'),
+      material_classification: z.enum(['standard', 'emergency', 'vital']).optional(),
+      notes: z.string().optional(),
+    })
+  )
+  .mutation(async ({ ctx, input }) => {
+    try {
+      await assertHasScmRole(ctx, ['inventory_manager', 'po_creator']);
+
+      const draft = await getSql()(
+        `SELECT * FROM auto_reorder_drafts WHERE id = $1 AND hospital_id = $2 AND status = 'pending_review'`,
+        [input.id, ctx.user.hospital_id]
+      );
+      if (!draft.length) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Pending alert not found' });
+      }
+
+      const item = await getSql()(
+        `SELECT display_name FROM items WHERE id = $1`,
+        [draft[0].item_id]
+      );
+
+      // Generate PR number IND-YYYY-{HOSPITAL}-NNNNN
+      const year = new Date().getFullYear();
+      const cnt = await getSql()(
+        `SELECT COUNT(*) as cnt FROM purchase_requisitions WHERE hospital_id = $1 AND pr_number LIKE $2`,
+        [ctx.user.hospital_id, `PR-${year}-${ctx.user.hospital_id}-%`]
+      );
+      const seq = (Number(cnt[0].cnt) || 0) + 1;
+      const prNumber = `PR-${year}-${ctx.user.hospital_id}-${String(seq).padStart(5, '0')}`;
+
+      const suggestedQty = Number(draft[0].suggested_quantity);
+      const suggestedCost = Number(draft[0].suggested_unit_cost || 0);
+      const estimatedTotal = suggestedQty * suggestedCost;
+
+      // Create PR (draft state)
+      const pr = await getSql()(
+        `INSERT INTO purchase_requisitions (
+          hospital_id, pr_number, requisition_type, status, priority,
+          material_classification, estimated_total_amount,
+          notes, created_by
+        ) VALUES (
+          $1, $2, $3, 'draft', $4,
+          $5, $6,
+          $7, $8
+        ) RETURNING *`,
+        [
+          ctx.user.hospital_id, prNumber, input.requisition_type, input.priority,
+          input.material_classification || 'standard', estimatedTotal,
+          input.notes || `Auto-generated from low-stock alert`, ctx.user.sub,
+        ]
+      );
+      const prId = pr[0].id;
+
+      // Add the PR line item
+      await getSql()(
+        `INSERT INTO purchase_requisition_items (
+          hospital_id, pr_id, item_id, item_name,
+          quantity_requested, estimated_unit_cost, estimated_total
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [ctx.user.hospital_id, prId, draft[0].item_id, item[0]?.display_name || 'unknown',
+         suggestedQty, suggestedCost || null, estimatedTotal]
+      );
+
+      // Mark draft as converted_to_pr
+      await getSql()(
+        `UPDATE auto_reorder_drafts
+         SET status = 'converted_to_pr', reviewed_by = $1, reviewed_at = NOW(),
+             pr_id = $2, review_notes = COALESCE(review_notes, 'auto-converted to PR')
+         WHERE id = $3`,
+        [ctx.user.sub, prId, input.id]
+      );
+
+      // Audit
+      await getSql()(
+        `INSERT INTO audit_logs (
+          hospital_id, user_id, action, table_name, row_id,
+          new_values, ip_address, created_at
+        ) VALUES ($1, $2, 'UPDATE', 'auto_reorder_drafts', $3, $4::jsonb, 'server', NOW())`,
+        [ctx.user.hospital_id, ctx.user.sub, input.id,
+         JSON.stringify({ converted_to_pr: prId, pr_number: prNumber, qty: suggestedQty, est_total: estimatedTotal })]
+      );
+
+      return { draft_id: input.id, pr: pr[0] };
+    } catch (error) {
+      if (error instanceof TRPCError) throw error;
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to convert alert to PR',
+        cause: error,
+      });
+    }
+  });
+
+/**
+ * Convert an auto_reorder_drafts row directly into a PO (skipping the PR
+ * step). Used for high-frequency replenishments or emergency procurement
+ * where the PR layer would be redundant.
+ *
+ * Creates a draft PO + PO line + marks the draft as 'converted_to_po'.
+ */
+export const alertsConvertToPoProcedure = protectedProcedure
+  .input(
+    z.object({
+      id: z.string().uuid(),
+      vendor_id: z.string().uuid(),
+      expected_delivery: z.string(),
+      notes: z.string().optional(),
+    })
+  )
+  .mutation(async ({ ctx, input }) => {
+    try {
+      await assertHasScmRole(ctx, ['po_creator']);
+
+      const draft = await getSql()(
+        `SELECT * FROM auto_reorder_drafts WHERE id = $1 AND hospital_id = $2 AND status = 'pending_review'`,
+        [input.id, ctx.user.hospital_id]
+      );
+      if (!draft.length) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Pending alert not found' });
+      }
+
+      const item = await getSql()(
+        `SELECT display_name FROM items WHERE id = $1`,
+        [draft[0].item_id]
+      );
+
+      const year = new Date().getFullYear();
+      const cnt = await getSql()(
+        `SELECT COUNT(*) as cnt FROM purchase_orders WHERE hospital_id = $1 AND po_number LIKE $2`,
+        [ctx.user.hospital_id, `PO-${year}-${ctx.user.hospital_id}-%`]
+      );
+      const seq = (Number(cnt[0].cnt) || 0) + 1;
+      const poNumber = `PO-${year}-${ctx.user.hospital_id}-${String(seq).padStart(5, '0')}`;
+
+      const suggestedQty = Number(draft[0].suggested_quantity);
+      const suggestedCost = Number(draft[0].suggested_unit_cost || 0);
+      const totalAmount = suggestedQty * suggestedCost;
+
+      // Create draft PO
+      const po = await getSql()(
+        `INSERT INTO purchase_orders (
+          hospital_id, po_number, vendor_id, status, total_items, total_amount,
+          expected_delivery, notes, created_by
+        ) VALUES (
+          $1, $2, $3, 'draft', 1, $4,
+          $5, $6, $7
+        ) RETURNING *`,
+        [
+          ctx.user.hospital_id, poNumber, input.vendor_id, totalAmount,
+          input.expected_delivery, input.notes || `Auto-generated from low-stock alert`, ctx.user.sub,
+        ]
+      );
+      const poId = po[0].id;
+
+      // Add the PO line item
+      await getSql()(
+        `INSERT INTO purchase_order_items (
+          hospital_id, po_id, item_id, item_name,
+          quantity_ordered, unit_cost, total_cost
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [ctx.user.hospital_id, poId, draft[0].item_id, item[0]?.display_name || 'unknown',
+         suggestedQty, suggestedCost, totalAmount]
+      );
+
+      // Mark draft as converted_to_po
+      await getSql()(
+        `UPDATE auto_reorder_drafts
+         SET status = 'converted_to_po', reviewed_by = $1, reviewed_at = NOW(),
+             po_id = $2, review_notes = COALESCE(review_notes, 'auto-converted to PO')
+         WHERE id = $3`,
+        [ctx.user.sub, poId, input.id]
+      );
+
+      // Audit
+      await getSql()(
+        `INSERT INTO audit_logs (
+          hospital_id, user_id, action, table_name, row_id,
+          new_values, ip_address, created_at
+        ) VALUES ($1, $2, 'UPDATE', 'auto_reorder_drafts', $3, $4::jsonb, 'server', NOW())`,
+        [ctx.user.hospital_id, ctx.user.sub, input.id,
+         JSON.stringify({ converted_to_po: poId, po_number: poNumber, qty: suggestedQty, total: totalAmount })]
+      );
+
+      return { draft_id: input.id, po: po[0] };
+    } catch (error) {
+      if (error instanceof TRPCError) throw error;
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to convert alert to PO',
+        cause: error,
+      });
+    }
+  });
+
 // ---------- Router ----------
 
 export const scmAlertsRouter = router({
   checkLowStock: alertsCheckLowStockProcedure,
   list: alertsListProcedure,
   resolve: alertsResolveProcedure,
+  convertToPR: alertsConvertToPrProcedure,
+  convertToPO: alertsConvertToPoProcedure,
 });
