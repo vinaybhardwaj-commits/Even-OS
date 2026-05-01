@@ -76,3 +76,4 @@ export * from './63-scm-core';
 export * from './64-scm-rbac';
 export * from './65-scm-indents-rbac';
 export * from './66-codes';
+export * from './67-codes-approval';
