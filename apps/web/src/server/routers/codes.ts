@@ -4,6 +4,7 @@ import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { router, protectedProcedure } from '../trpc';
 import { bucketKey, buildDisplayName, validateForm, type CompositionInput } from '@/lib/codes/code-utils';
 import { LOOKUP_KINDS, getLookupKindMeta } from '../../../drizzle/schema/66-codes';
+import { codesApprovalsRouter } from './codes-approvals';
 
 // ============================================================
 // CODES MODULE — Phase 1 (Cannibalize CodeCreator)
@@ -191,7 +192,7 @@ export const codesItemsCreateProcedure = protectedProcedure
             generic_name_chain, form, strength_chain, strength_unit, brand, pack_size,
             manufacturer, hsn_code, tax_detail, price_type,
             issue_unit, conversion, purchase_unit, close_for_sale,
-            item_category, item_sub_category, source
+            item_category, item_sub_category, source, status
           )
           SELECT
             ${normalized.category} || '-' || ${normalized.storage} || '-' || ${normalized.classification} || '-' || lpad(ns.last_serial::text, 5, '0'),
@@ -201,9 +202,14 @@ export const codesItemsCreateProcedure = protectedProcedure
             ${normalized.brand}, ${packSize},
             ${normalized.manufacturer}, ${normalized.hsn_code}, ${normalized.tax_detail}, ${normalized.price_type},
             ${normalized.issue_unit}, ${normalized.conversion}, ${normalized.purchase_unit}, ${normalized.close_for_sale},
-            ${normalized.item_category}, ${normalized.item_sub_category}, 'codecreator'
+            ${normalized.item_category}, ${normalized.item_sub_category}, 'codecreator',
+            -- Phase 2 gating: every new code starts in 'draft' state. The
+            -- creator (or a peer) must call codes.approvals.submit to advance
+            -- it through the routing chain. SOP §5.6 enforced; no super_admin
+            -- bypass per A2.
+            'draft'
           FROM next_serial ns
-          RETURNING id, item_code, item_display_name, serial
+          RETURNING id, item_code, item_display_name, serial, status
         ),
         _comps AS (
           INSERT INTO inventory_compositions (item_id, generic_name, strength_value, strength_unit, position)
@@ -270,22 +276,37 @@ export const codesItemsDetailProcedure = protectedProcedure
   });
 
 export const codesItemsSearchProcedure = protectedProcedure
-  .input(z.object({ q: z.string(), limit: z.number().int().positive().max(50).default(10) }))
+  .input(z.object({
+    q: z.string(),
+    limit: z.number().int().positive().max(50).default(10),
+    /**
+     * Phase 2 — default to active-only. Caregiver surfaces (CPOE, dispense,
+     * order entry) want this. Admin / approval surfaces pass include_drafts=true
+     * to see codes still in the workflow.
+     */
+    include_drafts: z.boolean().default(false),
+  }))
   .query(async ({ input }) => {
     const q = input.q.trim();
     if (q.length < 2) return { results: [], q };
     const pat = `%${q}%`;
     const sql = getSql();
+    // Phase 2 gate: if include_drafts is false (default), only return active.
+    // We pass the flag as a regular parameter and OR-it into the WHERE; this
+    // keeps the query a single tagged-template literal (no sql.unsafe) and
+    // lets Postgres optimize via the idx_inventory_items_status partial index.
+    const includeDrafts = input.include_drafts;
     const rows = (await sql`
-      SELECT id, item_code, item_display_name, item_type, source, brand, manufacturer
+      SELECT id, item_code, item_display_name, item_type, source, brand, manufacturer, status
       FROM inventory_items
       WHERE
-        item_code           ILIKE ${pat}
-        OR item_display_name  ILIKE ${pat}
-        OR item_name          ILIKE ${pat}
-        OR generic_name_chain ILIKE ${pat}
-        OR brand              ILIKE ${pat}
-        OR manufacturer       ILIKE ${pat}
+        (item_code           ILIKE ${pat}
+         OR item_display_name  ILIKE ${pat}
+         OR item_name          ILIKE ${pat}
+         OR generic_name_chain ILIKE ${pat}
+         OR brand              ILIKE ${pat}
+         OR manufacturer       ILIKE ${pat})
+        AND (${includeDrafts}::boolean OR status = 'active')
       ORDER BY
         CASE
           WHEN item_code ILIKE ${pat}            THEN 1
@@ -305,6 +326,8 @@ export const codesItemsListProcedure = protectedProcedure
     bucket: z.string().optional(),
     item_type: z.string().optional(),
     source: z.string().optional(),
+    /** Phase 2 filter — defaults to ['active'] for caregiver-safe browse. Pass [] for all. */
+    status: z.array(z.string()).optional(),
     limit: z.number().int().positive().max(500).default(100),
     offset: z.number().int().nonnegative().default(0),
   }))
@@ -323,10 +346,16 @@ export const codesItemsListProcedure = protectedProcedure
     }
     if (input.item_type) { where += ` AND item_type = $${p++}`; params.push(input.item_type); }
     if (input.source) { where += ` AND source = $${p++}`; params.push(input.source); }
+    // Phase 2 default: filter to active. Passing status=[] explicitly returns all states.
+    const effectiveStatus = input.status === undefined ? ['active'] : input.status;
+    if (effectiveStatus.length > 0) {
+      where += ` AND status = ANY($${p++}::text[])`;
+      params.push(effectiveStatus);
+    }
 
     params.push(input.limit, input.offset);
     return sql(
-      `SELECT id, item_code, item_display_name, item_type, brand, manufacturer, source, created_at
+      `SELECT id, item_code, item_display_name, item_type, brand, manufacturer, source, status, created_at
        FROM inventory_items
        WHERE ${where}
        ORDER BY item_code ASC
@@ -598,4 +627,8 @@ export const codesRouter = router({
     list: codesBadCodesListProcedure,
     update: codesBadCodesUpdateProcedure,
   }),
+  // Phase 2 — approval workflow router (sub-routes: submit, mdoApprove,
+  // clinicalApprove, reject, resubmit, listForStage, listMyHistory, getDetail,
+  // assignRole, revokeRole, listRoles, listMyRoles, bootstrapHistorical).
+  approvals: codesApprovalsRouter,
 });
