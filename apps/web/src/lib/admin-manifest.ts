@@ -86,6 +86,7 @@ export const adminRoutes: AdminRoute[] = [
   { path: '/admin/scm/inventory', title: 'SCM Inventory',     pillar: 'ops', icon: '📊', blurb: 'Multi-location, multi-batch inventory + adjust + transfer + expiry', roles: ADMIN_DEPT, shippedIn: 'P1.5b', status: 'live', keywords: ['stock','batch','expiry','transfer','adjust','warehouse','warehousing'] },
   { path: '/admin/scm/purchase-orders', title: 'SCM Purchase Orders', pillar: 'ops', icon: '📋', blurb: 'Draft → approved → sent → received PO lifecycle, KPMG approval matrix', roles: ADMIN_DEPT, shippedIn: 'P1.5b', status: 'live', keywords: ['po','procurement','grn','receive','approve','vendor'] },
   { path: '/admin/scm/alerts',    title: 'SCM Alerts',        pillar: 'ops', icon: '🔔', blurb: 'Auto-reorder drafts, low-stock scan, resolve actions',  roles: ADMIN_DEPT, shippedIn: 'P1.5b', status: 'live', keywords: ['low stock','reorder','draft','alerts','restock'] },
+  { path: '/admin/scm/indents',   title: 'SCM Indents',       pillar: 'ops', icon: '📥', blurb: 'Procurement queue: per-line approval, KPMG matrix, paired ledger on issue',  roles: ADMIN_DEPT, shippedIn: 'P2.3', status: 'live', keywords: ['indent','requisition','requisitions','sla','approval'] },
   { path: '/admin/scm/roles',     title: 'SCM Roles & SoD',   pillar: 'ops', icon: '🔐', blurb: '7 SCM RBAC roles, KPMG approval matrix, SoD conflicts', roles: ADMIN, shippedIn: 'P1.5', status: 'live', keywords: ['rbac','permissions','segregation of duties','kpmg'] },
 
   // ── Clinical ─────────────────────────────────────────────────────────
