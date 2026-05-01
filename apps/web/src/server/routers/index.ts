@@ -92,6 +92,7 @@ import { chartHealthRouter } from './chart-health';
 import { chartSubscriptionsRouter } from './chart-subscriptions';
 import { chartPrintRouter } from './chart-print';
 import { tasksRouter } from './tasks';
+import { codesRouter } from './codes';
 
 export const appRouter = router({
   auth: authRouter,
@@ -187,6 +188,7 @@ export const appRouter = router({
   chartSubscriptions: chartSubscriptionsRouter,
   chartPrint: chartPrintRouter,
   tasks: tasksRouter,
+  codes: codesRouter,
 });
 
 export type AppRouter = typeof appRouter;
