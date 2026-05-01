@@ -74,3 +74,4 @@ export * from './62-billing-v3';
 
 export * from './63-scm-core';
 export * from './64-scm-rbac';
+export * from './65-scm-indents-rbac';

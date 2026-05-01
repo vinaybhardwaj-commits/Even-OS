@@ -260,7 +260,12 @@ export default function ScmDashboardClient({ user }: { user: User }) {
           <NavCard
             href="/admin/scm/alerts"
             title="🔔 Auto-reorder alerts"
-            blurb="Idempotent low-stock scan generates pending_review drafts on auto_reorder_drafts. Resolve = acknowledge without action; Phase 2 adds convertToPR / convertToPO."
+            blurb="Idempotent low-stock scan generates pending_review drafts on auto_reorder_drafts. Resolve = acknowledge without action."
+          />
+          <NavCard
+            href="/admin/scm/indents"
+            title="📥 Indents (Phase 2)"
+            blurb="Internal requisition workflow with KPMG approval matrix + per-line approval + paired ledger on issue. Caregivers raise via /care/indent; admin queue here. Pharmacy v2 first consumer."
           />
           <NavCard
             href="/admin/scm/roles"
@@ -278,7 +283,7 @@ export default function ScmDashboardClient({ user }: { user: User }) {
 
       {/* ─── Footer note ──────────────────────────────── */}
       <div style={{ marginTop: 32, padding: 16, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, color: '#4b5563' }}>
-        <strong>Phase status:</strong> SCM Phase 1.6 — SoD permission middleware enforces role checks on every SCM mutation; role-assignment write flow live on /admin/scm/roles; per-PO line-items query wired into Receive modal. Phase 1.7 adds tests against SCM routers using Phase 0 infra.
+        <strong>Phase status:</strong> SCM Phase 2 — Indent end-to-end workflow live (caregiver raise → KPMG matrix approval → admin issue → in-transit → acknowledge). Pharmacy v2 first consumer at /care/pharmacy/indents. Phase 3 (PR + GRN + 3-way match) is next.
         <br />
         <strong>Cross-PRD:</strong> Codes Phase 1 (FK gate to <code>codes</code>), Billing v3 Phase 1 (3-way match against <code>vendor_invoices</code>), and OT (issue / consumption flow) all consume this module.
       </div>
