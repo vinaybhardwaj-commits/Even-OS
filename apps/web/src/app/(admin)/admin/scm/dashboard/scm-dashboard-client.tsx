@@ -154,7 +154,7 @@ export default function ScmDashboardClient({ user }: { user: User }) {
           title="Inventory rows"
           value={loading ? '…' : counts.inventoryRows.toString()}
           subtitle={`across all locations`}
-          href="/admin/scm/items"
+          href="/admin/scm/inventory"
           color="#8b5cf6"
         />
         <Tile
@@ -162,7 +162,7 @@ export default function ScmDashboardClient({ user }: { user: User }) {
           title="Low stock"
           value={loading ? '…' : counts.lowStockRows.toString()}
           subtitle={`below reorder level`}
-          href="/admin/scm/items"
+          href="/admin/scm/inventory"
           color={counts.lowStockRows > 0 ? '#f59e0b' : '#10b981'}
         />
         <Tile
@@ -170,7 +170,7 @@ export default function ScmDashboardClient({ user }: { user: User }) {
           title="Expiring (30d)"
           value={loading ? '…' : counts.expiringRows.toString()}
           subtitle={`expires within 30 days`}
-          href="/admin/scm/items"
+          href="/admin/scm/inventory"
           color={counts.expiringRows > 0 ? '#f59e0b' : '#10b981'}
         />
         <Tile
@@ -186,7 +186,7 @@ export default function ScmDashboardClient({ user }: { user: User }) {
           title="Pending alerts"
           value={loading ? '…' : counts.alertsPending.toString()}
           subtitle={`auto-reorder drafts`}
-          href="/admin/scm/items"
+          href="/admin/scm/alerts"
           color={counts.alertsPending > 0 ? '#ef4444' : '#10b981'}
         />
       </div>
@@ -216,7 +216,7 @@ export default function ScmDashboardClient({ user }: { user: User }) {
         {loading ? (
           <div style={{ color: '#6b7280' }}>Loading…</div>
         ) : Object.keys(counts.posByStatus).length === 0 ? (
-          <Empty message="No purchase orders yet." hint="Create one from the items page (Phase 1.5b will add a dedicated PO admin page)." />
+          <Empty message="No purchase orders yet." hint="Create one from the Purchase Orders page." />
         ) : (
           <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
             {[
@@ -239,22 +239,37 @@ export default function ScmDashboardClient({ user }: { user: User }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
           <NavCard
             href="/admin/scm/items"
-            title="Items master"
-            blurb="Drugs / consumables / implants / reagents / linen / CSSD packs / equipment spares — universal item master with Codes Q3 5-state lifecycle."
+            title="📚 Items master"
+            blurb="Drugs / consumables / implants / reagents / linen / CSSD packs / equipment spares — universal item master with Codes Q3 5-state lifecycle. Create + edit + status transitions."
+          />
+          <NavCard
+            href="/admin/scm/inventory"
+            title="📊 Inventory"
+            blurb="Multi-location, multi-batch inventory rows. Add stock, adjust up/down with reason, transfer between locations, expiry watchlist with FEFO ordering."
+          />
+          <NavCard
+            href="/admin/scm/purchase-orders"
+            title="📋 Purchase Orders"
+            blurb="Draft → approved → sent → partially_received → received PO lifecycle. Auto PO numbers, KPMG approval-tier matrix, multi-line receive flow."
           />
           <NavCard
             href="/admin/scm/vendors"
-            title="Vendors"
-            blurb="Vendor master with GST, drug license, payment terms, performance metrics. Same vendor row used by Pharmacy clinical + SCM procurement."
+            title="🏢 Vendors"
+            blurb="Vendor master with GST, drug license, payment terms. Same vendor row used by Pharmacy clinical + SCM procurement."
+          />
+          <NavCard
+            href="/admin/scm/alerts"
+            title="🔔 Auto-reorder alerts"
+            blurb="Idempotent low-stock scan generates pending_review drafts on auto_reorder_drafts. Resolve = acknowledge without action; Phase 2 adds convertToPR / convertToPO."
           />
           <NavCard
             href="/admin/scm/roles"
-            title="Roles & SoD (Phase 1.6)"
+            title="🔐 Roles & SoD (Phase 1.6)"
             blurb="7 SCM RBAC roles. Read-only matrix here; assignment + permission middleware lands in Phase 1.6 (mid-Nov per V's lock)."
           />
           <NavCard
             href="/admin/pharmacy"
-            title="Pharmacy (legacy view)"
+            title="🏪 Pharmacy (legacy view)"
             blurb="Existing pharmacy admin page still works via the deprecation re-exports (pharmacy.* → scm.*). Phase 8 cleanup removes it."
             external
           />
@@ -263,7 +278,7 @@ export default function ScmDashboardClient({ user }: { user: User }) {
 
       {/* ─── Footer note ──────────────────────────────── */}
       <div style={{ marginTop: 32, padding: 16, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, color: '#4b5563' }}>
-        <strong>Phase status:</strong> SCM Phase 1.5 (admin pages) — first-cut UI. Forms and full CRUD wiring continue in Phase 1.6 alongside SoD permission middleware.
+        <strong>Phase status:</strong> SCM Phase 1.5b — full procurement workflow (items + inventory + POs + vendors + alerts) live. Phase 1.6 brings SoD permission middleware, role-assignment write flow, and a transactional helper for receive/transfer.
         <br />
         <strong>Cross-PRD:</strong> Codes Phase 1 (FK gate to <code>codes</code>), Billing v3 Phase 1 (3-way match against <code>vendor_invoices</code>), and OT (issue / consumption flow) all consume this module.
       </div>

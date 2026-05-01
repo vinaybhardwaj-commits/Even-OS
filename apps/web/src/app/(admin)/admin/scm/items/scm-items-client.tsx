@@ -145,6 +145,7 @@ export default function ScmItemsClient({ user }: { user: User }) {
   const [search, setSearch] = useState<string>('');
   const [showCreate, setShowCreate] = useState(false);
   const [transitionFor, setTransitionFor] = useState<Item | null>(null);
+  const [editFor, setEditFor] = useState<Item | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -318,9 +319,9 @@ export default function ScmItemsClient({ user }: { user: User }) {
                   <Td style={{ color: '#6b7280' }}>{it.manufacturer || '—'}</Td>
                   <Td>{it.default_reorder_level ?? '—'}</Td>
                   <Td>
-                    {(ALLOWED_TRANSITIONS[it.status] || []).length > 0 ? (
+                    <div style={{ display: 'flex', gap: 4 }}>
                       <button
-                        onClick={() => setTransitionFor(it)}
+                        onClick={() => setEditFor(it)}
                         style={{
                           padding: '4px 10px',
                           background: '#fff',
@@ -330,11 +331,26 @@ export default function ScmItemsClient({ user }: { user: User }) {
                           cursor: 'pointer',
                         }}
                       >
-                        Transition…
+                        Edit
                       </button>
-                    ) : (
-                      <span style={{ color: '#9ca3af', fontSize: 12 }}>terminal</span>
-                    )}
+                      {(ALLOWED_TRANSITIONS[it.status] || []).length > 0 ? (
+                        <button
+                          onClick={() => setTransitionFor(it)}
+                          style={{
+                            padding: '4px 10px',
+                            background: '#fff',
+                            border: '1px solid #d1d5db',
+                            borderRadius: 4,
+                            fontSize: 12,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Transition…
+                        </button>
+                      ) : (
+                        <span style={{ color: '#9ca3af', fontSize: 12, alignSelf: 'center' }}>terminal</span>
+                      )}
+                    </div>
                   </Td>
                 </tr>
               ))
@@ -355,6 +371,16 @@ export default function ScmItemsClient({ user }: { user: User }) {
           onClose={() => setTransitionFor(null)}
           onTransitioned={() => {
             setTransitionFor(null);
+            load();
+          }}
+        />
+      ) : null}
+      {editFor ? (
+        <EditItemModal
+          item={editFor}
+          onClose={() => setEditFor(null)}
+          onSaved={() => {
+            setEditFor(null);
             load();
           }}
         />
@@ -509,6 +535,162 @@ function CreateItemModal({ user, onClose, onCreated }: { user: User; onClose: ()
         <button onClick={onClose} style={btnSecondary}>Cancel</button>
         <button onClick={submit} disabled={submitting || !form.code.trim() || !form.display_name.trim()} style={btnPrimary(submitting)}>
           {submitting ? 'Creating…' : 'Create'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function EditItemModal({ item, onClose, onSaved }: { item: Item; onClose: () => void; onSaved: () => void }) {
+  // Edit form pre-populated from the existing item. Status changes go through
+  // the separate Transition modal — kind + code + status are read-only here
+  // (kind / code are immutable post-create per Codes Q3 lock; status flows
+  // through the lifecycle machine).
+  const [form, setForm] = useState({
+    display_name: item.display_name || '',
+    unit_of_measure: item.unit_of_measure || '',
+    generic_name: item.generic_name || '',
+    form: item.form || '',
+    strength: item.strength || '',
+    brand: item.brand || '',
+    pack_size: item.pack_size || '',
+    manufacturer: item.manufacturer || '',
+    storage_class: item.storage_class || '',
+    classification_code: item.classification_code || '',
+    hsn_code: item.hsn_code || '',
+    gst_percentage: item.gst_percentage != null ? String(item.gst_percentage) : '',
+    default_reorder_level: item.default_reorder_level != null ? String(item.default_reorder_level) : '',
+    default_reorder_quantity: item.default_reorder_quantity != null ? String(item.default_reorder_quantity) : '',
+    default_max_stock_level: item.default_max_stock_level != null ? String(item.default_max_stock_level) : '',
+    auto_reorder_enabled: item.auto_reorder_enabled,
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit() {
+    setSubmitting(true);
+    setErr(null);
+    try {
+      // Build a payload of CHANGED fields only — the router accepts partials.
+      const payload: any = { id: item.id };
+      const trim = (v: string) => v.trim();
+      const numOrNull = (v: string) => (v.trim() === '' ? undefined : Number(v));
+
+      // Compare against original to compute deltas
+      const cmp: Array<[keyof typeof form, any]> = [
+        ['display_name', trim(form.display_name) || undefined],
+        ['unit_of_measure', trim(form.unit_of_measure) || undefined],
+        ['generic_name', trim(form.generic_name) || undefined],
+        ['form', trim(form.form) || undefined],
+        ['strength', trim(form.strength) || undefined],
+        ['brand', trim(form.brand) || undefined],
+        ['pack_size', trim(form.pack_size) || undefined],
+        ['manufacturer', trim(form.manufacturer) || undefined],
+        ['storage_class', trim(form.storage_class) || undefined],
+        ['classification_code', trim(form.classification_code) || undefined],
+        ['hsn_code', trim(form.hsn_code) || undefined],
+        ['gst_percentage', numOrNull(form.gst_percentage)],
+        ['default_reorder_level', numOrNull(form.default_reorder_level)],
+        ['default_reorder_quantity', numOrNull(form.default_reorder_quantity)],
+        ['default_max_stock_level', numOrNull(form.default_max_stock_level)],
+        ['auto_reorder_enabled', form.auto_reorder_enabled],
+      ];
+      for (const [k, v] of cmp) {
+        const prev = (item as any)[k];
+        // Send only actual changes (and only defined values)
+        if (v !== undefined && v !== prev) {
+          payload[k] = v;
+        }
+      }
+      if (Object.keys(payload).length === 1) {
+        setErr('No changes to save');
+        setSubmitting(false);
+        return;
+      }
+      await trpcMutate('scm.items.update', payload);
+      onSaved();
+    } catch (e: any) {
+      setErr(e?.message || 'Update failed');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal title={`Edit: ${item.display_name}`} onClose={onClose}>
+      <div style={{ marginBottom: 12, padding: 10, background: '#f9fafb', borderRadius: 6, fontSize: 12, color: '#6b7280' }}>
+        <div><strong>Code:</strong> <code>{item.code}</code> · <strong>Kind:</strong> {item.kind} · <strong>Status:</strong> {item.status.replace(/_/g, ' ')}</div>
+        <div style={{ marginTop: 4, fontSize: 11 }}>Code, kind, and status are immutable here — code/kind are immutable per Codes Q3 lock; status changes go through the Transition button.</div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Field label="Display name">
+          <input value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} style={inputStyle} />
+        </Field>
+        <Field label="Unit of measure">
+          <input value={form.unit_of_measure} onChange={(e) => setForm({ ...form, unit_of_measure: e.target.value })} style={inputStyle} />
+        </Field>
+        <Field label="Generic name">
+          <input value={form.generic_name} onChange={(e) => setForm({ ...form, generic_name: e.target.value })} style={inputStyle} />
+        </Field>
+        <Field label="Brand">
+          <input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} style={inputStyle} />
+        </Field>
+        <Field label="Form">
+          <input value={form.form} onChange={(e) => setForm({ ...form, form: e.target.value })} style={inputStyle} />
+        </Field>
+        <Field label="Strength">
+          <input value={form.strength} onChange={(e) => setForm({ ...form, strength: e.target.value })} style={inputStyle} />
+        </Field>
+        <Field label="Pack size">
+          <input value={form.pack_size} onChange={(e) => setForm({ ...form, pack_size: e.target.value })} style={inputStyle} />
+        </Field>
+        <Field label="Manufacturer">
+          <input value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} style={inputStyle} />
+        </Field>
+        <Field label="Storage class">
+          <input value={form.storage_class} onChange={(e) => setForm({ ...form, storage_class: e.target.value })} style={inputStyle} maxLength={1} />
+        </Field>
+        <Field label="Classification code">
+          <input value={form.classification_code} onChange={(e) => setForm({ ...form, classification_code: e.target.value })} style={inputStyle} />
+        </Field>
+        <Field label="HSN code">
+          <input value={form.hsn_code} onChange={(e) => setForm({ ...form, hsn_code: e.target.value })} style={inputStyle} />
+        </Field>
+        <Field label="GST %">
+          <input type="number" step="0.01" value={form.gst_percentage} onChange={(e) => setForm({ ...form, gst_percentage: e.target.value })} style={inputStyle} />
+        </Field>
+        <Field label="Default reorder level">
+          <input type="number" step="0.001" value={form.default_reorder_level} onChange={(e) => setForm({ ...form, default_reorder_level: e.target.value })} style={inputStyle} />
+        </Field>
+        <Field label="Default reorder qty">
+          <input type="number" step="0.001" value={form.default_reorder_quantity} onChange={(e) => setForm({ ...form, default_reorder_quantity: e.target.value })} style={inputStyle} />
+        </Field>
+        <Field label="Default max stock">
+          <input type="number" step="0.001" value={form.default_max_stock_level} onChange={(e) => setForm({ ...form, default_max_stock_level: e.target.value })} style={inputStyle} />
+        </Field>
+        <Field label="Auto-reorder enabled">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 6 }}>
+            <input
+              type="checkbox"
+              checked={form.auto_reorder_enabled}
+              onChange={(e) => setForm({ ...form, auto_reorder_enabled: e.target.checked })}
+            />
+            <span style={{ fontSize: 13, color: '#6b7280' }}>Phase 2 auto-PR conversion</span>
+          </label>
+        </Field>
+      </div>
+
+      {err ? (
+        <div style={{ marginTop: 12, padding: 8, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, fontSize: 13, color: '#991b1b' }}>
+          {err}
+        </div>
+      ) : null}
+
+      <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <button onClick={onClose} style={btnSecondary}>Cancel</button>
+        <button onClick={submit} disabled={submitting} style={btnPrimary(submitting)}>
+          {submitting ? 'Saving…' : 'Save changes'}
         </button>
       </div>
     </Modal>
