@@ -361,30 +361,46 @@ export type DiscountApplication = typeof discountApplication.$inferSelect;
 
 
 // ============================================================
-// 9. billing_charge
-//    The atomic line item on a patient account in v3. Replaces
-//    v2's invoice_line_items. Every cashier post, auto-post, and
-//    reversal lands here.
+// 9. charge_items (renamed from billing_charge in BV3 Phase 3 / Q1 lock)
+//    Universal billable event log. Cross-module pattern: audit_log /
+//    event_log / charge_items. Every operational module emits here.
 //
 //    source_module values — CHECK:
 //      'manual'        — cashier typed it in
-//      'lab'           — BV3.5 lab auto-post (incl. LHA01038 collection fee)
-//      'pharmacy'      — BV3.5 pharmacy auto-post
+//      'lab'           — LIMS auto-post (incl. LHA01038 collection fee)
+//      'pharmacy'      — Pharmacy dispense auto-post
 //      'ot'            — OT checklist finalize
 //      'room'          — daily/6hr/2hr bed tariff accrual
 //      'package'       — package expansion
-//      'er_obs'        — ER_OBS hourly accrual (Decision Q4=C)
-//      'mortuary'      — mortuary auto-accrual every 12h (Decision Q5=C)
+//      'er_obs'        — ER_OBS hourly accrual
+//      'mortuary'      — mortuary auto-accrual every 12h
 //      'admission'     — ADM00007, ADM00014, admission bundle
 //      'adjustment'    — negative line from a waiver/discount
+//      'scm'           — consumable item issue
+//      'facilities'    — linen / cssd / housekeeping
+//      'consultation'  — doctor consultation fee
+//      'discharge'     — discharge closure adjustments
 //
 //    status values — CHECK:
-//      'provisional'   — posted but not yet finalized (e.g. ADM00014 pre-disposition)
+//      'provisional'   — posted but not yet finalized
 //      'posted'        — final, included on bill
 //      'reversed'      — offset by a reversal line
 //      'void'          — never visible on bill (admin error reversal)
+//
+//    Phase 3 (Q1) added 7 columns:
+//      item_id, service_id   — polymorphic FK with CHECK exactly-one
+//      code_kind             — 'item' | 'service' | 'drug' | etc. discriminator
+//      package_id            — links to charge_master_package (legacy until BV3 P4)
+//      source_emit_event_id  — links to journey/event log entry that triggered emit
+//      hsn_code              — frozen at emit time for GST classification
+//      cost_center_code      — revenue-cost dual posting (Q14)
+//      empanelment_id_at_post — which override drove the price (if any)
+//      rule_engine_applied   — JSONB snapshot of which 21 Billing Manual rules fired
+//
+//    DEPRECATED: charge_master_item_id (preserved for historical lookup;
+//    new emits MUST use item_id or service_id with code_kind).
 // ============================================================
-export const billingCharge = pgTable('billing_charge', {
+export const chargeItems = pgTable('charge_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   hospital_id: text('hospital_id').notNull().references(() => hospitals.hospital_id, { onDelete: 'restrict' }),
   billing_account_id: uuid('billing_account_id').notNull().references(() => billingAccounts.id, { onDelete: 'cascade' }),
@@ -392,26 +408,42 @@ export const billingCharge = pgTable('billing_charge', {
   encounter_id: uuid('encounter_id').references(() => encounters.id, { onDelete: 'set null' }),
   // The v3 charge code that identifies what was billed.
   charge_code: text('charge_code').notNull(),
-  charge_name: text('charge_name').notNull(),  // denormalized at post-time, survives code renames
-  // Optional link back to canonical item — null for packages / free-form charges
+  charge_name: text('charge_name').notNull(),
+  // BV3 Phase 3 polymorphic code reference: exactly one of item_id / service_id is set
+  // (when code_kind is also set). NULL allowed for legacy/unmapped historical rows.
+  item_id: uuid('item_id'),
+  service_id: uuid('service_id'),
+  /**
+   * code_kind discriminator. CHECK:
+   *   drug | item | service | procedure | lab_test | imaging_study |
+   *   pack | charge_tier | lookup | deprecation | NULL (legacy)
+   */
+  code_kind: text('code_kind'),
+  // DEPRECATED in Phase 3 (kept for historical lookup). New emits use item_id / service_id.
   charge_master_item_id: uuid('charge_master_item_id').references(() => chargeMasterItem.id, { onDelete: 'set null' }),
   package_id: uuid('package_id').references(() => chargeMasterPackage.id, { onDelete: 'set null' }),
   // Source / provenance
   source_module: text('source_module').notNull(),
-  source_ref_id: uuid('source_ref_id'),    // e.g. lab_order.id, ot_case.id — not FK (cross-module)
-  room_class_at_post: text('room_class_at_post'),  // frozen from encounter.room_class at post-time
-  // Quantity + price
+  source_ref_id: uuid('source_ref_id'),
+  /** Phase 3: links to journey/event_log entry that triggered the emit (provenance). */
+  source_emit_event_id: uuid('source_emit_event_id'),
+  room_class_at_post: text('room_class_at_post'),
+  // Quantity + price (frozen at emit)
   quantity: numeric('quantity', { precision: 10, scale: 2 }).notNull().default('1'),
   unit_price: numeric('unit_price', { precision: 14, scale: 2 }).notNull(),
-  line_total: numeric('line_total', { precision: 14, scale: 2 }).notNull(),   // quantity * unit_price, frozen
-  // GST (applied at post-time; inclusive or additive depending on item)
+  line_total: numeric('line_total', { precision: 14, scale: 2 }).notNull(),
+  // GST + HSN (Phase 3 adds hsn_code)
   gst_percentage: numeric('gst_percentage', { precision: 5, scale: 2 }).notNull().default('0'),
   gst_amount: numeric('gst_amount', { precision: 14, scale: 2 }).notNull().default('0'),
   is_gst_inclusive: boolean('is_gst_inclusive').notNull().default(false),
+  hsn_code: text('hsn_code'),
+  // Phase 3: cost-center + empanelment + rule engine snapshot
+  cost_center_code: text('cost_center_code'),
+  empanelment_id_at_post: uuid('empanelment_id_at_post'),
+  rule_engine_applied: jsonb('rule_engine_applied').notNull().default('{}'),
   // Status
   status: text('status').notNull().default('posted'),
-  // If this is a reversal, which line did it reverse?
-  reverses_charge_id: uuid('reverses_charge_id'),    // self-FK added in migration SQL via ALTER
+  reverses_charge_id: uuid('reverses_charge_id'),
   // Audit
   posted_by: uuid('posted_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
   posted_at: timestamp('posted_at', { withTimezone: true }).notNull().defaultNow(),
@@ -419,18 +451,26 @@ export const billingCharge = pgTable('billing_charge', {
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
-  billingAccountIdx: index('idx_billing_charge_billing_account').on(table.billing_account_id),
-  patientIdx: index('idx_billing_charge_patient').on(table.patient_id),
-  encounterIdx: index('idx_billing_charge_encounter').on(table.encounter_id),
-  chargeMasterItemIdx: index('idx_billing_charge_item').on(table.charge_master_item_id),
-  sourceModuleIdx: index('idx_billing_charge_source_module').on(table.source_module),
-  statusIdx: index('idx_billing_charge_status').on(table.status),
-  hospitalPostedAtIdx: index('idx_billing_charge_hospital_posted_at').on(table.hospital_id, table.posted_at),
-  sourceRefIdx: index('idx_billing_charge_source_ref').on(table.source_ref_id),
+  billingAccountIdx: index('idx_charge_items_billing_account').on(table.billing_account_id),
+  patientIdx: index('idx_charge_items_patient').on(table.patient_id),
+  encounterIdx: index('idx_charge_items_encounter').on(table.encounter_id),
+  chargeMasterItemIdx: index('idx_charge_items_charge_master_item').on(table.charge_master_item_id),
+  sourceModuleIdx: index('idx_charge_items_source_module').on(table.source_module),
+  statusIdx: index('idx_charge_items_status').on(table.status),
+  hospitalPostedAtIdx: index('idx_charge_items_hospital_posted_at').on(table.hospital_id, table.posted_at),
+  sourceRefIdx: index('idx_charge_items_source_ref').on(table.source_ref_id),
 }));
 
-export type BillingCharge = typeof billingCharge.$inferSelect;
-export type NewBillingCharge = typeof billingCharge.$inferInsert;
+export type ChargeItem = typeof chargeItems.$inferSelect;
+export type NewChargeItem = typeof chargeItems.$inferInsert;
+
+/**
+ * @deprecated Use `chargeItems` (renamed in BV3 Phase 3). Kept as alias for
+ * backward compat during the rename rollout; remove after Phase 4.
+ */
+export const billingCharge = chargeItems;
+export type BillingCharge = ChargeItem;
+export type NewBillingCharge = NewChargeItem;
 
 
 // ============================================================
