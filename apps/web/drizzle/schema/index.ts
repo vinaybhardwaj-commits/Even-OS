@@ -79,3 +79,5 @@ export * from './66-codes';
 export * from './67-codes-approval';
 export * from './68-service-codes';
 export * from './69-charge-tiers';
+export * from './70-bills';
+export * from './71-discharge';
