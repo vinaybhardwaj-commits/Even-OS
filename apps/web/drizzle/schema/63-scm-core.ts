@@ -328,8 +328,8 @@ export const purchaseRequisitionItems = pgTable('purchase_requisition_items', {
 //    Tier-routed approval per KPMG matrix (≤₹50K HOD / ₹50K-2L Procurement Head /
 //    ₹2L-10L Finance / ≥₹10L Facility Director).
 // ============================================================
-export const purchaseOrders = pgTable('scm_purchase_orders', {
-  // Note: table name 'scm_purchase_orders' to avoid collision with existing
+export const purchaseOrders = pgTable('purchase_orders', {
+  // Note: table name 'purchase_orders' to avoid collision with existing
   // 12-pharmacy.ts purchase_orders during migration. Phase 8 cutover renames
   // this to 'purchase_orders' after dropping the legacy pharmacy variant.
   // (Reconsidering Path A no-_v2 lock — table renames are deferred not avoided
@@ -382,7 +382,7 @@ export const purchaseOrders = pgTable('scm_purchase_orders', {
   prIdx: index('idx_po_pr').on(table.pr_id),
 }));
 
-export const purchaseOrderItems = pgTable('scm_purchase_order_items', {
+export const purchaseOrderItems = pgTable('purchase_order_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   hospital_id: text('hospital_id').notNull().references(() => hospitals.hospital_id, { onDelete: 'restrict' }),
   po_id: uuid('po_id').notNull().references(() => purchaseOrders.id, { onDelete: 'cascade' }),
