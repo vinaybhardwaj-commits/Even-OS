@@ -264,8 +264,18 @@ export default function ScmDashboardClient({ user }: { user: User }) {
           />
           <NavCard
             href="/admin/scm/indents"
-            title="📥 Indents (Phase 2)"
+            title="📥 Indents"
             blurb="Internal requisition workflow with KPMG approval matrix + per-line approval + paired ledger on issue. Caregivers raise via /care/indent; admin queue here. Pharmacy v2 first consumer."
+          />
+          <NavCard
+            href="/admin/scm/purchase-requisitions"
+            title="📑 Purchase Requisitions"
+            blurb="External procurement workflow: PR → KPMG tier-routed approval → convert to PO. Auto-PR conversion from low-stock alerts. Tier-vs-amount enforcement closes Phase 1.6 gap."
+          />
+          <NavCard
+            href="/admin/scm/grns"
+            title="📦 Goods Receipts"
+            blurb="GRN with KPMG 10-item inspection checklist + denormalized vendor invoice + 3-way match (≤2% auto-match / 2-10% flag / >10% block). Variance approval flow."
           />
           <NavCard
             href="/admin/scm/roles"
@@ -283,7 +293,7 @@ export default function ScmDashboardClient({ user }: { user: User }) {
 
       {/* ─── Footer note ──────────────────────────────── */}
       <div style={{ marginTop: 32, padding: 16, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, color: '#4b5563' }}>
-        <strong>Phase status:</strong> SCM Phase 2 — Indent end-to-end workflow live (caregiver raise → KPMG matrix approval → admin issue → in-transit → acknowledge). Pharmacy v2 first consumer at /care/pharmacy/indents. Phase 3 (PR + GRN + 3-way match) is next.
+        <strong>Phase status:</strong> SCM Phase 3 — full procurement chain live (alert → PR → KPMG-tiered approval → PO → GRN with 10-item inspection → 3-way match). Phase 4 (charge / cost-allocation integration with Billing v3) is next; depends on Codes Phase 1-4 + Billing v3 Phase 1.
         <br />
         <strong>Cross-PRD:</strong> Codes Phase 1 (FK gate to <code>codes</code>), Billing v3 Phase 1 (3-way match against <code>vendor_invoices</code>), and OT (issue / consumption flow) all consume this module.
       </div>
