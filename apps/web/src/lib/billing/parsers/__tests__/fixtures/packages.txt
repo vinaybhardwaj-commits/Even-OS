@@ -1,0 +1,32 @@
+                                            TARIFF 2025 -26
+
+
+
+
+                                   Package Tariff
+                                                                          Total
+                                                                           No
+SL   DEPT                                                                  of
+No   Name    CODES                       Item Name                        Days    ICU   Genral    Spvt      Pvt    Suite
+                          ENT - IP PACKAGES
+                                                                                                                   Open
+1    ENT    ENT-PKG-001   ADENOIDECTOMY                                     2      0    88000     98000   117600
+                                                                                                                   Billing
+                                                                                                                   Open
+2    ENT    ENT-PKG-002   ADENOTONSILLECTOMY - ENT PKG                      2      0    115800   125800   150960
+                                                                                                                   Billing
+                          CORTICAL MASTOIDECTOMY WITH MYRINGOPLASTY - ENT
+3    ENT    ENT-PKG-003                                                     2      0    177000   187000   224400   229440
+                          PKG
+                                                                                                                   Open
+4    ENT    ENT-PKG-004   FESS - BILATERAL                                  2      0    140800   150800   180960
+                                                                                                                   Billing
+                                                                                                                   Open
+8    ENT    ENT-PKG-008   MASTOIDECTOMY - ENT PKG                           2      0    122000   132500   159000
+                                                                                                                   Billing
+                                                                                                                   Open
+9    ENT    ENT-PKG-009   MASTOIDECTOMY & TYMPANOPLASTY - ENT PKG           2      0    150000   160500   192600
+                                                                                                                   Billing
+                          MICROLARYNGEAL SURGERIES FOR CYSTS AND POLYPS -                                          Open
+10   ENT    ENT-PKG-010                                                     2      0    70000     80000    96000
+                          ENT PKG                                                                                  Billing

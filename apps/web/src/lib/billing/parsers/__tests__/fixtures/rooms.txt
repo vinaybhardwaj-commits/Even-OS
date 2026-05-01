@@ -1,0 +1,17 @@
+               ROOM TARIFF 2025
+
+BED CATEGORY NAME   BED CHARGES   NURSING CHARGES   TOTAL   CONSULTATION
+
+DAY CARE            1300          1050              2350    900
+
+GENERAL WARD        2800          1200              4000    900
+
+TWIN SHARING        4000          1550              5550    1050
+
+PRIVATE WARD        6500          2000              8500    1250
+
+SUITE ROOM          9550          2500              12050   2300
+
+ICU BED             8500          2250              10750   2000
+
+HDU BED             7900          1950              9850    2000
