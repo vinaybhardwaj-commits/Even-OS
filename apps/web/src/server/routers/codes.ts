@@ -6,6 +6,7 @@ import { bucketKey, buildDisplayName, validateForm, type CompositionInput } from
 import { LOOKUP_KINDS, getLookupKindMeta } from '../../../drizzle/schema/66-codes';
 import { codesApprovalsRouter } from './codes-approvals';
 import { codesServicesRouter } from './codes-services';
+import { codesChargeTiersRouter, codesEmpanelmentsRouter, codesRulesRouter } from './codes-charge-tiers';
 
 // ============================================================
 // CODES MODULE — Phase 1 (Cannibalize CodeCreator)
@@ -635,4 +636,11 @@ export const codesRouter = router({
   // Phase 3 — service code catalog router (create, detail, list, search,
   // lookups for types/departments/subdepartments).
   services: codesServicesRouter,
+  // Phase 4 — unified charge tiers (replaces 7 legacy charge_master_* tables;
+  // shadow-deployed alongside legacy until Pharmacy refactor catalyzes write-switch).
+  chargeTiers: codesChargeTiersRouter,
+  // Phase 4 — corporate / TPA / insurance empanelment master.
+  empanelments: codesEmpanelmentsRouter,
+  // Phase 4 — Billing Manual rule engine (read-only data; eval engine ships in BV3 Phase 4).
+  rules: codesRulesRouter,
 });
