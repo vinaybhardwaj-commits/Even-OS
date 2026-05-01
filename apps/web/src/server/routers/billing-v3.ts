@@ -12,8 +12,11 @@ import {
   discountPolicy,
   billingCharge,
   billingAccountPayer,
+  codeChargeTiers,
+  serviceCodes,
 } from '@db/schema';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { resolveTierWithEmpanelment, type ChargeTierRow } from '@/server/codes/charge-tier-resolver';
 
 // =============================================================================
 // Billing v3 — read-mostly tRPC surface (Phase 1)
@@ -272,6 +275,99 @@ export const billingV3TariffImportsListProcedure = protectedProcedure
     return { imports: rows, count: rows.length };
   });
 
+// ─── charges.resolveTier (BV3 Phase 2 — Codes integration) ─────────────────
+//
+// Given a billing_charge.id, follow the FK bridge:
+//   billing_charge.charge_master_item_id
+//     → charge_master_item.service_code_id (set by Codes Phase 4 backfill)
+//       → code_charge_tiers (filter by class_code = billing_charge.room_class_at_post,
+//                             effective_from <= posted_at <= effective_to)
+//
+// Returns the resolved tier + a reconciliation field that flags whether the
+// historical line_total matches the tier's price_inr (after class normalization).
+// Useful for BV3 Phase 4 bill-builder validation against the new pricing path.
+// ============================================================================
+
+export const billingV3ChargesResolveTierProcedure = protectedProcedure
+  .input(z.object({ charge_id: z.string().uuid() }))
+  .query(async ({ ctx, input }) => {
+    const hospitalId = ctx.user.hospital_id;
+    const [charge] = await db
+      .select()
+      .from(billingCharge)
+      .where(and(
+        eq(billingCharge.id, input.charge_id),
+        eq(billingCharge.hospital_id, hospitalId),
+      ))
+      .limit(1);
+    if (!charge) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Charge not found' });
+    }
+
+    if (!charge.charge_master_item_id) {
+      return {
+        charge,
+        resolved_tier: null,
+        resolved_via: 'no_charge_master_item' as const,
+        reconciles: null,
+      };
+    }
+
+    // Follow charge_master_item.service_code_id (Codes Phase 4 bridge)
+    const [item] = await db
+      .select({ id: chargeMasterItem.id, service_code_id: chargeMasterItem.service_code_id })
+      .from(chargeMasterItem)
+      .where(eq(chargeMasterItem.id, charge.charge_master_item_id))
+      .limit(1);
+
+    if (!item || !item.service_code_id) {
+      return {
+        charge,
+        resolved_tier: null,
+        resolved_via: 'no_service_code_bridge' as const,
+        reconciles: null,
+      };
+    }
+
+    // Pull all tiers for this service (includes history) and use the resolver.
+    const tierRows = await db
+      .select()
+      .from(codeChargeTiers)
+      .where(and(
+        eq(codeChargeTiers.service_id, item.service_code_id),
+        eq(codeChargeTiers.hospital_id, hospitalId),
+      ));
+
+    // Map class_code: billing_charge.room_class_at_post → code_charge_tiers.class_code
+    // Fallback to GENERAL when room_class_at_post is missing.
+    const classCode = (charge.room_class_at_post ?? 'GENERAL') as ChargeTierRow['class_code'];
+
+    const resolution = resolveTierWithEmpanelment({
+      rows: tierRows as ChargeTierRow[],
+      target: { service_id: item.service_code_id },
+      class_code: classCode,
+      empanelment_id: null,  // Phase 2 doesn't resolve empanelment per-charge yet
+      at: new Date(charge.posted_at),
+    });
+
+    let reconciles: { matches: boolean; expected: string; actual: string } | null = null;
+    if (resolution.tier) {
+      const expected = String(resolution.tier.price_inr);
+      const actual = String(charge.unit_price);
+      // Compare normalized to 2 decimal places.
+      const matches = parseFloat(expected).toFixed(2) === parseFloat(actual).toFixed(2);
+      reconciles = { matches, expected, actual };
+    }
+
+    return {
+      charge,
+      resolved_tier: resolution.tier,
+      resolved_via: resolution.resolved_via,
+      reconciles,
+      class_code_used: classCode,
+    };
+  });
+
 // ─── accountPayers.list ──────────────────────────────────────────────────────
 // Multi-payer split for a single billing account. Used by chart Billing tab
 // + IPD census once Phase 4 ships.
@@ -318,6 +414,7 @@ export const billingV3HospitalSettingRouter = router({
 
 export const billingV3ChargesRouter = router({
   list: billingV3ChargesListProcedure,
+  resolveTier: billingV3ChargesResolveTierProcedure,
 });
 
 export const billingV3TariffImportsRouter = router({
