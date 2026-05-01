@@ -317,24 +317,41 @@ export async function importInvestigations(
         continue;
       }
 
+      // Honor record's status: 'pending_finance' rows get inserted with the
+      // pending_finance status sentinel and skip price writes entirely.
+      const itemStatus = r.status === 'pending_finance' ? 'pending_finance' : 'active';
       const itemResult = await execSql(
         ctx.database_url,
         `INSERT INTO charge_master_item
            (hospital_id, charge_code, charge_name, category, dept_code, status)
-         VALUES ($1, $2, $3, $4, $5, 'active')
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (hospital_id, charge_code)
          DO UPDATE SET
            charge_name = EXCLUDED.charge_name,
            category    = EXCLUDED.category,
            dept_code   = EXCLUDED.dept_code,
+           -- Preserve human-set status: only widen pending_finance → active when
+           -- the parser actually has prices.
+           status      = CASE
+                           WHEN charge_master_item.status = 'pending_finance' AND EXCLUDED.status = 'active'
+                             THEN 'active'
+                           WHEN charge_master_item.status = 'pending_finance' AND EXCLUDED.status = 'pending_finance'
+                             THEN 'pending_finance'
+                           ELSE charge_master_item.status
+                         END,
            updated_at  = NOW()
          RETURNING id, (xmax = 0) AS was_inserted`,
-        [ctx.hospital_id, r.charge_code, r.charge_name, r.category, r.dept_code],
+        [ctx.hospital_id, r.charge_code, r.charge_name, r.category, r.dept_code, itemStatus],
       );
       item_id = itemResult[0].id;
       was_inserted_item = itemResult[0].was_inserted;
       if (was_inserted_item) inserted++;
       else updated++;
+
+      // Pending-finance rows: no prices to write, skip the price block.
+      if (r.status === 'pending_finance') {
+        continue;
+      }
 
       // Close out any prior current prices for this item; they'll be re-issued.
       await execSql(
