@@ -1,0 +1,29 @@
+                                         Investigations
+ Code      Service Type   Service Name                                                   Even OPD General Semi-Pvt Pvt       Suite    All ICU
+
+
+LHA00001       LAB                                         ABSOLUTE EOSINOPHIL COUNT          422     528      592     656      718      656
+
+
+LHA00002       LAB                                   ABSOLUTE LYMPHOCYTE COUNT (ALC)          422     528      592     656      718      656
+
+
+LHA00003       LAB                                         ABSOLUTE NEUTROPHIL COUNT          422     528      592     656      718      656
+
+
+LBI00004       LAB                       ACID PHOSPHATASE - PROSTATIC FRACTION - SERUM        422     528      592     656      718      656
+
+
+LHA00005       LAB                              ACTIVATED PARTIAL THROMBOPLASTIN TIME         718     898     1006    1114     1222     1114
+
+
+RAD00001    Radiology                                 X-RAY CHEST PA VIEW                  500     625      700     775     850      775
+
+
+RAD00002    Radiology                                 X-RAY ABDOMEN ERECT                  500     625      700     775     850      775
+
+
+CAD00001    Cardiology                                ECG - 12 LEAD                        300     375      420     465     510      465
+
+
+ADM00007  Administrative                              ADMISSION CHARGE - IPD                 0       0        0       0       0        0
