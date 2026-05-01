@@ -139,6 +139,7 @@ export const adminRoutes: AdminRoute[] = [
   { path: '/admin/billing/insurer-rules', title: 'TPA Rules',        pillar: 'revenue', icon: '⚖️', blurb: '10-type rules engine, deductions',    roles: ADMIN,      shippedIn: 'A.3', status: 'live' },
   { path: '/admin/billing/approvals',     title: 'Waiver Approvals', pillar: 'revenue', icon: '✅', blurb: '4-tier waiver governance',             roles: ADMIN,      shippedIn: 'A.4', status: 'live' },
   { path: '/admin/billing/implants',      title: 'Implants Registry',pillar: 'revenue', icon: '🦾', blurb: 'Implant codes, pricing, traceability', roles: ADMIN,      shippedIn: 'A.5', status: 'live' },
+  { path: '/admin/billing/v3-bootstrap',  title: 'Billing v3 Bootstrap', pillar: 'revenue', icon: '🧱', blurb: 'BV3.1 schema verification + EHRC seed re-run', roles: ADMIN, shippedIn: 'BV3.1', status: 'live' },
   { path: '/admin/insurance-claims',      title: 'Insurance Claims', pillar: 'revenue', icon: '📋', blurb: 'Pre-auth, enhancement, TPA settlement', roles: ADMIN_DEPT, shippedIn: 'S6b', status: 'live' },
   { path: '/admin/revenue-dashboard',     title: 'Revenue Dashboard',pillar: 'revenue', icon: '📈', blurb: 'Refunds, invoices, analytics, trends', roles: ADMIN,      shippedIn: 'S6c', status: 'live' },
   { path: '/admin/charge-master',         title: 'Charge Master',    pillar: 'revenue', icon: '₹',  blurb: 'Prices, procedures, labs',             roles: ADMIN,      shippedIn: 'S2a', status: 'live' },
