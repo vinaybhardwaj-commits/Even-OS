@@ -29,7 +29,8 @@ import { medicationOrdersRouter } from './medication-orders';
 import { carePathwaysRouter } from './care-pathways';
 import { insuranceClaimsRouter } from './insurance-claims';
 import { refundRevenueRouter } from './refund-revenue';
-import { pharmacyRouter } from './pharmacy';
+import { pharmacyRouter } from './pharmacy-clinical';
+import { scmRouter } from './scm';
 import { labRadiologyRouter } from './lab-radiology';
 import { otManagementRouter } from './ot-management';
 import { incidentReportingRouter } from './incident-reporting';
@@ -124,6 +125,7 @@ export const appRouter = router({
   insuranceClaims: insuranceClaimsRouter,
   refundRevenue: refundRevenueRouter,
   pharmacy: pharmacyRouter,
+  scm: scmRouter,
   labRadiology: labRadiologyRouter,
   otManagement: otManagementRouter,
   incidentReporting: incidentReportingRouter,
