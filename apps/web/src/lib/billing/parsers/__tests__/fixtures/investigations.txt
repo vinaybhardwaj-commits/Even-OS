@@ -26,4 +26,24 @@ RAD00002    Radiology                                 X-RAY ABDOMEN ERECT       
 CAD00001    Cardiology                                ECG - 12 LEAD                        300     375      420     465     510      465
 
 
-ADM00007  Administrative                              ADMISSION CHARGE - IPD                 0       0        0       0       0        0
+EMR00034    Accident & ER                                           ABG     1100   1376   1540   1706   1870   1706
+
+
+EMR00035    Accident & ER                        Anterior Nasal Packing     2541   3178   3558   3940   4320   3940
+
+
+ADM00007   Administrative           Medical Certificate Charges
+
+
+ADM00045   Administrative      Mortuary Room For 12 To 24 Hrs
+
+
+AMB00034   Administrative                        MLC Charges
+
+
+LBI00946   LAB     WHOLE BLOOD (BAG& SCREENING CHARGES)       2834    3544    3968    4394    4818    4394
+           LAB                           AMINO ACID QUALITATIVE          1755    2194    2458    2722    2984    2722
+LBI00947
+
+
+LBI00948   LAB                                    ARYL SULFATASE         8114   10144   11360   12578   13794   12578

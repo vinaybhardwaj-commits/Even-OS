@@ -54,6 +54,20 @@ export interface InvestigationTariffRecord {
   dept_code: string;
   /** Per-class prices. ICU + HDU share "All ICU" PDF column. */
   prices: Partial<Record<'OPD' | 'GENERAL' | 'SEMI_PVT' | 'PVT' | 'SUITE' | 'ICU' | 'HDU', number>>;
+  /**
+   * 'active' = at least one non-zero price; 'pending_finance' = item exists in
+   * tariff list but Finance hasn't priced it yet (e.g. Medical Certificate
+   * Charges). 'pending_finance' rows insert into charge_master_item with
+   * status='pending_finance' and write zero charge_master_price rows.
+   */
+  status: 'active' | 'pending_finance';
+  /**
+   * Provenance tag for parser diagnostics. 'inline' = code + data on one
+   * physical line; 'orphan_pair' = code on its own line, data on the line
+   * immediately above; 'pending_finance' = code + Service Type + Name on the
+   * code line, no prices. Useful for QA + audit reports.
+   */
+  source_pattern: 'inline' | 'orphan_pair' | 'pending_finance';
 }
 
 /** Result envelope returned by every parser. */
@@ -67,24 +81,66 @@ export interface ParseResult<T> {
   lines_total: number;
 }
 
+/**
+ * Known PDF Service Type strings — ordered LONGEST-FIRST so multi-token
+ * matches win over single-token prefixes (e.g. "Accident & ER" before
+ * "Accident", "Administrative Mortuary" before "Administrative").
+ *
+ * Verified against the full investigations PDF as of 1 May 2026.
+ */
+export const KNOWN_SERVICE_TYPES = [
+  'Administrative Mortuary',
+  'Accident & ER',
+  'Administrative',
+  'Cardiology',
+  'Orthopeadic', // PDF spelling
+  'Orthopedic',
+  'Radiology',
+  'Urology',
+  'LAB',
+] as const;
+
 /** Map a PDF Service Type string → category + dept_code pair. */
 export function classifyServiceType(serviceType: string): { category: string; dept_code: string } {
   const t = serviceType.trim().toLowerCase();
   switch (t) {
-    case 'lab':                 return { category: 'lab',         dept_code: 'LAB' };
-    case 'radiology':           return { category: 'radiology',   dept_code: 'RADIO' };
-    case 'cardiology':          return { category: 'cardiology',  dept_code: 'CARDIO' };
-    case 'urology':             return { category: 'urology',     dept_code: 'URO' };
-    case 'orthopeadic':         // PDF spelling
-    case 'orthopedic':          return { category: 'orthopedic',  dept_code: 'ORTHO' };
-    case 'accident':            return { category: 'emergency',   dept_code: 'ER' };
-    case 'administrative':      return { category: 'admin',       dept_code: 'ADMIN' };
+    case 'lab':                       return { category: 'lab',         dept_code: 'LAB' };
+    case 'radiology':                 return { category: 'radiology',   dept_code: 'RADIO' };
+    case 'cardiology':                return { category: 'cardiology',  dept_code: 'CARDIO' };
+    case 'urology':                   return { category: 'urology',     dept_code: 'URO' };
+    case 'orthopeadic':               // PDF spelling
+    case 'orthopedic':                return { category: 'orthopedic',  dept_code: 'ORTHO' };
+    case 'accident':                  // legacy short-form
+    case 'accident & er':             return { category: 'emergency',   dept_code: 'ER' };
+    case 'administrative':            return { category: 'admin',       dept_code: 'ADMIN' };
+    case 'administrative mortuary':   return { category: 'mortuary',    dept_code: 'MORTUARY' };
     default: {
       // Unknown — coerce to a slug; cashier review can fix later.
       const slug = t.replace(/[^a-z]/g, '_').slice(0, 30) || 'unknown';
       return { category: slug, dept_code: 'UNCLASSIFIED' };
     }
   }
+}
+
+/**
+ * Try to match a known Service Type at the start of `text`. Returns the
+ * matched type + remainder (the Name field), or null if nothing matches.
+ * Multi-token types win over their prefixes via longest-first ordering.
+ */
+export function matchServiceTypeAtStart(
+  text: string,
+): { type: string; name: string } | null {
+  const upper = text.toUpperCase();
+  for (const candidate of KNOWN_SERVICE_TYPES) {
+    const cand = candidate.toUpperCase();
+    if (upper.startsWith(cand + ' ') || upper === cand) {
+      return {
+        type: candidate,
+        name: text.slice(candidate.length).trim(),
+      };
+    }
+  }
+  return null;
 }
 
 /** Map a charge code prefix → fallback dept_code if Service Type is missing. */
