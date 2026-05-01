@@ -80,6 +80,10 @@ export const adminRoutes: AdminRoute[] = [
   { path: '/admin/shifts',        title: 'Shift Management', pillar: 'ops', icon: '📅', blurb: 'Templates, rosters, shift calendar',             roles: ADMIN,      shippedIn: 'Phase 0B', status: 'live' },
   { path: '/admin/duty-roster',   title: 'Duty Roster',    pillar: 'ops', icon: '🗓️', blurb: 'Staff schedules & assignments',                    roles: ADMIN,      shippedIn: 'Phase 0B', status: 'live' },
   { path: '/admin/ot-management', title: 'OT Management',  pillar: 'ops', icon: '🏨', blurb: 'OT scheduling, WHO checklist, turnover',            roles: ADMIN_DEPT, shippedIn: 'S7c', status: 'live', keywords: ['surgery','theatre','anesthesia'] },
+  { path: '/admin/scm/dashboard', title: 'SCM Dashboard',     pillar: 'ops', icon: '📦', blurb: 'Universal item master, inventory, vendors, POs, alerts', roles: ADMIN_DEPT, shippedIn: 'P1.5', status: 'live', keywords: ['supply chain','procurement','inventory','vendors'] },
+  { path: '/admin/scm/items',     title: 'SCM Items',         pillar: 'ops', icon: '📚', blurb: 'Universal items master with Codes Q3 lifecycle',      roles: ADMIN_DEPT, shippedIn: 'P1.5', status: 'live', keywords: ['drugs','consumables','implants','reagents','linen','cssd'] },
+  { path: '/admin/scm/vendors',   title: 'SCM Vendors',       pillar: 'ops', icon: '🏢', blurb: 'Vendor master — GST, drug license, payment terms',    roles: ADMIN_DEPT, shippedIn: 'P1.5', status: 'live', keywords: ['suppliers','procurement'] },
+  { path: '/admin/scm/roles',     title: 'SCM Roles & SoD',   pillar: 'ops', icon: '🔐', blurb: '7 SCM RBAC roles, KPMG approval matrix, SoD conflicts', roles: ADMIN, shippedIn: 'P1.5', status: 'live', keywords: ['rbac','permissions','segregation of duties','kpmg'] },
 
   // ── Clinical ─────────────────────────────────────────────────────────
   { path: '/admin/patients',          title: 'Patient Registry',  pillar: 'clinical', icon: '👥', blurb: 'Register, search, manage patients',      roles: ADMIN_DEPT, shippedIn: 'S3a', status: 'live' },
