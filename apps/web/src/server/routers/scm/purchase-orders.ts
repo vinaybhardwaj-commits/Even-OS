@@ -215,6 +215,28 @@ export const purchaseOrderApproveProcedure = protectedProcedure
   .mutation(async ({ ctx, input }) => {
     try {
       await assertHasScmRole(ctx, ['po_approver']);
+
+      // Phase 3.4: tier-vs-amount enforcement (KPMG matrix per PRD §10).
+      // Closes the gap deferred from Phase 1.6.
+      if (input.approver_role) {
+        const { approverTierSatisfiesAmount, requiredApproversForPoAmount } =
+          await import('../../scm/kpmg-approval-matrix');
+        const poRowForAmount = await getSql()(
+          `SELECT total_amount FROM purchase_orders WHERE id = $1 AND hospital_id = $2`,
+          [input.po_id, ctx.user.hospital_id]
+        );
+        if (poRowForAmount.length) {
+          const amount = Number(poRowForAmount[0].total_amount || 0);
+          if (!approverTierSatisfiesAmount({ amount, approver_role: input.approver_role as any })) {
+            const required = requiredApproversForPoAmount(amount)[0];
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: `KPMG tier mismatch: PO total ₹${amount} requires ${required} or higher; you signed as ${input.approver_role}`,
+            });
+          }
+        }
+      }
+
       const po = await getSql()(
         `UPDATE purchase_orders
          SET status = 'approved',
